@@ -2,12 +2,12 @@
 # Create a new feature
 [CmdletBinding()]
 param(
+    [Parameter(Position = 0, ValueFromRemainingArguments = $true)]
+    [string[]]$FeatureDescription,
     [switch]$Json,
     [string]$ShortName,
     [int]$Number = 0,
-    [switch]$Help,
-    [Parameter(ValueFromRemainingArguments = $true)]
-    [string[]]$FeatureDescription
+    [switch]$Help
 )
 $ErrorActionPreference = 'Stop'
 

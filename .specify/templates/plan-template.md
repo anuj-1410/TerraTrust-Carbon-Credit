@@ -29,9 +29,39 @@
 
 ## Constitution Check
 
-*GATE: Must pass before Phase 0 research. Re-check after Phase 1 design.*
+_GATE: Must pass before Phase 0 research. Re-check after Phase 1 design._
 
-[Gates determined based on constitution file]
+Verify ALL of the following before proceeding:
+
+- [ ] **Scope** (Principle I): This feature is frontend-only React Native.
+      No backend, Python, Solidity, or GEE code is written here.
+      Every API contract is verified against `SRS_TerraTrust_v3.1.txt`
+      before implementation.
+- [ ] **Security** (Principle II): Private key stays in Keychain only.
+      Aadhaar is SHA-256 hashed before any state/storage/API contact.
+      Evidence photos are SHA-256 hashed on-device before upload.
+      Mock GPS detection blocks audit start (not a warning).
+      `.env` files are in `.gitignore`. No `SUPABASE_SERVICE_KEY` in app.
+- [ ] **Offline-first** (Principle III): All field operations work without
+      internet. Each tree scan saves individually to MMKV. Pending uploads
+      auto-retry on reconnect (not a timer). Map tiles and GEE PNGs cached.
+- [ ] **AR Tier integers** (Principle IV): AR tiers are `1 | 2 | 3` only.
+      No A/B/C labels anywhere — code, Redux, API, or UI.
+      `audit.arTier` typed `1 | 2 | 3` in Redux. API field `ar_tier_used`
+      is integer.
+- [ ] **Boundary authority** (Principle V): No farmer-drawn polygon UI.
+      Draw Mode and Walk Mode are absent. `boundary_source` stored per
+      parcel as `'WMS_AUTO' | 'SCRAPE' | 'MANUAL'`.
+- [ ] **Persistence discipline** (Principle VI): Required slices persisted
+      in MMKV (`audit.scannedTrees`, `audit.activeAuditId`,
+      `audit.currentZoneIndex`, `audit.arTier`, `auth.walletAddress`,
+      `auth.isAuthenticated`, `land.parcels`).
+      `audit.uploadStatus` and `land.currentDraft` NOT persisted.
+- [ ] **Stitch-first UI** (Principle VII): Stitch MCP design produced
+      before any screen implementation. NativeWind only — no
+      `StyleSheet.create` for layout. All touch targets ≥ 48×48 px.
+      Lottie file names unchanged. Roboto Mono on numerical values.
+      Status badge strings match fixed labels exactly.
 
 ## Project Structure
 
@@ -48,6 +78,7 @@ specs/[###-feature]/
 ```
 
 ### Source Code (repository root)
+
 <!--
   ACTION REQUIRED: Replace the placeholder tree below with the concrete layout
   for this feature. Delete unused options and expand the chosen structure with
@@ -98,7 +129,7 @@ directories captured above]
 
 > **Fill ONLY if Constitution Check has violations that must be justified**
 
-| Violation | Why Needed | Simpler Alternative Rejected Because |
-|-----------|------------|-------------------------------------|
-| [e.g., 4th project] | [current need] | [why 3 projects insufficient] |
-| [e.g., Repository pattern] | [specific problem] | [why direct DB access insufficient] |
+| Violation                  | Why Needed         | Simpler Alternative Rejected Because |
+| -------------------------- | ------------------ | ------------------------------------ |
+| [e.g., 4th project]        | [current need]     | [why 3 projects insufficient]        |
+| [e.g., Repository pattern] | [specific problem] | [why direct DB access insufficient]  |
