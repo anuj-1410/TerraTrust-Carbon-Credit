@@ -58,6 +58,17 @@ Never use:
 
 ## STITCH MCP — UI DESIGN
 
+When UI design is required:
+
+- Use Stitch MCP (HTTP mode).
+- Do NOT call create_project.
+- Directly generate UI screens.
+- Export UI as React components using Tailwind CSS.
+- Save components in /components directory.
+  Note:
+- Stitch MCP is configured via HTTP API (no OAuth).
+- Avoid any tool requiring authentication via Google login.
+
 All UI screens are designed using the Stitch MCP server before
 implementation. When building any new screen:
 

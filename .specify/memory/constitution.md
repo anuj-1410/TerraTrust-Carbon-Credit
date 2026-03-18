@@ -165,6 +165,15 @@ loss. Stale upload status causes silent duplicate-submission bugs.
 
 ### VII. UI Fidelity via Stitch MCP
 
+**Stitch MCP Usage Rules**
+
+- Use Stitch MCP in HTTP mode only.
+- Do NOT use OAuth-based Stitch tools.
+- Do NOT call create_project or any project-management APIs.
+- Use only UI generation tools.
+
+Stitch should be used only for UI generation, not project setup.
+
 - ALL new screen UI MUST be designed using the Stitch MCP server before
   any implementation.
 - `NativeWind 4.0+` Tailwind utility classes are the ONLY accepted
