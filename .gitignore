@@ -41,7 +41,6 @@ src/assets/tflite/species_model.tflite
 # .specify/memory/scratchpad.md
 
 # IDE
-.vscode
 .vscode/settings.json
 .idea/
 *.iml

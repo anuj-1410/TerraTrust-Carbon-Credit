@@ -56,18 +56,17 @@ Never use:
 - react-native-chart-kit + react-native-svg for credit history chart.
 - react-native-config for .env variable access.
 
+## STITCH MCP — MANDATORY WORKFLOW
+When implementing any screen:
+1. Call generate_screen_from_text to create the design in Stitch
+2. MUST call get_screen on the result to retrieve the screen details
+   and download URL
+3. Fetch the HTML/CSS from that download URL
+4. Convert that exact HTML/CSS into React Native + NativeWind code
+Do NOT write screen code from the spec alone. The code MUST come
+from the Stitch-generated HTML/CSS. Never skip step 2 and 3.
+
 ## STITCH MCP — UI DESIGN
-
-When UI design is required:
-
-- Use Stitch MCP (HTTP mode).
-- Do NOT call create_project.
-- Directly generate UI screens.
-- Export UI as React components using Tailwind CSS.
-- Save components in /components directory.
-  Note:
-- Stitch MCP is configured via HTTP API (no OAuth).
-- Avoid any tool requiring authentication via Google login.
 
 All UI screens are designed using the Stitch MCP server before
 implementation. When building any new screen:

@@ -71,7 +71,11 @@ const App = () => {
             <Stack.Screen name="SplashScreen" component={SplashScreen} />
             <Stack.Screen name="LoginScreen" component={LoginScreen} />
             <Stack.Screen name="OTPScreen" component={OTPScreen} />
-            <Stack.Screen name="KYCScreen" component={KYCScreen} />
+            <Stack.Screen
+              name="KYCScreen"
+              component={KYCScreen}
+              options={{gestureEnabled: false}}
+            />
 
             {/* Land */}
             <Stack.Screen name="LandListScreen" component={LandListScreen} />
@@ -112,7 +116,11 @@ const App = () => {
             />
 
             {/* Dashboard */}
-            <Stack.Screen name="HomeScreen" component={HomeScreen} />
+            <Stack.Screen
+              name="HomeScreen"
+              component={HomeScreen}
+              options={{gestureEnabled: false}}
+            />
             <Stack.Screen
               name="CreditHistoryScreen"
               component={CreditHistoryScreen}

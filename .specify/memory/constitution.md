@@ -165,14 +165,17 @@ loss. Stale upload status causes silent duplicate-submission bugs.
 
 ### VII. UI Fidelity via Stitch MCP
 
+## STITCH MCP — MANDATORY WORKFLOW
+When implementing any screen:
+1. Call generate_screen_from_text to create the design in Stitch
+2. MUST call get_screen on the result to retrieve the screen details
+   and download URL
+3. Fetch the HTML/CSS from that download URL
+4. Convert that exact HTML/CSS into React Native + NativeWind code
+Do NOT write screen code from the spec alone. The code MUST come
+from the Stitch-generated HTML/CSS. Never skip step 2 and 3.
+
 **Stitch MCP Usage Rules**
-
-- Use Stitch MCP in HTTP mode only.
-- Do NOT use OAuth-based Stitch tools.
-- Do NOT call create_project or any project-management APIs.
-- Use only UI generation tools.
-
-Stitch should be used only for UI generation, not project setup.
 
 - ALL new screen UI MUST be designed using the Stitch MCP server before
   any implementation.
