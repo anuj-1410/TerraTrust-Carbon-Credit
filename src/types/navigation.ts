@@ -7,13 +7,7 @@ export type RootStackParamList = {
   // Land
   LandListScreen: undefined;
   DocumentUploadScreen: undefined;
-  BoundaryConfirmScreen: {
-    geojson: object;
-    surveyNumber: string;
-    ownerName: string;
-    satelliteThumbnailUrl: string;
-    boundarySource: 'WMS_AUTO' | 'SCRAPE' | 'MANUAL';
-  };
+  BoundaryConfirmScreen: undefined;
   ManualUploadGuideScreen: undefined;
   // AR Audit
   AuditStartScreen: {landId: string};

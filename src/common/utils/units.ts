@@ -7,3 +7,11 @@ export function dbhToHeight(_dbhCm: number): number {
   // Placeholder — returns a conservative estimate
   return 0;
 }
+
+export function hectaresToAcres(hectares: number): number {
+  return hectares * 2.471;
+}
+
+export function sqmToHectares(sqm: number): number {
+  return sqm / 10000;
+}

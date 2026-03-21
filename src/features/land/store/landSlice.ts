@@ -17,7 +17,7 @@ export interface LandParcel {
   village: string;
   state: string;
   area_hectares: number;
-  boundary_geojson: GeoJSONPolygon;
+  boundary_geojson: GeoJSONPolygon | null;
   boundary_source: BoundarySource;
   is_verified: boolean;
   status: LandStatus;
@@ -41,12 +41,14 @@ export interface LandDraft {
   boundary: GeoJSONPolygon | null;
   boundary_source: BoundarySource | null;
   satellite_thumbnail_url: string | null;
+  area_sqm: number | null;
   fetch_status: 'idle' | 'fetching' | 'success' | 'manual_required' | 'error';
 }
 
 export interface LandState {
   parcels: LandParcel[];
   currentDraft: LandDraft;
+  lastSyncedAt: string | null;
 }
 
 export const landInitialState: LandState = {
@@ -56,8 +58,10 @@ export const landInitialState: LandState = {
     boundary: null,
     boundary_source: null,
     satellite_thumbnail_url: null,
+    area_sqm: null,
     fetch_status: 'idle',
   },
+  lastSyncedAt: null,
 };
 
 const landSlice = createSlice({
@@ -76,9 +80,12 @@ const landSlice = createSlice({
     clearCurrentDraft(state) {
       state.currentDraft = landInitialState.currentDraft;
     },
+    setLastSynced(state, action: PayloadAction<string>) {
+      state.lastSyncedAt = action.payload;
+    },
   },
 });
 
-export const {setParcels, addParcel, setCurrentDraft, clearCurrentDraft} =
+export const {setParcels, addParcel, setCurrentDraft, clearCurrentDraft, setLastSynced} =
   landSlice.actions;
 export default landSlice.reducer;
