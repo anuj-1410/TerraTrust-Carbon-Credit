@@ -124,7 +124,7 @@ const LandListScreen = () => {
             <TouchableOpacity
               className="mt-2 self-start rounded-lg border border-emerald-400 px-4 py-2 min-h-[48px] justify-center"
               onPress={() =>
-                navigation.navigate('AuditStartScreen', {landId: item.id})
+                navigation.navigate('AuditStartScreen', {landId: item.id, landName: item.farm_name})
               }
               activeOpacity={0.7}>
               <Text className="text-emerald-300 text-sm font-semibold">

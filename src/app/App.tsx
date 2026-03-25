@@ -9,6 +9,7 @@ import BackgroundFetch from 'react-native-background-fetch';
 import {store, persistor} from '../store';
 import type {RootStackParamList} from '../types/navigation';
 import Loader from '../common/components/Loader';
+import {retryPendingUpload} from '../services/pendingUploadService';
 
 // Auth screens
 import SplashScreen from '../features/auth/screens/SplashScreen';
@@ -43,9 +44,10 @@ function configureBackgroundFetch() {
       stopOnTerminate: false,
       startOnBoot: true,
       enableHeadless: true,
+      requiredNetworkType: BackgroundFetch.NETWORK_TYPE_ANY,
     },
     async taskId => {
-      // TODO: Process pending_upload queue from MMKV
+      await retryPendingUpload(taskId);
       BackgroundFetch.finish(taskId);
     },
     async taskId => {

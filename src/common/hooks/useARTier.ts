@@ -1,8 +1,7 @@
 import {useEffect} from 'react';
 import {useAppDispatch, useAppSelector} from '../../store/hooks';
-import {setArTier} from '../../features/ar-audit/store/auditSlice';
+import {detectAndSetARTier} from '../../features/ar-audit/store/auditSlice';
 import type {ARTier} from '../../features/ar-audit/store/auditSlice';
-import {ARBridge} from '../../services/ar-bridge';
 
 export function useARTier(): ARTier {
   const dispatch = useAppDispatch();
@@ -11,22 +10,11 @@ export function useARTier(): ARTier {
   );
 
   useEffect(() => {
-    let mounted = true;
+    // If arTier is already restored from MMKV (non-default), skip native call
+    if (arTier !== 3) return;
 
-    ARBridge.getArTier()
-      .then(tier => {
-        if (mounted) {
-          dispatch(setArTier(tier));
-        }
-      })
-      .catch(() => {
-        // Default to Tier 3 (manual) if detection fails
-      });
-
-    return () => {
-      mounted = false;
-    };
-  }, [dispatch]);
+    dispatch(detectAndSetARTier());
+  }, [dispatch, arTier]);
 
   return arTier;
 }

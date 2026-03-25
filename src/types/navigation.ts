@@ -1,3 +1,12 @@
+export type AuditStackParamList = {
+  AuditStart: {landId: string; landName: string};
+  ZoneNavigation: {auditId: string; landId: string};
+  ARCamera: {zoneId: string; zoneIndex: number};
+  ManualMeasure: {returnDiameter?: number};
+  TreeResult: undefined;
+  AuditComplete: undefined;
+};
+
 export type RootStackParamList = {
   // Auth
   SplashScreen: undefined;
@@ -10,12 +19,12 @@ export type RootStackParamList = {
   BoundaryConfirmScreen: undefined;
   ManualUploadGuideScreen: undefined;
   // AR Audit
-  AuditStartScreen: {landId: string};
+  AuditStartScreen: {landId: string; landName: string};
   ZoneNavigationScreen: {auditId: string; landId: string};
-  ARCameraScreen: {zoneId: string; auditId: string};
-  ManualMeasureScreen: {zoneId: string; auditId: string};
-  TreeResultScreen: {treeId: string};
-  AuditCompleteScreen: {auditId: string};
+  ARCameraScreen: {zoneId: string; zoneIndex: number};
+  ManualMeasureScreen: {returnDiameter?: number};
+  TreeResultScreen: undefined;
+  AuditCompleteScreen: undefined;
   // Dashboard
   HomeScreen: undefined;
   CreditHistoryScreen: undefined;
