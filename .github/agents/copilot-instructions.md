@@ -11,6 +11,8 @@ Auto-generated from all feature plans. Last updated: 2026-03-26
 - `react-native-mmkv` via redux-persist — `land.parcels` MUST persist; `land.currentDraft` MUST NOT persist (blacklisted in `store/index.ts` — already configured). `thumbnail_url` per parcel is the MMKV-cached GEE PNG URL, populated from `satellite_thumbnail_url` field of fetch-boundary response. (003-land-verification-module)
 - TypeScript 5.0+ strict mode (`"strict": true`). React Native 0.84.1. Kotlin (Android). + react-native-vision-camera v4 (ARCameraScreen live preview + snapshot), (004-ar-tree-scanning)
 - `react-native-mmkv` via redux-persist. `audit.scannedTrees`, `audit.activeAuditId`, (004-ar-tree-scanning)
+- TypeScript 5.0+ strict mode + React Native 0.73, NativeWind 4.0, Redux Toolkit 2.0, ethers.js v6, react-native-chart-kit 6.12, react-native-svg 15, lottie-react-native 7, axios, react-native-config (005-dashboard-module)
+- MMKV via redux-persist (credits slice — no blacklist; all fields including `lastFetchedAt` persisted) (005-dashboard-module)
 
 - TypeScript 5.0+ strict mode (`"strict": true`). React Native 0.73+. NOT Expo. + NativeWind 4.0, Redux Toolkit 2.0, react-redux, redux-persist, react-native-mmkv, React Navigation v6 (native stack), @supabase/supabase-js, axios, react-native-config, react-hook-form, zod, ethers v6, react-native-vision-camera v4, react-native-maps, react-native-keychain, react-native-quick-crypto, lottie-react-native, react-native-reanimated, react-native-geolocation-service, react-native-device-info, react-native-background-fetch, react-native-haptic-feedback, react-native-chart-kit, react-native-svg (001-rn-project-foundation)
 
@@ -30,9 +32,9 @@ npm test; npm run lint
 TypeScript 5.0+ strict mode (`"strict": true`). React Native 0.73+. NOT Expo.: Follow standard conventions
 
 ## Recent Changes
+- 005-dashboard-module: Added TypeScript 5.0+ strict mode + React Native 0.73, NativeWind 4.0, Redux Toolkit 2.0, ethers.js v6, react-native-chart-kit 6.12, react-native-svg 15, lottie-react-native 7, axios, react-native-config
 - 004-ar-tree-scanning: Added TypeScript 5.0+ strict mode (`"strict": true`). React Native 0.84.1. Kotlin (Android). + react-native-vision-camera v4 (ARCameraScreen live preview + snapshot),
 - 003-land-verification-module: Added TypeScript 5.0+ strict mode (`"strict": true`). React Native 0.84.1. NOT Expo. + react-native-vision-camera v4 (camera capture), react-native-document-picker (gallery picker), react-native-maps 1.27 (Polygon overlay on BoundaryConfirmScreen), react-native-geolocation-service (GPS for boundary fetch), @react-native-community/netinfo (offline detection), axios (API calls via api.ts), Redux Toolkit 2.0 + redux-persist + MMKV (land slice), React Navigation v6 native stack, NativeWind 4.0, lottie-react-native (spinning_leaf.json), Zod + React Hook Form (farm_name input)
-- 003-land-verification-module: Added [e.g., Python 3.11, Swift 5.9, Rust 1.75 or NEEDS CLARIFICATION] + [e.g., FastAPI, UIKit, LLVM or NEEDS CLARIFICATION]
 
 
 <!-- MANUAL ADDITIONS START -->
