@@ -14,6 +14,11 @@ export interface SpeciesInferenceResult {
   all_scores: number[];
 }
 
+export interface HeightMeasurementResult {
+  captured: 'base' | 'top';
+  height_m?: number;
+}
+
 const {ARModule} = NativeModules;
 
 export async function detectARTier(): Promise<ARTier> {
@@ -30,6 +35,21 @@ export async function detectARTier(): Promise<ARTier> {
 export async function measureTreeDiameter(): Promise<ARMeasurementResult> {
   const raw: string = await ARModule.measureCylinder();
   return JSON.parse(raw) as ARMeasurementResult;
+}
+
+export async function beginHeightMeasurement(): Promise<void> {
+  await ARModule.beginHeightMeasurement();
+}
+
+export async function captureHeightPoint(
+  pointType: 'base' | 'top',
+): Promise<HeightMeasurementResult> {
+  const raw: string = await ARModule.captureHeightPoint(pointType);
+  return JSON.parse(raw) as HeightMeasurementResult;
+}
+
+export async function cancelHeightMeasurement(): Promise<void> {
+  await ARModule.cancelHeightMeasurement();
 }
 
 export async function isMockLocationEnabled(): Promise<boolean> {

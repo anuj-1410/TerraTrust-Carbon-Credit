@@ -67,26 +67,10 @@ const LoginScreen = () => {
         contentContainerStyle={{flexGrow: 1}}
         keyboardShouldPersistTaps="handled">
         <View className="flex-1 px-6 pt-20">
-          {/* Logo */}
-          <View className="items-center">
-            <View className="mb-4 h-20 w-20 items-center justify-center rounded-2xl bg-[#0A3D2E]">
-              <Text className="text-4xl">🌿</Text>
-            </View>
-            <Text className="text-2xl font-bold text-[#0A3D2E]">
-              TerraTrust
-            </Text>
-            <Text className="mt-1 text-sm text-gray-500">
-              Welcome back, farmer
-            </Text>
-          </View>
-
           {/* Phone Input */}
           <View className="mt-12">
-            <Text className="mb-2 text-sm font-medium text-gray-700">
-              Phone Number
-            </Text>
             <View className="flex-row">
-              <View className="items-center justify-center rounded-l-xl bg-[#0A3D2E] px-4">
+              <View className="items-center justify-center rounded-l-xl bg-[#2F855A] px-4">
                 <Text className="text-base font-semibold text-white">+91</Text>
               </View>
               <Controller
@@ -95,7 +79,7 @@ const LoginScreen = () => {
                 render={({field: {onChange, onBlur, value}}) => (
                   <TextInput
                     className="flex-1 rounded-r-xl border border-l-0 border-gray-300 px-4 py-3 text-base text-gray-900"
-                    placeholder="Enter phone number"
+                    placeholder=""
                     placeholderTextColor="#9CA3AF"
                     keyboardType="phone-pad"
                     maxLength={10}
@@ -120,7 +104,7 @@ const LoginScreen = () => {
           {/* Send OTP Button */}
           <TouchableOpacity
             className={`mt-8 min-h-[48px] items-center justify-center rounded-xl ${
-              isLoading ? 'bg-[#0A3D2E]/70' : 'bg-[#0A3D2E]'
+              isLoading ? 'bg-[#2F855A]/70' : 'bg-[#2F855A]'
             } shadow-md`}
             onPress={handleSubmit(onSubmit)}
             disabled={isLoading}
@@ -131,13 +115,6 @@ const LoginScreen = () => {
               <Text className="text-base font-bold text-white">Send OTP</Text>
             )}
           </TouchableOpacity>
-
-          {/* Terms */}
-          <View className="mt-6 items-center">
-            <Text className="text-xs text-gray-400">
-              By continuing, you agree to our Terms of Service
-            </Text>
-          </View>
         </View>
       </ScrollView>
     </KeyboardAvoidingView>

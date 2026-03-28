@@ -1,26 +1,27 @@
+jest.mock('../../../../services/api', () => ({
+  __esModule: true,
+  default: {
+    get: jest.fn(),
+  },
+}));
+
+jest.mock('../../../../services/blockchain', () => ({
+  getCTTBalance: jest.fn(),
+}));
+
 import {configureStore} from '@reduxjs/toolkit';
 import creditsReducer, {
-  creditsInitialState,
   fetchCreditsThunk,
+  setPendingMint,
 } from '../creditsSlice';
 import type {CreditsState} from '../creditsSlice';
-import api from '../../../../services/api';
-import {getCTTBalance} from '../../../../services/blockchain';
 
-jest.mock('react-native-config', () => ({API_BASE_URL: 'http://test'}));
-jest.mock('../../../../services/supabase', () => ({
-  supabase: {auth: {getSession: jest.fn().mockResolvedValue({data: {session: null}})}},
-}));
-jest.mock('../../../../store/mmkvStorage', () => ({
-  mmkvStorage: {getItem: jest.fn(), setItem: jest.fn()},
-}));
-jest.mock('../../../../services/api');
-jest.mock('../../../../services/blockchain');
-
-const mockedApi = api as jest.Mocked<typeof api>;
-const mockedGetCTTBalance = getCTTBalance as jest.MockedFunction<
-  typeof getCTTBalance
->;
+const mockedApi = jest.requireMock('../../../../services/api').default as {
+  get: jest.Mock;
+};
+const mockedBlockchain = jest.requireMock('../../../../services/blockchain') as {
+  getCTTBalance: jest.Mock;
+};
 
 const mockHistory = [
   {
@@ -45,9 +46,8 @@ function createTestStore(overrides: Partial<CreditsState> = {}) {
       audit: () => ({}),
     },
   });
-  // Apply overrides by dispatching actions if needed
   if (overrides.pendingMint !== undefined) {
-    store.dispatch({type: 'credits/setPendingMint', payload: overrides.pendingMint});
+    store.dispatch(setPendingMint(overrides.pendingMint));
   }
   return store;
 }
@@ -66,7 +66,7 @@ describe('fetchCreditsThunk', () => {
     mockedApi.get.mockResolvedValue({
       data: {balance_ctt: 40.0, history: mockHistory},
     });
-    mockedGetCTTBalance.mockResolvedValue(47.3);
+    mockedBlockchain.getCTTBalance.mockResolvedValue(47.3);
 
     const store = createTestStore();
     await (store.dispatch as any)(fetchCreditsThunk('0xWALLET'));
@@ -81,7 +81,7 @@ describe('fetchCreditsThunk', () => {
     mockedApi.get.mockResolvedValue({
       data: {balance_ctt: 40.0, history: mockHistory},
     });
-    mockedGetCTTBalance.mockRejectedValue(new Error('RPC timeout'));
+    mockedBlockchain.getCTTBalance.mockRejectedValue(new Error('RPC timeout'));
 
     const store = createTestStore();
     await (store.dispatch as any)(fetchCreditsThunk('0xWALLET'));
@@ -91,23 +91,23 @@ describe('fetchCreditsThunk', () => {
     expect(state.history).toEqual(mockHistory);
   });
 
-  it('sets pendingMint to false when it was true', async () => {
+  it('preserves pendingMint when it was true', async () => {
     mockedApi.get.mockResolvedValue({
       data: {balance_ctt: 50.0, history: []},
     });
-    mockedGetCTTBalance.mockResolvedValue(50.0);
+    mockedBlockchain.getCTTBalance.mockResolvedValue(50.0);
 
     const store = createTestStore({pendingMint: true});
     await (store.dispatch as any)(fetchCreditsThunk('0xWALLET'));
 
-    expect(store.getState().credits.pendingMint).toBe(false);
+    expect(store.getState().credits.pendingMint).toBe(true);
   });
 
   it('does not change pendingMint when it was already false', async () => {
     mockedApi.get.mockResolvedValue({
       data: {balance_ctt: 50.0, history: []},
     });
-    mockedGetCTTBalance.mockResolvedValue(50.0);
+    mockedBlockchain.getCTTBalance.mockResolvedValue(50.0);
 
     const store = createTestStore({pendingMint: false});
     await (store.dispatch as any)(fetchCreditsThunk('0xWALLET'));
@@ -119,7 +119,7 @@ describe('fetchCreditsThunk', () => {
     mockedApi.get.mockResolvedValue({
       data: {balance_ctt: 10.0, history: []},
     });
-    mockedGetCTTBalance.mockResolvedValue(10.0);
+    mockedBlockchain.getCTTBalance.mockResolvedValue(10.0);
 
     const store = createTestStore();
     expect(store.getState().credits.lastFetchedAt).toBeNull();

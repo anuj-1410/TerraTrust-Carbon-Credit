@@ -1,4 +1,4 @@
-import React, {useCallback} from 'react';
+import React, {useCallback, useEffect, useMemo} from 'react';
 import {View, Text, TouchableOpacity, ScrollView} from 'react-native';
 import {useNavigation} from '@react-navigation/native';
 import type {NativeStackNavigationProp} from '@react-navigation/native-stack';
@@ -8,6 +8,9 @@ import type {RootStackParamList} from '../../../types/navigation';
 import {useAppDispatch, useAppSelector} from '../../../store/hooks';
 import type {AuditState} from '../store/auditSlice';
 import {submitAudit, pollAuditResult} from '../store/auditSlice';
+import {fetchCreditsThunk} from '../../dashboard/store/creditsSlice';
+import {estimateTco2eFromTrees} from '../../../common/utils/chave';
+import {COLORS} from '../../../common/constants/colors';
 
 type NavProp = NativeStackNavigationProp<RootStackParamList, 'AuditCompleteScreen'>;
 
@@ -24,14 +27,34 @@ const AuditCompleteScreen = () => {
     sessionComplete,
     errorMessage,
   } = audit;
+  const walletAddress = useAppSelector(state => state.auth.walletAddress);
 
   const totalTrees = scannedTrees.length;
   const zonesCompleted = Math.min(currentZoneIndex + 1, zones.length);
 
+  const preliminaryEstimate = useMemo(() => {
+    return estimateTco2eFromTrees(scannedTrees);
+  }, [scannedTrees]);
+
+  // Flaw #89: Auto-navigate to HomeScreen after successful minting
+  useEffect(() => {
+    if (uploadStatus === 'success') {
+      if (walletAddress) {
+        dispatch(fetchCreditsThunk(walletAddress));
+      }
+      const timer = setTimeout(() => {
+        navigation.reset({
+          index: 0,
+          routes: [{name: 'HomeScreen'}],
+        });
+      }, 3000); // Show success animation for 3s then navigate
+      return () => clearTimeout(timer);
+    }
+  }, [uploadStatus, walletAddress, dispatch, navigation]);
+
   const handleSubmit = useCallback(async () => {
     try {
       await dispatch(submitAudit()).unwrap();
-      // After successful submission, start polling
       if (activeAuditId) {
         dispatch(pollAuditResult(activeAuditId));
       }
@@ -40,10 +63,6 @@ const AuditCompleteScreen = () => {
     }
   }, [dispatch, activeAuditId]);
 
-  const handleGoHome = useCallback(() => {
-    navigation.navigate('HomeScreen' as any);
-  }, [navigation]);
-
   const isProcessing =
     uploadStatus === 'uploading' || uploadStatus === 'processing';
   const isSuccess = uploadStatus === 'success';
@@ -51,9 +70,9 @@ const AuditCompleteScreen = () => {
   const isOffline = uploadStatus === 'offline';
 
   return (
-    <View className="flex-1 bg-[#F8FAF8]">
+    <View className="flex-1" style={{backgroundColor: COLORS.OFF_WHITE}}>
       {/* Header */}
-      <View className="bg-[#1B4332] pt-12 pb-5 px-5">
+      <View className="pt-12 pb-5 px-5" style={{backgroundColor: COLORS.DARK_SLATE}}>
         <Text className="text-white text-xl font-bold text-center">
           Audit Complete
         </Text>
@@ -71,10 +90,10 @@ const AuditCompleteScreen = () => {
               loop={false}
               style={{width: 180, height: 180}}
             />
-            <Text className="text-[#2D6A4F] text-2xl font-bold mt-4">
+            <Text className="text-2xl font-bold mt-4" style={{color: COLORS.FOREST_GREEN}}>
               Carbon Credits Minted!
             </Text>
-            <Text className="text-[#6B7280] text-sm mt-2">
+            <Text className="text-sm mt-2" style={{color: '#6B7280'}}>
               Your credits are now in your wallet
             </Text>
           </View>
@@ -89,10 +108,10 @@ const AuditCompleteScreen = () => {
               loop
               style={{width: 160, height: 160}}
             />
-            <Text className="text-[#191C1B] text-base text-center mt-4 font-semibold">
+            <Text className="text-base text-center mt-4 font-semibold" style={{color: COLORS.DARK_SLATE}}>
               Calculating your carbon credits using satellite data...
             </Text>
-            <Text className="text-[#6B7280] text-sm text-center mt-2">
+            <Text className="text-sm text-center mt-2" style={{color: '#6B7280'}}>
               This takes about 30-60 seconds.
             </Text>
           </View>
@@ -104,10 +123,10 @@ const AuditCompleteScreen = () => {
             <View className="w-16 h-16 rounded-full bg-[#FEE2E2] items-center justify-center">
               <Text className="text-3xl">⚠️</Text>
             </View>
-            <Text className="text-[#EF4444] text-lg font-bold mt-4">
+            <Text className="text-lg font-bold mt-4" style={{color: COLORS.ERROR_RED}}>
               Verification Failed
             </Text>
-            <Text className="text-[#6B7280] text-sm text-center mt-2 px-4">
+            <Text className="text-sm text-center mt-2 px-4" style={{color: '#6B7280'}}>
               {errorMessage || 'An error occurred during verification. Please try again.'}
             </Text>
           </View>
@@ -130,7 +149,7 @@ const AuditCompleteScreen = () => {
               <View className="w-16 h-16 rounded-full bg-[#D1FAE5] items-center justify-center">
                 <Text className="text-3xl">✓</Text>
               </View>
-              <Text className="text-[#191C1B] text-xl font-bold mt-3">
+              <Text className="text-xl font-bold mt-3" style={{color: COLORS.DARK_SLATE}}>
                 All Zones Completed!
               </Text>
             </View>
@@ -138,21 +157,21 @@ const AuditCompleteScreen = () => {
             {/* Stats grid */}
             <View className="flex-row mt-4">
               <View className="flex-1 items-center">
-                <Text className="text-[#6B7280] text-sm">Total Trees</Text>
+                <Text className="text-sm" style={{color: '#6B7280'}}>Total Trees</Text>
                 <Text
-                  className="text-[#191C1B] text-3xl font-bold mt-1"
-                  style={{fontFamily: 'RobotoMono-Bold'}}>
+                  className="text-3xl font-bold mt-1"
+                  style={{fontFamily: 'RobotoMono-Bold', color: COLORS.DARK_SLATE}}>
                   {totalTrees}
                 </Text>
               </View>
               <View className="w-px bg-[#F2F4F2]" />
               <View className="flex-1 items-center">
-                <Text className="text-[#6B7280] text-sm">
+                <Text className="text-sm" style={{color: '#6B7280'}}>
                   Zones Completed
                 </Text>
                 <Text
-                  className="text-[#191C1B] text-3xl font-bold mt-1"
-                  style={{fontFamily: 'RobotoMono-Bold'}}>
+                  className="text-3xl font-bold mt-1"
+                  style={{fontFamily: 'RobotoMono-Bold', color: COLORS.DARK_SLATE}}>
                   {zonesCompleted}/{zones.length}
                 </Text>
               </View>
@@ -160,18 +179,18 @@ const AuditCompleteScreen = () => {
 
             <View className="h-px bg-[#F2F4F2] my-4" />
 
-            {/* Carbon estimate */}
+            {/* Carbon estimate — Flaw #88 */}
             <View className="items-center">
-              <Text className="text-[#6B7280] text-sm">
+              <Text className="text-sm" style={{color: '#6B7280'}}>
                 Preliminary Carbon Estimate
               </Text>
               <Text
-                className="text-[#2D6A4F] text-2xl font-bold mt-1"
-                style={{fontFamily: 'RobotoMono-Bold'}}>
-                — tCO₂e
+                className="text-2xl font-bold mt-1"
+                style={{fontFamily: 'RobotoMono-Bold', color: COLORS.FOREST_GREEN}}>
+                ~{preliminaryEstimate} tCO₂e
               </Text>
-              <Text className="text-[#9CA3AF] text-xs text-center mt-1 italic">
-                Estimated — final number calculated by satellite verification.
+              <Text className="text-xs text-center mt-1 italic" style={{color: COLORS.DISABLED_GREY}}>
+                Estimated — subject to satellite verification.
               </Text>
             </View>
           </View>
@@ -180,7 +199,7 @@ const AuditCompleteScreen = () => {
         {/* Session complete message */}
         {sessionComplete && (
           <View className="mt-4 bg-[#D1FAE5] rounded-2xl p-4">
-            <Text className="text-[#065F46] text-sm text-center">
+            <Text className="text-sm text-center" style={{color: '#065F46'}}>
               Session 1 saved. Return tomorrow for Session 2.
             </Text>
           </View>
@@ -188,11 +207,12 @@ const AuditCompleteScreen = () => {
       </ScrollView>
 
       {/* Bottom CTA */}
-      <View className="px-5 pb-8 pt-3 bg-[#F8FAF8]">
+      <View className="px-5 pb-8 pt-3" style={{backgroundColor: COLORS.OFF_WHITE}}>
         {uploadStatus === 'idle' && (
           <TouchableOpacity
             onPress={handleSubmit}
-            className="h-14 rounded-xl bg-[#2D6A4F] items-center justify-center"
+            className="h-14 rounded-xl items-center justify-center"
+            style={{backgroundColor: COLORS.FOREST_GREEN}}
             activeOpacity={0.7}>
             <Text className="text-white text-base font-bold">
               Submit for Satellite Verification
@@ -200,29 +220,26 @@ const AuditCompleteScreen = () => {
           </TouchableOpacity>
         )}
         {isSuccess && (
-          <TouchableOpacity
-            onPress={handleGoHome}
-            className="h-14 rounded-xl bg-[#2D6A4F] items-center justify-center"
-            activeOpacity={0.7}>
-            <Text className="text-white text-base font-bold">
-              Return to Home
-            </Text>
-          </TouchableOpacity>
+          <Text className="text-sm text-center" style={{color: '#6B7280'}}>
+            Redirecting to home…
+          </Text>
         )}
         {isError && (
           <TouchableOpacity
             onPress={handleSubmit}
-            className="h-14 rounded-xl border-2 border-[#2D6A4F] items-center justify-center"
+            className="h-14 rounded-xl items-center justify-center"
+            style={{borderWidth: 2, borderColor: COLORS.FOREST_GREEN}}
             activeOpacity={0.7}>
-            <Text className="text-[#2D6A4F] text-base font-bold">
+            <Text className="text-base font-bold" style={{color: COLORS.FOREST_GREEN}}>
               Try Again
             </Text>
           </TouchableOpacity>
         )}
         {isOffline && (
           <TouchableOpacity
-            onPress={handleGoHome}
-            className="h-14 rounded-xl bg-[#2D6A4F] items-center justify-center"
+            onPress={() => navigation.reset({index: 0, routes: [{name: 'HomeScreen'}]})}
+            className="h-14 rounded-xl items-center justify-center"
+            style={{backgroundColor: COLORS.FOREST_GREEN}}
             activeOpacity={0.7}>
             <Text className="text-white text-base font-bold">
               Return to Home

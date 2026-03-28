@@ -10,10 +10,10 @@ import {
 import type {NativeStackScreenProps} from '@react-navigation/native-stack';
 import type {RootStackParamList} from '../../../types/navigation';
 import {supabase} from '../../../services/supabase';
-import {createWallet} from '../../../services/wallet';
+import {createFarmerWallet} from '../../../services/wallet';
 import api from '../../../services/api';
-import {useAppSelector, useAppDispatch} from '../../../store/hooks';
-import {setUser, setWalletAddress} from '../store/authSlice';
+import {useAppDispatch} from '../../../store/hooks';
+import {setUser, setWalletAddress, setKycCompleted} from '../store/authSlice';
 import Loader from '../../../common/components/Loader';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'OTPScreen'>;
@@ -24,8 +24,6 @@ const COUNTDOWN_SECONDS = 28;
 const OTPScreen = ({route, navigation}: Props) => {
   const {phone} = route.params;
   const dispatch = useAppDispatch();
-  const walletAddress = useAppSelector(state => state.auth.walletAddress);
-  const kycCompleted = useAppSelector(state => state.auth.kycCompleted);
 
   const [digits, setDigits] = useState<string[]>(Array(OTP_LENGTH).fill(''));
   const [isLoading, setIsLoading] = useState(false);
@@ -93,36 +91,51 @@ const OTPScreen = ({route, navigation}: Props) => {
           return;
         }
 
-        // OTP success — set basic user info from Supabase
+        // OTP success — fetch user profile from Supabase
         if (data.user) {
-          dispatch(
-            setUser({
-              id: data.user.id,
-              name: '',
-              phone: data.user.phone ?? phone,
-              aadhaar_hash: '',
-            }),
-          );
-        }
+          const {data: profile} = await supabase
+            .from('users')
+            .select('name, phone, aadhaar_hash, wallet_address, kyc_completed')
+            .eq('id', data.user.id)
+            .single();
 
-        // Wallet creation if needed
-        if (walletAddress === null) {
-          try {
-            const address = await createWallet();
-            dispatch(setWalletAddress(address));
-            await api.post('/api/v1/auth/register-wallet', {
-              wallet_address: address,
-            });
-          } catch {
-            // Non-blocking per D-005 — wallet in Redux for retry
+          if (profile) {
+            dispatch(
+              setUser({
+                id: data.user.id,
+                name: profile.name ?? '',
+                phone: profile.phone ?? data.user.phone ?? phone,
+                aadhaar_hash: profile.aadhaar_hash ?? '',
+              }),
+            );
+            if (profile.wallet_address) {
+              dispatch(setWalletAddress(profile.wallet_address));
+            }
+            if (profile.kyc_completed) {
+              dispatch(setKycCompleted(true));
+            }
           }
-        }
 
-        // Route based on KYC status
-        if (kycCompleted) {
-          navigation.reset({index: 0, routes: [{name: 'HomeScreen'}]});
-        } else {
-          navigation.navigate('KYCScreen');
+          // Wallet creation if needed
+          const hasWallet = profile?.wallet_address;
+          if (!hasWallet) {
+            try {
+              const address = await createFarmerWallet();
+              dispatch(setWalletAddress(address));
+              await api.post('/api/v1/auth/register-wallet', {
+                wallet_address: address,
+              });
+            } catch {
+              // Non-blocking per D-005 — wallet in Redux for retry
+            }
+          }
+
+          // Route based on KYC status
+          if (profile?.kyc_completed) {
+            navigation.reset({index: 0, routes: [{name: 'HomeScreen'}]});
+          } else {
+            navigation.replace('KYCScreen');
+          }
         }
       } catch {
         setError('Incorrect code. Please try again.');
@@ -132,7 +145,7 @@ const OTPScreen = ({route, navigation}: Props) => {
         setIsLoading(false);
       }
     },
-    [isLoading, phone, walletAddress, kycCompleted, navigation, dispatch],
+    [isLoading, phone, navigation, dispatch],
   );
 
   useEffect(() => {
@@ -189,7 +202,7 @@ const OTPScreen = ({route, navigation}: Props) => {
         <Text className="text-base text-gray-700">
           Enter the 6-digit code sent to
         </Text>
-        <Text className="mt-1 text-base font-bold text-[#0A3D2E]">
+        <Text className="mt-1 text-base font-bold text-[#2F855A]">
           {maskedPhone}
         </Text>
 
@@ -203,7 +216,7 @@ const OTPScreen = ({route, navigation}: Props) => {
               }}
               className={`h-14 w-12 min-h-[48px] min-w-[48px] rounded-xl border-2 text-center text-2xl font-bold text-gray-900 ${
                 digit
-                  ? 'border-[#0A3D2E] bg-[#0A3D2E]/5'
+                  ? 'border-[#2F855A] bg-[#2F855A]/5'
                   : 'border-gray-300'
               }`}
               keyboardType="number-pad"
@@ -242,7 +255,7 @@ const OTPScreen = ({route, navigation}: Props) => {
               className="min-h-[48px] min-w-[48px] items-center justify-center"
               onPress={handleResend}
               activeOpacity={0.7}>
-              <Text className="text-sm font-bold text-[#0A3D2E]">
+              <Text className="text-sm font-bold text-[#2F855A]">
                 Resend OTP
               </Text>
             </TouchableOpacity>

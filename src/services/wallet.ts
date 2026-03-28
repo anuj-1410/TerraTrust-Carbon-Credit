@@ -1,12 +1,12 @@
 import {ethers} from 'ethers';
 import Keychain from 'react-native-keychain';
 
-const KEYCHAIN_SERVICE = 'terratrust-wallet';
+const KEYCHAIN_SERVICE = 'terratrust_wallet';
 
-export async function createWallet(): Promise<string> {
+export async function createFarmerWallet(): Promise<string> {
   const wallet = ethers.Wallet.createRandom();
 
-  await Keychain.setGenericPassword('wallet-private-key', wallet.privateKey, {
+  await Keychain.setGenericPassword('wallet_private_key', wallet.privateKey, {
     service: KEYCHAIN_SERVICE,
     accessible: Keychain.ACCESSIBLE.WHEN_UNLOCKED_THIS_DEVICE_ONLY,
     accessControl: Keychain.ACCESS_CONTROL.BIOMETRY_ANY_OR_DEVICE_PASSCODE,

@@ -1,9 +1,9 @@
 export type AuditStackParamList = {
   AuditStart: {landId: string; landName: string};
   ZoneNavigation: {auditId: string; landId: string};
-  ARCamera: {zoneId: string; zoneIndex: number};
+  ARCamera: {zoneId: string; zoneIndex: number; returnDiameter?: number};
   ManualMeasure: {returnDiameter?: number};
-  TreeResult: undefined;
+  TreeResult: {pendingTree: import('../features/ar-audit/store/auditSlice').TreeSample};
   AuditComplete: undefined;
 };
 
@@ -21,9 +21,9 @@ export type RootStackParamList = {
   // AR Audit
   AuditStartScreen: {landId: string; landName: string};
   ZoneNavigationScreen: {auditId: string; landId: string};
-  ARCameraScreen: {zoneId: string; zoneIndex: number};
+  ARCameraScreen: {zoneId: string; zoneIndex: number; returnDiameter?: number};
   ManualMeasureScreen: {returnDiameter?: number};
-  TreeResultScreen: undefined;
+  TreeResultScreen: {pendingTree: import('../features/ar-audit/store/auditSlice').TreeSample};
   AuditCompleteScreen: undefined;
   // Dashboard
   HomeScreen: undefined;

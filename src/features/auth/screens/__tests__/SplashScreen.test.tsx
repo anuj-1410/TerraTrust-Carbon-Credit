@@ -21,17 +21,17 @@ jest.mock('@react-navigation/native', () => {
 
 // Mock supabase
 const mockGetSession = jest.fn();
+const mockSingle = jest.fn();
+const mockEq = jest.fn(() => ({single: mockSingle}));
+const mockSelect = jest.fn(() => ({eq: mockEq}));
+const mockFrom = jest.fn(() => ({select: mockSelect}));
 jest.mock('../../../../services/supabase', () => ({
   supabase: {
     auth: {
       getSession: () => mockGetSession(),
     },
+    from: () => mockFrom(),
   },
-}));
-
-// Mock wallet
-jest.mock('../../../../services/wallet', () => ({
-  createWallet: jest.fn().mockResolvedValue('0xMOCKADDRESS'),
 }));
 
 // Mock api
@@ -81,6 +81,9 @@ function renderSplashScreen(authState: Partial<AuthState> = {}) {
 describe('SplashScreen', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    mockFrom.mockReturnValue({select: mockSelect});
+    mockSelect.mockReturnValue({eq: mockEq});
+    mockEq.mockReturnValue({single: mockSingle});
   });
 
   it('navigates to LoginScreen when no session exists', async () => {
@@ -95,7 +98,21 @@ describe('SplashScreen', () => {
 
   it('navigates to HomeScreen when session exists and kycCompleted=true', async () => {
     mockGetSession.mockResolvedValue({
-      data: {session: {access_token: 'test-token'}},
+      data: {
+        session: {
+          access_token: 'test-token',
+          user: {id: 'user-1', phone: '+919999999999'},
+        },
+      },
+    });
+    mockSingle.mockResolvedValue({
+      data: {
+        name: 'Farmer One',
+        phone: '+919999999999',
+        aadhaar_hash: 'hash-1',
+        wallet_address: '0x123',
+        kyc_completed: true,
+      },
     });
 
     renderSplashScreen({
@@ -111,7 +128,21 @@ describe('SplashScreen', () => {
 
   it('navigates to KYCScreen when session exists and kycCompleted=false', async () => {
     mockGetSession.mockResolvedValue({
-      data: {session: {access_token: 'test-token'}},
+      data: {
+        session: {
+          access_token: 'test-token',
+          user: {id: 'user-2', phone: '+918888888888'},
+        },
+      },
+    });
+    mockSingle.mockResolvedValue({
+      data: {
+        name: 'Farmer Two',
+        phone: '+918888888888',
+        aadhaar_hash: 'hash-2',
+        wallet_address: '0x123',
+        kyc_completed: false,
+      },
     });
 
     renderSplashScreen({
@@ -125,12 +156,16 @@ describe('SplashScreen', () => {
     });
   });
 
-  it('triggers wallet creation when session exists but walletAddress=null', async () => {
+  it('navigates to KYCScreen when session exists but no profile row is found', async () => {
     mockGetSession.mockResolvedValue({
-      data: {session: {access_token: 'test-token'}},
+      data: {
+        session: {
+          access_token: 'test-token',
+          user: {id: 'user-3', phone: '+917777777777'},
+        },
+      },
     });
-
-    const {createWallet} = require('../../../../services/wallet');
+    mockSingle.mockResolvedValue({data: null});
 
     renderSplashScreen({
       isAuthenticated: true,
@@ -139,7 +174,6 @@ describe('SplashScreen', () => {
     });
 
     await waitFor(() => {
-      expect(createWallet).toHaveBeenCalled();
       expect(mockReplace).toHaveBeenCalledWith('KYCScreen');
     });
   });

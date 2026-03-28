@@ -1,7 +1,7 @@
-import {getLandStatus} from '../getLandStatus';
+import {getLandStatus, getLandStatusMeta} from '../getLandStatus';
 import type {LandParcel} from '../../../features/land/store/landSlice';
 
-function makeParcel(lastAuditYear: number | null): LandParcel {
+function makeParcel(lastAuditYear: number | null, overrides: Partial<LandParcel> = {}): LandParcel {
   return {
     id: 'test-id',
     farm_name: 'Test Farm',
@@ -16,8 +16,10 @@ function makeParcel(lastAuditYear: number | null): LandParcel {
     is_verified: true,
     status: 'verified',
     last_audit_year: lastAuditYear,
+    last_audit_date: null,
     thumbnail_url: null,
     created_at: '2025-01-01T00:00:00Z',
+    ...overrides,
   };
 }
 
@@ -60,13 +62,32 @@ describe('getLandStatus', () => {
     expect(getLandStatus(makeParcel(2024))).toBe('red');
   });
 
-  it('returns orange when prior year and before March 1', () => {
-    mockDate('2026-02-15T00:00:00Z');
+  it('returns orange when last audit year is the prior year and no exact date is available', () => {
+    mockDate('2026-06-15T00:00:00Z');
     expect(getLandStatus(makeParcel(2025))).toBe('orange');
   });
 
-  it('returns red when prior year and on/after March 1', () => {
-    mockDate('2026-03-01T00:00:00Z');
-    expect(getLandStatus(makeParcel(2025))).toBe('red');
+  it('uses last_audit_date to switch from audit due to overdue after three months', () => {
+    mockDate('2026-03-15T00:00:00Z');
+    expect(
+      getLandStatus(
+        makeParcel(2025, {last_audit_date: '2025-12-20T00:00:00Z'}),
+      ),
+    ).toBe('orange');
+
+    mockDate('2026-05-01T00:00:00Z');
+    expect(
+      getLandStatus(
+        makeParcel(2025, {last_audit_date: '2025-12-20T00:00:00Z'}),
+      ),
+    ).toBe('red');
+  });
+
+  it('returns pending metadata for non-verified parcels', () => {
+    expect(
+      getLandStatusMeta(
+        makeParcel(null, {status: 'pending', is_verified: false}),
+      ),
+    ).toEqual({status: 'orange', label: '⏳ Pending', showAudit: false});
   });
 });

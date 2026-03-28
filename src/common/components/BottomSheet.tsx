@@ -1,5 +1,6 @@
 import React from 'react';
 import {View, Modal, Pressable} from 'react-native';
+import {COLORS} from '../constants/colors';
 
 interface BottomSheetProps {
   visible: boolean;
@@ -15,7 +16,17 @@ const BottomSheet = ({visible, onClose, children}: BottomSheetProps) => {
       animationType="slide"
       onRequestClose={onClose}>
       <Pressable className="flex-1 bg-black/50" onPress={onClose} />
-      <View className="bg-white rounded-t-2xl p-6 pb-10">
+      <View className="bg-white rounded-t-[24px] p-6 pb-10">
+        <View
+          style={{
+            width: 32,
+            height: 4,
+            backgroundColor: COLORS.DISABLED_GREY,
+            borderRadius: 2,
+            alignSelf: 'center',
+            marginBottom: 8,
+          }}
+        />
         {children}
       </View>
     </Modal>

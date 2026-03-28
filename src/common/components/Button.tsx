@@ -1,22 +1,23 @@
 import React from 'react';
 import {TouchableOpacity, Text, type TouchableOpacityProps} from 'react-native';
+import {COLORS} from '../constants/colors';
 
 interface ButtonProps extends TouchableOpacityProps {
   label: string;
-  variant?: 'primary' | 'secondary' | 'outline';
+  variant?: 'primary' | 'secondary' | 'destructive';
 }
 
 const Button = ({label, variant = 'primary', className, ...props}: ButtonProps) => {
-  const baseClasses = 'h-12 px-6 rounded-lg items-center justify-center';
+  const baseClasses = 'h-[52px] px-6 rounded-[12px] items-center justify-center';
   const variantClasses = {
-    primary: 'bg-green-700',
-    secondary: 'bg-neutral-600',
-    outline: 'border border-green-700 bg-transparent',
+    primary: `bg-[${COLORS.FOREST_GREEN}]`,
+    secondary: `border border-[${COLORS.FOREST_GREEN}] bg-transparent`,
+    destructive: `bg-[${COLORS.ERROR_RED}]`,
   };
   const textClasses = {
     primary: 'text-white font-semibold text-base',
-    secondary: 'text-white font-semibold text-base',
-    outline: 'text-green-700 font-semibold text-base',
+    secondary: `text-[${COLORS.FOREST_GREEN}] font-semibold text-base`,
+    destructive: 'text-white font-semibold text-base',
   };
 
   return (

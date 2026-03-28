@@ -17,7 +17,7 @@ targets. When the FDD and SRS conflict, SRS wins.
 
 Windows machine.
 
-All scripts in `.specify/scripts` MUST be executed using PowerShell 7 (`pwsh`).
+All scripts in MUST be executed using PowerShell 7 (`pwsh`).
 
 Never use:
 

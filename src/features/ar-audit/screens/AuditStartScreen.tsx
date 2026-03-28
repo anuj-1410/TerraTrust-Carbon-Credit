@@ -10,7 +10,7 @@ import {useNavigation, useRoute} from '@react-navigation/native';
 import type {NativeStackNavigationProp} from '@react-navigation/native-stack';
 import type {RouteProp} from '@react-navigation/native';
 import LottieView from 'lottie-react-native';
-import {isEmulator} from 'react-native-device-info';
+import DeviceInfo from 'react-native-device-info';
 import type {RootStackParamList} from '../../../types/navigation';
 import {useAppDispatch, useAppSelector} from '../../../store/hooks';
 import {fetchZones} from '../store/auditSlice';
@@ -18,6 +18,8 @@ import type {AuditState} from '../store/auditSlice';
 import type {LandState} from '../../land/store/landSlice';
 import {isMockLocationEnabled} from '../../../services/ar-bridge';
 import {hectaresToAcres} from '../../../common/utils/units';
+import {ensureLocationPermission} from '../../../common/utils/permissions';
+import {COLORS} from '../../../common/constants/colors';
 
 type NavProp = NativeStackNavigationProp<RootStackParamList, 'AuditStartScreen'>;
 type RouteType = RouteProp<RootStackParamList, 'AuditStartScreen'>;
@@ -35,16 +37,32 @@ const AuditStartScreen = () => {
   const parcel = parcels.find(p => p.id === landId);
 
   const [loading, setLoading] = useState(false);
-  const [isRooted, setIsRooted] = useState(false);
+  const [showRootWarning, setShowRootWarning] = useState(false);
   const [mockBlocked, setMockBlocked] = useState(false);
 
   React.useEffect(() => {
-    isEmulator().then((emulator: boolean) => setIsRooted(emulator));
+    Promise.all([
+      DeviceInfo.getTags().catch(() => ''),
+      DeviceInfo.getType().catch(() => 'user'),
+    ]).then(([tags, buildType]) => {
+      const rooted = tags.includes('test-keys') || buildType !== 'user';
+      setShowRootWarning(rooted);
+    });
   }, []);
 
   const handleStartAudit = useCallback(async () => {
     try {
       setLoading(true);
+
+      const hasLocationPermission = await ensureLocationPermission();
+      if (!hasLocationPermission) {
+        Alert.alert(
+          'Location Permission Required',
+          'TerraTrust needs location access to navigate to your audit zones.',
+        );
+        setLoading(false);
+        return;
+      }
 
       // FR-012: Mock GPS check — full blocking screen
       const isMock = await isMockLocationEnabled();
@@ -80,7 +98,7 @@ const AuditStartScreen = () => {
   // FR-012: Mock GPS full blocking screen
   if (mockBlocked) {
     return (
-      <View className="flex-1 items-center justify-center bg-[#1B4332] px-8">
+      <View className="flex-1 items-center justify-center px-8" style={{backgroundColor: COLORS.DARK_SLATE}}>
         <Text className="text-6xl mb-6">🚫</Text>
         <Text className="text-white text-xl font-bold text-center mb-4">
           Mock Location Detected
@@ -93,9 +111,9 @@ const AuditStartScreen = () => {
   }
 
   return (
-    <View className="flex-1 bg-[#F8FAF8]">
+    <View className="flex-1" style={{backgroundColor: COLORS.OFF_WHITE}}>
       {/* Header */}
-      <View className="bg-[#1B4332] pt-12 pb-5 px-5 flex-row items-center">
+      <View className="pt-12 pb-5 px-5 flex-row items-center" style={{backgroundColor: COLORS.DARK_SLATE}}>
         <TouchableOpacity
           onPress={() => navigation.goBack()}
           className="w-12 h-12 items-center justify-center rounded-full"
@@ -111,18 +129,18 @@ const AuditStartScreen = () => {
         className="flex-1 px-5"
         contentContainerStyle={{paddingBottom: 32}}>
         {/* Rooted device warning — FR-013 */}
-        {isRooted && (
-          <View className="mt-4 bg-[#FEF3C7] rounded-2xl px-4 py-3 flex-row items-center">
+        {showRootWarning && (
+          <View className="mt-4 rounded-2xl px-4 py-3 flex-row items-center" style={{backgroundColor: '#FEF3C7'}}>
             <Text className="text-lg mr-3">⚠️</Text>
-            <Text className="flex-1 text-[#92400E] text-sm leading-5">
-              This device appears to be rooted. Audit data may be less trusted.
+            <Text className="flex-1 text-sm leading-5" style={{color: '#92400E'}}>
+              This device appears to be rooted. For your security, some features may not work correctly.
             </Text>
           </View>
         )}
 
         {/* Land Info Card — from Stitch design */}
         <View className="mt-5 bg-white rounded-2xl p-5 shadow-sm">
-          <Text className="text-[#191C1B] text-xl font-bold mb-4">
+          <Text className="text-xl font-bold mb-4" style={{color: COLORS.DARK_SLATE}}>
             {landName}
           </Text>
 
@@ -130,9 +148,9 @@ const AuditStartScreen = () => {
           <View className="flex-row items-center justify-between py-3">
             <View className="flex-row items-center">
               <Text className="text-lg mr-3">📐</Text>
-              <Text className="text-[#6B7280] text-sm">Area</Text>
+              <Text className="text-sm" style={{color: '#6B7280'}}>Area</Text>
             </View>
-            <Text className="text-[#191C1B] text-base font-bold" style={{fontFamily: 'RobotoMono-Bold'}}>
+            <Text className="text-base font-bold" style={{fontFamily: 'RobotoMono-Bold', color: COLORS.DARK_SLATE}}>
               {areaAcres} acres
             </Text>
           </View>
@@ -143,9 +161,9 @@ const AuditStartScreen = () => {
           <View className="flex-row items-center justify-between py-3">
             <View className="flex-row items-center">
               <Text className="text-lg mr-3">📅</Text>
-              <Text className="text-[#6B7280] text-sm">Last Audit</Text>
+              <Text className="text-sm" style={{color: '#6B7280'}}>Last Audit</Text>
             </View>
-            <Text className="text-[#191C1B] text-base" style={{fontFamily: 'RobotoMono-Regular'}}>
+            <Text className="text-base" style={{fontFamily: 'RobotoMono-Regular', color: COLORS.DARK_SLATE}}>
               {lastAudit}
             </Text>
           </View>
@@ -156,9 +174,9 @@ const AuditStartScreen = () => {
           <View className="flex-row items-center justify-between py-3">
             <View className="flex-row items-center">
               <Text className="text-lg mr-3">🚶</Text>
-              <Text className="text-[#6B7280] text-sm">Walking Distance</Text>
+              <Text className="text-sm" style={{color: '#6B7280'}}>Walking Distance</Text>
             </View>
-            <Text className="text-[#191C1B] text-base" style={{fontFamily: 'RobotoMono-Regular'}}>
+            <Text className="text-base" style={{fontFamily: 'RobotoMono-Regular', color: COLORS.DARK_SLATE}}>
               ~{audit.walkingPathMetres || '—'} m
             </Text>
           </View>
@@ -174,27 +192,26 @@ const AuditStartScreen = () => {
               style={{width: 120, height: 120}}
             />
           ) : (
-            <View className="w-28 h-28 rounded-full bg-[#D1FAE5] items-center justify-center">
+            <View className="w-28 h-28 rounded-full items-center justify-center" style={{backgroundColor: '#D1FAE5'}}>
               <Text className="text-5xl">🌿</Text>
             </View>
           )}
         </View>
 
         {/* Description text */}
-        <Text className="text-[#6B7280] text-sm text-center mt-5 leading-6 px-4">
-          We'll generate satellite-guided sampling zones for your land. Walk to
-          each zone and scan trees.
+        <Text className="text-sm text-center mt-5 leading-6 px-4" style={{color: '#6B7280'}}>
+          You will walk to {audit.zones.length || '—'} locations on your land and scan trees at each one.
+          This takes about 20-30 minutes.
         </Text>
       </ScrollView>
 
       {/* Start Audit CTA */}
-      <View className="px-5 pb-8 pt-3 bg-[#F8FAF8]">
+      <View className="px-5 pb-8 pt-3" style={{backgroundColor: COLORS.OFF_WHITE}}>
         <TouchableOpacity
           onPress={handleStartAudit}
           disabled={loading}
-          className={`h-14 rounded-xl items-center justify-center ${
-            loading ? 'bg-[#40916C]/60' : 'bg-[#2D6A4F]'
-          }`}
+          className="h-14 rounded-xl items-center justify-center"
+          style={{backgroundColor: loading ? 'rgba(47,133,90,0.6)' : COLORS.FOREST_GREEN}}
           activeOpacity={0.7}>
           <Text className="text-white text-base font-bold">
             {loading ? 'Generating Zones...' : 'Start Audit'}

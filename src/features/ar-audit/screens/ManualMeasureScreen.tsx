@@ -1,4 +1,4 @@
-import React, {useState, useRef, useCallback} from 'react';
+import React, {useState, useRef, useCallback, useEffect} from 'react';
 import {
   View,
   Text,
@@ -9,19 +9,34 @@ import {
 } from 'react-native';
 import {useNavigation} from '@react-navigation/native';
 import type {NativeStackNavigationProp} from '@react-navigation/native-stack';
+import LottieView from 'lottie-react-native';
 import type {RootStackParamList} from '../../../types/navigation';
+import {mmkv} from '../../../store/mmkvStorage';
 
 type NavProp = NativeStackNavigationProp<RootStackParamList, 'ManualMeasureScreen'>;
 
 const ManualMeasureScreen = () => {
   const navigation = useNavigation<NavProp>();
-  const isFirstVisit = useRef(true);
 
+  const [showTutorial, setShowTutorial] = useState(false);
   const [circumference, setCircumference] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [calculatedDiameter, setCalculatedDiameter] = useState<number | null>(
     null,
   );
+
+  // Flaw #83: Show tutorial on first visit
+  useEffect(() => {
+    const tutorialShown = mmkv.getBoolean('manual_tutorial_shown');
+    if (!tutorialShown) {
+      setShowTutorial(true);
+    }
+  }, []);
+
+  const dismissTutorial = useCallback(() => {
+    mmkv.set('manual_tutorial_shown', true);
+    setShowTutorial(false);
+  }, []);
 
   const handleCalculate = useCallback(() => {
     Keyboard.dismiss();
@@ -40,7 +55,6 @@ const ManualMeasureScreen = () => {
     setError(null);
     const dbh = Math.round((num / Math.PI) * 10) / 10;
     setCalculatedDiameter(dbh);
-    isFirstVisit.current = false;
   }, [circumference]);
 
   const handleConfirm = useCallback(() => {
@@ -67,7 +81,7 @@ const ManualMeasureScreen = () => {
               Manual Measurement
             </Text>
             <Text className="text-white/60 text-sm mt-0.5">
-              Tier 3 — Tape Measure
+              Measure Using a String
             </Text>
           </View>
         </View>
@@ -77,6 +91,30 @@ const ManualMeasureScreen = () => {
         className="flex-1 px-5"
         contentContainerStyle={{paddingBottom: 32}}
         keyboardShouldPersistTaps="handled">
+        {/* Tutorial animation — Flaw #83 */}
+        {showTutorial && (
+          <View className="items-center mt-8 mb-6 bg-white rounded-2xl p-5 shadow-sm">
+            <LottieView
+              source={require('../../../assets/lottie/string_wrap_tutorial.json')}
+              autoPlay
+              loop
+              style={{width: 120, height: 120}}
+            />
+            <Text className="text-[#191C1B] text-base font-bold mt-4 text-center">
+              Wrap a string around the tree trunk at chest height (1.3m from ground)
+            </Text>
+            <Text className="text-[#6B7280] text-sm text-center mt-2">
+              Mark where the string meets, then measure the length with a ruler
+            </Text>
+            <TouchableOpacity
+              onPress={dismissTutorial}
+              className="mt-4 h-12 px-8 rounded-xl bg-[#2D6A4F] items-center justify-center"
+              activeOpacity={0.7}>
+              <Text className="text-white text-base font-bold">Got it</Text>
+            </TouchableOpacity>
+          </View>
+        )}
+
         {/* Tutorial illustration area */}
         <View className="items-center mt-8 mb-6">
           {/* Trunk cross-section diagram */}
@@ -86,7 +124,7 @@ const ManualMeasureScreen = () => {
             </View>
           </View>
           <Text className="text-[#6B7280] text-sm text-center mt-4">
-            Wrap tape at chest height{'\n'}(1.3m from ground)
+            Wrap string at chest height{' '}(1.3m from ground)
           </Text>
           <Text className="text-[#2D6A4F] text-xs text-center mt-2">
             We'll calculate the diameter for you
@@ -148,16 +186,12 @@ const ManualMeasureScreen = () => {
                 </Text>
               </View>
             </View>
-            <Text
-              className="text-[#191C1B] text-3xl font-bold mb-2"
+            <Text className="text-[#191C1B] text-3xl font-bold mb-2"
               style={{fontFamily: 'RobotoMono-Bold'}}>
               {calculatedDiameter.toFixed(1)} cm
             </Text>
             <Text className="text-[#6B7280] text-xs">
-              Diameter = Circumference ÷ π
-            </Text>
-            <Text className="text-[#6B7280] text-xs mt-1">
-              Calculated from {circumference} cm circumference
+              Diameter: {calculatedDiameter.toFixed(1)} cm (calculated from {circumference} cm circumference)
             </Text>
           </View>
         )}

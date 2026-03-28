@@ -20,7 +20,7 @@ import type {LandState} from '../features/land/store/landSlice';
 import auditReducer from '../features/ar-audit/store/auditSlice';
 import type {AuditState} from '../features/ar-audit/store/auditSlice';
 import creditsReducer from '../features/dashboard/store/creditsSlice';
-import type {CreditsState} from '../features/dashboard/store/creditsSlice';
+import uiReducer from './uiSlice';
 
 const migrations = {};
 
@@ -50,19 +50,12 @@ const auditPersistConfig: PersistConfig<AuditState> = {
   stateReconciler: autoMergeLevel2,
 };
 
-const creditsPersistConfig: PersistConfig<CreditsState> = {
-  key: 'credits',
-  version: 1,
-  storage: mmkvStorage,
-  migrate: createMigrate(migrations, {debug: false}),
-  stateReconciler: autoMergeLevel2,
-};
-
 const rootReducer = combineReducers({
   auth: persistReducer(authPersistConfig, authReducer),
   land: persistReducer(landPersistConfig, landReducer),
   audit: persistReducer(auditPersistConfig, auditReducer),
-  credits: persistReducer(creditsPersistConfig, creditsReducer),
+  credits: creditsReducer,
+  ui: uiReducer,
 });
 
 export const store = configureStore({

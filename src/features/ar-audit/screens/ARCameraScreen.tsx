@@ -24,10 +24,12 @@ import LottieView from 'lottie-react-native';
 import type {RootStackParamList} from '../../../types/navigation';
 import {useAppDispatch, useAppSelector} from '../../../store/hooks';
 import type {AuditState, TreeSample} from '../store/auditSlice';
-import {addScannedTree} from '../store/auditSlice';
 import {
   measureTreeDiameter,
   identifySpecies,
+  beginHeightMeasurement,
+  captureHeightPoint,
+  cancelHeightMeasurement,
 } from '../../../services/ar-bridge';
 import {hashPhoto} from '../../../common/utils/hash';
 import {
@@ -36,6 +38,7 @@ import {
   getWoodDensity,
 } from '../../../common/constants/species';
 import {v4 as uuidv4} from 'uuid';
+import {ensureCameraPermission} from '../../../common/utils/permissions';
 
 type NavProp = NativeStackNavigationProp<RootStackParamList, 'ARCameraScreen'>;
 type RouteType = RouteProp<RootStackParamList, 'ARCameraScreen'>;
@@ -45,6 +48,8 @@ type MeasurePhase =
   | 'identifying'
   | 'species_done'
   | 'measuring'
+  | 'height_base'
+  | 'height_top'
   | 'result'
   | 'success';
 
@@ -72,6 +77,7 @@ const ARCameraScreen = () => {
 
   // Measurement
   const [diameterCm, setDiameterCm] = useState<number | null>(null);
+  const [arHeightM, setArHeightM] = useState<number | null>(null);
   const [measureConfidence, setMeasureConfidence] = useState(0);
   const [tierUsed, setTierUsed] = useState<1 | 2 | 3>(arTier as 1 | 2 | 3);
   const [consecutiveFailures, setConsecutiveFailures] = useState(0);
@@ -84,6 +90,7 @@ const ARCameraScreen = () => {
   const [gpsLat, setGpsLat] = useState(0);
   const [gpsLng, setGpsLng] = useState(0);
   const [gpsAccuracy, setGpsAccuracy] = useState(0);
+  const [hasCameraPermission, setHasCameraPermission] = useState<boolean | null>(null);
 
   // Timer animation
   const timerProgress = useSharedValue(0);
@@ -96,6 +103,27 @@ const ARCameraScreen = () => {
   const slamArrowStyle = useAnimatedStyle(() => ({
     transform: [{translateX: slamArrowX.value}],
   }));
+
+  useEffect(() => {
+    let mounted = true;
+
+    const requestCameraAccess = async () => {
+      const cameraGranted = await ensureCameraPermission();
+      const visionCameraGranted =
+        (await Camera.getCameraPermissionStatus()) === 'granted' ||
+        (await Camera.requestCameraPermission()) === 'granted';
+
+      if (mounted) {
+        setHasCameraPermission(cameraGranted && visionCameraGranted);
+      }
+    };
+
+    void requestCameraAccess();
+
+    return () => {
+      mounted = false;
+    };
+  }, []);
 
   // Wire returnDiameter from ManualMeasureScreen (T031)
   useEffect(() => {
@@ -126,10 +154,17 @@ const ARCameraScreen = () => {
   }, []);
 
   const treesInZone = scannedTrees.filter(t => t.zone_id === zoneId).length;
-  const treesPerZone = Math.max(
-    3,
-    Math.floor(minTreesRequired / Math.max(zones.length, 1)),
-  );
+  const totalScanned = scannedTrees.length;
+  const totalRequired = minTreesRequired;
+  const needsArHeight = Boolean(currentZone && !currentZone.gedi_available);
+  const canMeasureArHeight = needsArHeight && arTier !== 3;
+  const requiresArHeightBeforeSave = needsArHeight && canMeasureArHeight;
+
+  useEffect(() => {
+    return () => {
+      void cancelHeightMeasurement().catch(() => undefined);
+    };
+  }, []);
 
   // ──── IDENTIFY SPECIES ────
   const handleIdentifySpecies = useCallback(async () => {
@@ -278,18 +313,92 @@ const ARCameraScreen = () => {
     }
   }, [arTier, consecutiveFailures, navigation, timerProgress, slamArrowX]);
 
-  // ──── ACCEPT & SAVE ────
+  const handleStartHeightMeasurement = useCallback(async () => {
+    if (!canMeasureArHeight) {
+      Alert.alert(
+        'Height Measurement Unavailable',
+        'This device cannot capture AR height for zones without GEDI satellite data.',
+      );
+      return;
+    }
+
+    try {
+      await beginHeightMeasurement();
+      setPhase('height_base');
+      setStatusText(
+        'GEDI satellite data not available. Point at the base of the tree, then tap Base.',
+      );
+    } catch {
+      Alert.alert(
+        'Height Measurement Unavailable',
+        'Could not start AR height measurement. Hold the phone steady and try again.',
+      );
+    }
+  }, [canMeasureArHeight]);
+
+  const handleCaptureHeightBase = useCallback(async () => {
+    try {
+      await captureHeightPoint('base');
+      setPhase('height_top');
+      setStatusText('Base marked. Tilt to the top of the tree, then tap Top.');
+    } catch {
+      Alert.alert(
+        'Base Not Captured',
+        'Point at the base of the tree and hold steady, then try again.',
+      );
+    }
+  }, []);
+
+  const handleCaptureHeightTop = useCallback(async () => {
+    try {
+      const result = await captureHeightPoint('top');
+      const heightM = result.height_m ?? null;
+      setArHeightM(heightM);
+      ReactNativeHapticFeedback.trigger('impactMedium');
+      setStatusText(
+        heightM !== null
+          ? `Height measured: ${heightM.toFixed(1)} m`
+          : 'Height measured',
+      );
+      setPhase(diameterCm !== null ? 'result' : 'species_done');
+    } catch {
+      Alert.alert(
+        'Height Not Captured',
+        'Point at the top of the tree and hold steady, then try again.',
+      );
+    }
+  }, [diameterCm]);
+
+  const handleCancelHeightMeasurement = useCallback(() => {
+    void cancelHeightMeasurement().catch(() => undefined);
+    setStatusText(
+      diameterCm !== null
+        ? 'Measurement complete'
+        : 'Species identified — Measure diameter',
+    );
+    setPhase(diameterCm !== null ? 'result' : 'species_done');
+  }, [diameterCm]);
+
+  // ──── ACCEPT — navigate to TreeResult with pendingTree (Flaw #81) ────
   const handleAcceptSave = useCallback(() => {
     if (!speciesName || diameterCm === null) return;
 
-    const treeSample: TreeSample = {
+    if (requiresArHeightBeforeSave && arHeightM === null) {
+      Alert.alert(
+        'Measure Height First',
+        'This zone has no GEDI satellite height data, so you need to capture tree height before saving.',
+      );
+      return;
+    }
+
+    const pendingTree: TreeSample = {
       tree_id: uuidv4(),
       zone_id: zoneId,
       species: speciesName,
       species_confidence: speciesConfidence,
       dbh_cm: Math.round(diameterCm * 10) / 10,
       wood_density: woodDensity,
-      ar_height_m: null,
+      ar_height_m: needsArHeight ? arHeightM : null,
       measurement_tier: tierUsed,
       confidence_score: measureConfidence,
       gps_lat: gpsLat,
@@ -300,17 +409,19 @@ const ARCameraScreen = () => {
       scan_timestamp: new Date().toISOString(),
     };
 
-    // Show success animation
+    // Show success animation then navigate to review
     setPhase('success');
     setTimeout(() => {
-      dispatch(addScannedTree(treeSample));
-      navigation.navigate('TreeResultScreen');
+      navigation.navigate('TreeResultScreen', {pendingTree});
     }, 1500);
   }, [
+    arHeightM,
     speciesName,
     diameterCm,
     speciesConfidence,
     woodDensity,
+    needsArHeight,
+    requiresArHeightBeforeSave,
     tierUsed,
     measureConfidence,
     gpsLat,
@@ -334,6 +445,33 @@ const ARCameraScreen = () => {
     if (tierUsed === 2) return {label: '◉ Standard Precision', color: 'bg-[#FEF3C7] text-[#92400E]'};
     return {label: '◎ Manual Measurement', color: 'bg-[#F3F4F6] text-[#6B7280]'};
   })();
+
+  if (hasCameraPermission === false) {
+    return (
+      <View className="flex-1 items-center justify-center bg-black px-8">
+        <Text className="text-center text-lg font-semibold text-white">
+          Camera permission is required to scan trees.
+        </Text>
+        <TouchableOpacity
+          onPress={() => {
+            void Camera.requestCameraPermission().then(status => {
+              setHasCameraPermission(status === 'granted');
+            });
+          }}
+          className="mt-6 rounded-xl bg-[#2D6A4F] px-6 py-3">
+          <Text className="font-bold text-white">Allow Camera Access</Text>
+        </TouchableOpacity>
+      </View>
+    );
+  }
+
+  if (hasCameraPermission === null) {
+    return (
+      <View className="flex-1 items-center justify-center bg-black">
+        <Text className="text-lg text-white">Checking camera permission…</Text>
+      </View>
+    );
+  }
 
   if (!device) {
     return (
@@ -366,7 +504,7 @@ const ARCameraScreen = () => {
         </Text>
         <View className="bg-white/20 rounded-full px-3 py-1">
           <Text className="text-white text-sm font-bold">
-            {treesInZone}/{treesPerZone}
+            {totalScanned}/{totalRequired}
           </Text>
         </View>
       </View>
@@ -473,16 +611,50 @@ const ARCameraScreen = () => {
 
             {/* Measure Height — only if gedi_available === false */}
             {phase === 'species_done' &&
-              currentZone &&
-              !currentZone.gedi_available && (
+              canMeasureArHeight && (
                 <TouchableOpacity
-                  onPress={() => {
-                    /* Height measurement TBD */
-                  }}
+                  onPress={handleStartHeightMeasurement}
                   className="h-14 px-4 rounded-xl border-2 border-white/60 items-center justify-center">
                   <Text className="text-white text-sm">📐 Height</Text>
                 </TouchableOpacity>
               )}
+          </View>
+        </View>
+      )}
+
+      {(phase === 'height_base' || phase === 'height_top') && (
+        <View className="absolute bottom-0 left-0 right-0 px-5 pb-8 pt-6 bg-gradient-to-t from-black/80">
+          <View className="rounded-2xl bg-black/60 p-4 mb-4">
+            <Text className="text-white text-base font-semibold">
+              {phase === 'height_base'
+                ? 'Point the crosshair at the base of the tree trunk.'
+                : 'Tilt up and place the crosshair on the top of the tree.'}
+            </Text>
+            <Text className="text-white/70 text-sm mt-2">
+              {phase === 'height_base'
+                ? 'Tap Base when the crosshair is on the tree base.'
+                : 'Tap Top to calculate the vertical height between both points.'}
+            </Text>
+          </View>
+          <View className="flex-row space-x-3">
+            <TouchableOpacity
+              onPress={handleCancelHeightMeasurement}
+              className="flex-1 h-14 rounded-xl border-2 border-white/60 items-center justify-center">
+              <Text className="text-white text-base font-semibold">
+                Cancel
+              </Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              onPress={
+                phase === 'height_base'
+                  ? handleCaptureHeightBase
+                  : handleCaptureHeightTop
+              }
+              className="flex-1 h-14 rounded-xl bg-[#2D6A4F] items-center justify-center">
+              <Text className="text-white text-base font-bold">
+                {phase === 'height_base' ? 'Mark Base' : 'Mark Top'}
+              </Text>
+            </TouchableOpacity>
           </View>
         </View>
       )}
@@ -523,6 +695,31 @@ const ARCameraScreen = () => {
             </Text>
           </View>
 
+          <View className="mb-5">
+            <Text className="text-[#6B7280] text-sm mb-1">Height</Text>
+            <Text
+              className="text-[#191C1B] text-lg font-bold"
+              style={{fontFamily: 'RobotoMono-Regular'}}>
+              {needsArHeight
+                ? arHeightM !== null
+                  ? `${arHeightM.toFixed(1)} m`
+                  : canMeasureArHeight
+                    ? 'Not measured yet'
+                    : 'AR height unavailable on this device'
+                : 'From GEDI Satellite'}
+            </Text>
+          </View>
+
+          {canMeasureArHeight && arHeightM === null && (
+            <TouchableOpacity
+              onPress={handleStartHeightMeasurement}
+              className="mb-3 h-12 rounded-xl border-2 border-[#2D6A4F] items-center justify-center">
+              <Text className="text-[#2D6A4F] text-base font-semibold">
+                Measure Height
+              </Text>
+            </TouchableOpacity>
+          )}
+
           {/* Buttons */}
           <View className="flex-row space-x-3">
             <TouchableOpacity
@@ -534,7 +731,14 @@ const ARCameraScreen = () => {
             </TouchableOpacity>
             <TouchableOpacity
               onPress={handleAcceptSave}
-              className="flex-1 h-14 rounded-xl bg-[#2D6A4F] items-center justify-center">
+              disabled={requiresArHeightBeforeSave && arHeightM === null}
+              className="flex-1 h-14 rounded-xl items-center justify-center"
+              style={{
+                backgroundColor:
+                  requiresArHeightBeforeSave && arHeightM === null
+                    ? 'rgba(45,106,79,0.5)'
+                    : '#2D6A4F',
+              }}>
               <Text className="text-white text-base font-bold">
                 Accept & Save
               </Text>

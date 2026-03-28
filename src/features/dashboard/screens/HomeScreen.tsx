@@ -14,16 +14,17 @@ import type {NativeStackNavigationProp} from '@react-navigation/native-stack';
 import {useAppSelector, useAppDispatch} from '../../../store/hooks';
 import {fetchCreditsThunk} from '../store/creditsSlice';
 import type {AuditRecord} from '../store/creditsSlice';
-import {getLandStatus} from '../../../common/utils/getLandStatus';
+import {getLandStatusMeta} from '../../../common/utils/getLandStatus';
+import {COLORS} from '../../../common/constants/colors';
 import type {LandParcel} from '../../land/store/landSlice';
 import type {RootStackParamList} from '../../../types/navigation';
 
 type Nav = NativeStackNavigationProp<RootStackParamList>;
 
 const statusConfig = {
-  green: {bg: 'bg-[#255235]', text: 'text-[#93c4a0]', label: '✓ Verified'},
-  orange: {bg: 'bg-[#5C4200]', text: 'text-[#eec060]', label: '⏳ Pending'},
-  red: {bg: 'bg-[#93000a]', text: 'text-[#ffb4ab]', label: '⏳ Pending'},
+  green: {bg: `bg-[${COLORS.FOREST_GREEN}]`, text: 'text-white'},
+  orange: {bg: `bg-[${COLORS.WARNING_ORANGE}]`, text: 'text-white'},
+  red: {bg: `bg-[${COLORS.ERROR_RED}]`, text: 'text-white'},
 };
 
 const HomeScreen = () => {
@@ -60,46 +61,46 @@ const HomeScreen = () => {
     prevBalance.current = balance;
   }, [pendingMint, balance]);
 
-  // History preview — last 2 entries desc
+  // History preview — last 3 entries desc
   const previewHistory = useMemo(
     () =>
       [...history]
         .sort((a, b) => b.audit_year - a.audit_year)
-        .slice(0, 2),
+        .slice(0, 3),
     [history],
   );
 
   return (
-    <View className="flex-1 bg-[#00180b]">
+    <View className={`flex-1 bg-[${COLORS.OFF_WHITE}]`}>
       <ScrollView className="flex-1 px-4 pt-12 pb-6">
         {/* Header */}
         <View className="flex-row items-center justify-between mb-6">
-          <Text className="text-[#cbead3] text-2xl font-bold font-[Manrope]">
+          <Text className={`text-[${COLORS.DARK_SLATE}] text-2xl font-bold font-[Roboto]`}>
             TerraTrust
           </Text>
         </View>
 
         {/* CTT Balance Card */}
-        <View className="bg-[#1f3a2a] rounded-xl p-5 mb-2">
+        <View className={`bg-[${COLORS.CARD_WHITE}] rounded-xl p-5 mb-2 shadow-sm`}>
           <View className="flex-row items-baseline">
-            <Text className="text-white text-4xl font-bold font-[RobotoMono-Bold]">
+            <Text className={`text-[${COLORS.DARK_SLATE}] text-4xl font-bold font-[RobotoMono-Bold]`}>
               {balance.toFixed(1)}
             </Text>
-            <Text className="text-[#93c4a0] text-lg ml-2 font-[RobotoMono-Regular]">
+            <Text className={`text-[${COLORS.FOREST_GREEN}] text-lg ml-2 font-[RobotoMono-Regular]`}>
               CTT
             </Text>
           </View>
-          <Text className="text-[#c2c8c1] text-sm mt-1 font-[Inter]">
+          <Text className={`text-[${COLORS.DISABLED_GREY}] text-sm mt-1 font-[Roboto]`}>
             Carbon Ton Tokens earned
           </Text>
-          <Text className="text-[#93c4a0] text-xs mt-1 font-[Inter]">
-            ≈ {balance.toFixed(1)} tonnes of CO2 stored on your land
+          <Text className={`text-[${COLORS.FOREST_GREEN}] text-xs mt-1 font-[Roboto]`}>
+            = {balance.toFixed(1)} tonnes of CO₂ stored on your land
           </Text>
 
           {/* Pending Mint Banner */}
           {pendingMint && (
-            <View className="bg-[#322200] rounded-lg px-3 py-2 mt-3">
-              <Text className="text-[#eec060] text-sm font-[Inter]">
+            <View className={`bg-[${COLORS.WARNING_ORANGE}]/10 rounded-lg px-3 py-2 mt-3`}>
+              <Text className={`text-[${COLORS.WARNING_ORANGE}] text-sm font-[Roboto]`}>
                 ⏳ Minting in progress…
               </Text>
             </View>
@@ -115,7 +116,7 @@ const HomeScreen = () => {
                 );
               }
             }}>
-            <Text className="text-[#eec060] text-sm font-[Inter]">
+            <Text className={`text-[${COLORS.TEAL}] text-sm font-[Roboto]`}>
               View on PolygonScan ↗
             </Text>
           </TouchableOpacity>
@@ -123,7 +124,7 @@ const HomeScreen = () => {
 
         {/* Last Updated Badge */}
         {lastFetchedAt && (
-          <Text className="text-[#8c928c] text-xs mb-6 font-[Inter]">
+          <Text className={`text-[${COLORS.DISABLED_GREY}] text-xs mb-6 font-[Roboto]`}>
             Last updated{' '}
             {new Date(lastFetchedAt).toLocaleDateString('en-GB', {
               day: 'numeric',
@@ -139,48 +140,48 @@ const HomeScreen = () => {
 
         {/* Land Parcels Section */}
         <View className="mb-6">
-          <Text className="text-[#cbead3] text-lg font-bold mb-3 font-[Manrope]">
-            Your Land
+          <Text className={`text-[${COLORS.DARK_SLATE}] text-lg font-bold mb-3 font-[Roboto]`}>
+            My Lands
           </Text>
           {parcels.map((parcel: LandParcel) => {
-            const status = getLandStatus(parcel);
-            const cfg = statusConfig[status];
+            const meta = getLandStatusMeta(parcel);
+            const cfg = statusConfig[meta.status];
             return (
               <View
                 key={parcel.id}
-                className="bg-[#092416] rounded-xl p-3 mb-3 flex-row items-center">
+                className={`bg-[${COLORS.CARD_WHITE}] rounded-xl p-3 mb-3 flex-row items-center shadow-sm`}>
                 {parcel.thumbnail_url ? (
                   <Image
                     source={{uri: parcel.thumbnail_url}}
                     className="w-16 h-16 rounded-lg"
                   />
                 ) : (
-                  <View className="w-16 h-16 rounded-lg bg-[#1f3a2a]" />
+                  <View className={`w-16 h-16 rounded-lg bg-[${COLORS.OFF_WHITE}]`} />
                 )}
                 <View className="flex-1 ml-3">
-                  <Text className="text-white text-base font-bold font-[Manrope]">
+                  <Text className={`text-[${COLORS.DARK_SLATE}] text-base font-bold font-[Roboto]`}>
                     {parcel.farm_name}
                   </Text>
-                  <Text className="text-[#c2c8c1] text-sm font-[Inter]">
+                  <Text className={`text-[${COLORS.DISABLED_GREY}] text-sm font-[Roboto]`}>
                     {parcel.area_hectares} ha
                   </Text>
                 </View>
                 <View className="items-end">
                   <View className={`${cfg.bg} rounded-full px-3 py-1`}>
-                    <Text className={`${cfg.text} text-xs font-[Inter]`}>
-                      {cfg.label}
+                    <Text className={`${cfg.text} text-xs font-[Roboto]`}>
+                      {meta.label}
                     </Text>
                   </View>
-                  {(status === 'orange' || status === 'red') && (
+                  {meta.showAudit && (
                     <TouchableOpacity
-                      className="bg-[#eec060] rounded-full px-3 py-2 mt-2 min-h-[48px] min-w-[48px] items-center justify-center"
+                      className={`bg-[${COLORS.FOREST_GREEN}] rounded-full px-3 py-2 mt-2 min-h-[48px] min-w-[48px] items-center justify-center`}
                       onPress={() =>
                         navigation.navigate('AuditStartScreen', {
                           landId: parcel.id,
                           landName: parcel.farm_name,
                         })
                       }>
-                      <Text className="text-[#402d00] text-xs font-bold font-[Inter]">
+                      <Text className="text-white text-xs font-bold font-[Roboto]">
                         Start Audit
                       </Text>
                     </TouchableOpacity>
@@ -191,41 +192,33 @@ const HomeScreen = () => {
           })}
         </View>
 
-        {/* Recent Credits Preview */}
+        {/* Credit History Preview */}
         <View className="mb-8">
-          <Text className="text-[#cbead3] text-lg font-bold mb-3 font-[Manrope]">
-            Recent Credits
+          <Text className={`text-[${COLORS.DARK_SLATE}] text-lg font-bold mb-3 font-[Roboto]`}>
+            Credit History
           </Text>
-          {previewHistory.map((record: AuditRecord) => (
-            <View
-              key={record.audit_id}
-              className="bg-[#092416] rounded-xl p-4 mb-3 flex-row items-center justify-between">
-              <View>
-                <Text className="text-[#c2c8c1] text-xs font-[Inter]">
-                  {record.audit_year}
-                </Text>
-                <Text className="text-[#eec060] text-base font-bold font-[RobotoMono-Bold] mt-1">
-                  +{record.credits_issued} CTT
-                </Text>
-              </View>
-              {record.ipfs_certificate_url ? (
-                <TouchableOpacity
-                  className="min-h-[48px] min-w-[48px] items-center justify-center"
-                  onPress={() =>
-                    Linking.openURL(record.ipfs_certificate_url)
-                  }>
-                  <Text className="text-[#eec060] text-sm font-[Inter]">
-                    View Certificate
-                  </Text>
-                </TouchableOpacity>
-              ) : null}
-            </View>
+          {previewHistory.map((record: AuditRecord, index: number) => (
+            <TouchableOpacity
+              key={`${record.audit_year}-${record.minted_at ?? index}`}
+              className={`bg-[${COLORS.CARD_WHITE}] rounded-xl p-4 mb-3 shadow-sm`}
+              onPress={() => {
+                if (record.ipfs_certificate_url) {
+                  Linking.openURL(record.ipfs_certificate_url);
+                }
+              }}>
+              <Text className={`text-[${COLORS.DARK_SLATE}] text-sm font-[Roboto]`}>
+                {record.audit_year}: +{record.credits_issued} CTT{' '}
+                <Text className={`text-[${COLORS.TEAL}]`}>| View Certificate</Text>
+              </Text>
+            </TouchableOpacity>
           ))}
           {history.length > 0 && (
             <TouchableOpacity
               className="min-h-[48px] min-w-[48px] items-center justify-center mt-1"
-              onPress={() => navigation.navigate('CreditHistoryScreen')}>
-              <Text className="text-[#eec060] text-sm font-bold font-[Inter]">
+              onPress={() =>
+                navigation.getParent()?.navigate('DashboardHistoryTab' as never)
+              }>
+              <Text className={`text-[${COLORS.TEAL}] text-sm font-bold font-[Roboto]`}>
                 View All History →
               </Text>
             </TouchableOpacity>

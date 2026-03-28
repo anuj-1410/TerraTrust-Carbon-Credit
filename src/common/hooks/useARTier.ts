@@ -10,8 +10,8 @@ export function useARTier(): ARTier {
   );
 
   useEffect(() => {
-    // If arTier is already restored from MMKV (non-default), skip native call
-    if (arTier !== 3) return;
+    // If arTier is already restored from MMKV (any non-null value), skip native call
+    if (arTier !== null) return;
 
     dispatch(detectAndSetARTier());
   }, [dispatch, arTier]);
