@@ -17,6 +17,7 @@ import type {RootStackParamList} from '../../../types/navigation';
 import {useAppSelector, useAppDispatch} from '../../../store/hooks';
 import {setUser, setKycCompleted} from '../store/authSlice';
 import api from '../../../services/api';
+import {supabase} from '../../../services/supabase';
 import {sha256} from '../../../common/utils/hash';
 import Loader from '../../../common/components/Loader';
 
@@ -54,6 +55,9 @@ const KYCScreen = () => {
     setIsLoading(true);
     setApiError(null);
     try {
+      const {
+        data: {session},
+      } = await supabase.auth.getSession();
       const response = await api.post('/api/v1/auth/kyc', {
         full_name: data.fullName,
         aadhaar_number: data.aadhaarNumber,
@@ -68,7 +72,7 @@ const KYCScreen = () => {
           setUser({
             id: userId,
             name: data.fullName,
-            phone: userPhone,
+            phone: userPhone || session?.user.phone || '',
             aadhaar_hash: aadhaarHash,
           }),
         );
@@ -106,16 +110,12 @@ const KYCScreen = () => {
         contentContainerStyle={{flexGrow: 1}}
         keyboardShouldPersistTaps="handled">
         <View className="flex-1 px-6 pt-16">
-          {/* Header */}
-          <Text className="text-[22px] font-bold text-[#0A3D2E]">
-            Complete Your Profile
-          </Text>
-          <Text className="mt-2 text-sm text-gray-500">
-            We need a few details to verify your identity
+          <Text className="text-base text-gray-700 leading-6">
+            Enter your name exactly as written on your land document (7/12 Extract)
           </Text>
 
           {/* Full Name */}
-          <View className="mt-8">
+          <View className="mt-6">
             <Text className="mb-2 text-sm font-medium text-gray-700">
               Full Name
             </Text>
@@ -125,7 +125,7 @@ const KYCScreen = () => {
               render={({field: {onChange, onBlur, value}}) => (
                 <TextInput
                   className="rounded-xl border border-gray-300 px-4 py-3 text-base text-gray-900"
-                  placeholder="Enter your name exactly as written on your land document (7/12 Extract)"
+                  placeholder="Full name"
                   placeholderTextColor="#9CA3AF"
                   onBlur={onBlur}
                   onChangeText={onChange}
@@ -181,7 +181,7 @@ const KYCScreen = () => {
           {/* Continue Button */}
           <TouchableOpacity
             className={`mt-8 min-h-[48px] items-center justify-center rounded-xl ${
-              isLoading ? 'bg-[#0A3D2E]/70' : 'bg-[#0A3D2E]'
+              isLoading ? 'bg-[#2F855A]/70' : 'bg-[#2F855A]'
             } shadow-md`}
             onPress={handleSubmit(onSubmit)}
             disabled={isLoading}
@@ -192,13 +192,6 @@ const KYCScreen = () => {
               <Text className="text-base font-bold text-white">Continue</Text>
             )}
           </TouchableOpacity>
-
-          {/* Security Note */}
-          <View className="mt-6 flex-row items-center justify-center">
-            <Text className="text-xs text-gray-400">
-              🔒 Your Aadhaar is encrypted and never stored
-            </Text>
-          </View>
         </View>
       </ScrollView>
     </KeyboardAvoidingView>

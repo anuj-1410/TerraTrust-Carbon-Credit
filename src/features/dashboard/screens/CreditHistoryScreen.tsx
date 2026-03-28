@@ -14,16 +14,17 @@ import {useNavigation} from '@react-navigation/native';
 import {useAppSelector, useAppDispatch} from '../../../store/hooks';
 import {fetchCreditsThunk} from '../store/creditsSlice';
 import type {AuditRecord} from '../store/creditsSlice';
+import {COLORS} from '../../../common/constants/colors';
 
 const screenWidth = Dimensions.get('window').width;
 
 const chartConfig = {
-  backgroundColor: '#1f3a2a',
-  backgroundGradientFrom: '#1f3a2a',
-  backgroundGradientTo: '#1f3a2a',
+  backgroundColor: COLORS.CARD_WHITE,
+  backgroundGradientFrom: COLORS.CARD_WHITE,
+  backgroundGradientTo: COLORS.CARD_WHITE,
   decimalPlaces: 1,
-  color: (opacity = 1) => `rgba(238, 192, 96, ${opacity})`,
-  labelColor: (opacity = 1) => `rgba(203, 234, 211, ${opacity})`,
+  color: (opacity = 1) => `rgba(47, 133, 90, ${opacity})`,
+  labelColor: (opacity = 1) => `rgba(45, 55, 72, ${opacity})`,
   style: {borderRadius: 12},
   barPercentage: 0.6,
   propsForLabels: {fontFamily: 'RobotoMono-Regular'},
@@ -76,7 +77,7 @@ const CreditHistoryScreen = () => {
   // Loading state
   if (isLoading && history.length === 0) {
     return (
-      <View className="flex-1 bg-[#00180b] items-center justify-center">
+      <View className={`flex-1 bg-[${COLORS.OFF_WHITE}] items-center justify-center`}>
         <LottieView
           source={require('../../../assets/lottie/spinning_leaf.json')}
           autoPlay
@@ -90,19 +91,19 @@ const CreditHistoryScreen = () => {
   // Empty state
   if (!isLoading && history.length === 0) {
     return (
-      <View className="flex-1 bg-[#00180b]">
+      <View className={`flex-1 bg-[${COLORS.OFF_WHITE}]`}>
         <View className="flex-row items-center px-4 pt-12 pb-4">
           <TouchableOpacity
             className="min-h-[48px] min-w-[48px] items-center justify-center"
             onPress={() => navigation.goBack()}>
-            <Text className="text-[#cbead3] text-2xl">←</Text>
+            <Text className={`text-[${COLORS.DARK_SLATE}] text-2xl`}>←</Text>
           </TouchableOpacity>
-          <Text className="text-[#cbead3] text-xl font-bold ml-3 font-[Manrope]">
+          <Text className={`text-[${COLORS.DARK_SLATE}] text-xl font-bold ml-3 font-[Roboto]`}>
             Credit History
           </Text>
         </View>
         <View className="flex-1 items-center justify-center px-8">
-          <Text className="text-[#c2c8c1] text-base text-center font-[Inter]">
+          <Text className={`text-[${COLORS.DISABLED_GREY}] text-base text-center font-[Roboto]`}>
             No audits yet. Complete your first audit to see your history.
           </Text>
         </View>
@@ -111,23 +112,23 @@ const CreditHistoryScreen = () => {
   }
 
   return (
-    <View className="flex-1 bg-[#00180b]">
+    <View className={`flex-1 bg-[${COLORS.OFF_WHITE}]`}>
       <ScrollView className="flex-1 px-4 pt-12 pb-6">
         {/* Header */}
         <View className="flex-row items-center mb-2">
           <TouchableOpacity
             className="min-h-[48px] min-w-[48px] items-center justify-center"
             onPress={() => navigation.goBack()}>
-            <Text className="text-[#cbead3] text-2xl">←</Text>
+            <Text className={`text-[${COLORS.DARK_SLATE}] text-2xl`}>←</Text>
           </TouchableOpacity>
-          <Text className="text-[#cbead3] text-xl font-bold ml-3 font-[Manrope]">
+          <Text className={`text-[${COLORS.DARK_SLATE}] text-xl font-bold ml-3 font-[Roboto]`}>
             Credit History
           </Text>
         </View>
 
         {/* Last Updated Badge */}
         {lastFetchedAt && !isLoading && (
-          <Text className="text-[#8c928c] text-xs mb-4 font-[Inter]">
+          <Text className={`text-[${COLORS.DISABLED_GREY}] text-xs mb-4 font-[Roboto]`}>
             Last updated{' '}
             {new Date(lastFetchedAt).toLocaleDateString('en-GB', {
               day: 'numeric',
@@ -143,8 +144,8 @@ const CreditHistoryScreen = () => {
 
         {/* Bar Chart */}
         {chartData && (
-          <View className="bg-[#1f3a2a] rounded-xl p-4 mb-6">
-            <Text className="text-[#c2c8c1] text-sm mb-3 font-[Inter]">
+          <View className={`bg-[${COLORS.CARD_WHITE}] rounded-xl p-4 mb-6 shadow-sm`}>
+            <Text className={`text-[${COLORS.DISABLED_GREY}] text-sm mb-3 font-[Roboto]`}>
               Year-over-Year Growth
             </Text>
             <BarChart
@@ -162,27 +163,27 @@ const CreditHistoryScreen = () => {
         )}
 
         {/* Audit History List */}
-        <Text className="text-[#cbead3] text-lg font-bold mb-3 font-[Manrope]">
+        <Text className={`text-[${COLORS.DARK_SLATE}] text-lg font-bold mb-3 font-[Roboto]`}>
           Audit History
         </Text>
-        {sortedHistory.map((record: AuditRecord) => (
+        {sortedHistory.map((record: AuditRecord, index: number) => (
           <View
-            key={record.audit_id}
-            className="bg-[#092416] rounded-xl p-4 mb-3">
+            key={`${record.audit_year}-${record.minted_at ?? index}`}
+            className={`bg-[${COLORS.CARD_WHITE}] rounded-xl p-4 mb-3 shadow-sm`}>
             {/* Top row: land name + year */}
             <View className="flex-row items-center justify-between mb-2">
-              <Text className="text-white text-base font-bold font-[Manrope]">
+              <Text className={`text-[${COLORS.DARK_SLATE}] text-base font-bold font-[Roboto]`}>
                 {record.land_name}
               </Text>
-              <View className="bg-[#1f3a2a] rounded-full px-3 py-1">
-                <Text className="text-[#c2c8c1] text-xs font-[RobotoMono-Regular]">
+              <View className={`bg-[${COLORS.OFF_WHITE}] rounded-full px-3 py-1`}>
+                <Text className={`text-[${COLORS.DISABLED_GREY}] text-xs font-[RobotoMono-Regular]`}>
                   {record.audit_year}
                 </Text>
               </View>
             </View>
 
             {/* Credits */}
-            <Text className="text-[#eec060] text-xl font-bold font-[RobotoMono-Bold] mb-3">
+            <Text className={`text-[${COLORS.FOREST_GREEN}] text-xl font-bold font-[RobotoMono-Bold] mb-3`}>
               +{record.credits_issued} CTT
             </Text>
 
@@ -194,7 +195,7 @@ const CreditHistoryScreen = () => {
                   onPress={() =>
                     Linking.openURL(record.ipfs_certificate_url)
                   }>
-                  <Text className="text-[#eec060] text-sm font-[Inter]">
+                  <Text className={`text-[${COLORS.TEAL}] text-sm font-[Roboto]`}>
                     View Certificate
                   </Text>
                 </TouchableOpacity>
@@ -207,7 +208,7 @@ const CreditHistoryScreen = () => {
                       `https://polygonscan.com/tx/${record.tx_hash}`,
                     )
                   }>
-                  <Text className="text-[#93c4a0] text-xs font-[RobotoMono-Regular]">
+                  <Text className={`text-[${COLORS.DISABLED_GREY}] text-xs font-[RobotoMono-Regular]`}>
                     {truncateHash(record.tx_hash)}
                   </Text>
                 </TouchableOpacity>

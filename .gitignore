@@ -1,50 +1,57 @@
-# Environment variables — NEVER commit these
+# Environment variables and local secrets
 .env
-.env.development
-.env.production
-.env.local
+.env.*
+!.env.example
 
-# Android secrets — NEVER commit
+# Android local config, signing, and build outputs
 android/local.properties
-
-# Node
-node_modules/
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
-
-# React Native
-*.orig.*
+android/.gradle/
+android/.kotlin/
+android/**/build/
+android/app/.cxx/
+android/app/src/main/assets/
+android/captures/
+*.apk
+*.aab
 *.jks
+*.keystore
 *.p8
 *.p12
 *.key
+
+# iOS and Xcode generated files
+ios/Pods/
+ios/build/
 *.mobileprovision
+*.xcuserstate
+ios/**/*.xcworkspace/xcuserdata/
+ios/**/*.xcodeproj/xcuserdata/
+
+# Node and React Native tooling
+node_modules/
+coverage/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+.metro-health-check*
+*.orig
 *.orig.*
 web-build/
 
-# Android build outputs
-android/app/build/
-android/build/
-android/.gradle/
-android/app/src/main/assets/
-
-# iOS (not needed but safe to include)
-ios/Pods/
-ios/build/
-
-# TFLite model — large binary, do NOT commit
-src/assets/tflite/species_model.tflite
-
-# SpecKit generated memory (optional — commit constitution
-# but ignore intermediate working files if you prefer)
-# .specify/memory/scratchpad.md
+# Ruby / CocoaPods local tooling
+.bundle/
+vendor/bundle/
 
 # IDE
 .vscode/
 .idea/
 *.iml
 
-# OS
+# Local scratch and OS files
+terminal.txt
+flaws.txt
+flaws_reviewed.txt
+*.hprof
 .DS_Store
 Thumbs.db

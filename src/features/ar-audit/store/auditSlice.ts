@@ -3,9 +3,6 @@ import api from '../../../services/api';
 import {detectARTier as detectARTierBridge} from '../../../services/ar-bridge';
 import {hashPhoto} from '../../../common/utils/hash';
 import type {RootState} from '../../../store/index';
-import {createMMKV} from 'react-native-mmkv';
-
-const mmkv = createMMKV({id: 'terratrust-store'});
 
 export type ARTier = 1 | 2 | 3;
 export type UploadStatus =
@@ -163,8 +160,6 @@ export const submitAudit = createAsyncThunk<
     return {audit_id: activeAuditId};
   } catch (error: any) {
     if (!error.response) {
-      // Offline — save to MMKV for background-fetch retry
-      mmkv.set('pending_upload', JSON.stringify(payload));
       return rejectWithValue('__OFFLINE__');
     }
     if (error.response?.data?.error) {

@@ -1,97 +1,98 @@
-This is a new [**React Native**](https://reactnative.dev) project, bootstrapped using [`@react-native-community/cli`](https://github.com/react-native-community/cli).
+# TerraTrust-AR
 
-# Getting Started
+TerraTrust-AR is the Android React Native client for the TerraTrust tree-audit and carbon-credit workflow. The app handles farmer auth, land registration, AR-assisted tree measurement, offline audit retry, and dashboard credit visibility while relying on Supabase, backend APIs, MMKV persistence, and native Android AR/TFLite integrations.
 
-> **Note**: Make sure you have completed the [Set Up Your Environment](https://reactnative.dev/docs/set-up-your-environment) guide before proceeding.
+## Stack
 
-## Step 1: Start Metro
+- React Native CLI 0.84.x with TypeScript
+- NativeWind 4
+- Redux Toolkit + redux-persist + MMKV
+- React Navigation 7
+- react-native-vision-camera
+- react-native-background-fetch
+- react-native-quick-crypto
+- react-native-keychain
+- ethers v6
+- Supabase JS
 
-First, you will need to run **Metro**, the JavaScript build tool for React Native.
+## Prerequisites
 
-To start the Metro dev server, run the following command from the root of your React Native project:
+- Node.js 22.11+
+- npm 10+
+- JDK 17
+- Android Studio with Android SDK
+- Android NDK matching the project Gradle config
+- A running Android emulator or USB-connected Android device
 
-```sh
-# Using npm
+## Environment Setup
+
+1. Copy the example file values into your local environment file strategy.
+2. Fill the required keys in `.env.development` for local builds.
+3. Fill `.env.production` for release builds.
+
+Required variables:
+
+```env
+API_BASE_URL=
+SUPABASE_URL=
+SUPABASE_ANON_KEY=
+GOOGLE_MAPS_API_KEY=
+ALCHEMY_POLYGON_AMOY_URL=
+CONTRACT_ADDRESS=
+```
+
+Notes:
+
+- `API_BASE_URL` must be the server root only, for example `http://10.0.2.2:8000`.
+- `CONTRACT_ADDRESS` is still a deployment-time input and must not remain the zero address.
+- `GOOGLE_MAPS_API_KEY` must be configured for Android Maps usage.
+
+## Install
+
+```powershell
+npm install
+```
+
+## Run on Android
+
+Start Metro:
+
+```powershell
 npm start
-
-# OR using Yarn
-yarn start
 ```
 
-## Step 2: Build and run your app
+In a second terminal, build and launch the app:
 
-With Metro running, open a new terminal window/pane from the root of your React Native project, and use one of the following commands to build and run your Android or iOS app:
-
-### Android
-
-```sh
-# Using npm
+```powershell
 npm run android
-
-# OR using Yarn
-yarn android
 ```
 
-### iOS
+## Tests
 
-For iOS, remember to install CocoaPods dependencies (this only needs to be run on first clone or after updating native deps).
-
-The first time you create a new project, run the Ruby bundler to install CocoaPods itself:
-
-```sh
-bundle install
+```powershell
+npm test
 ```
 
-Then, and every time you update your native dependencies, run:
+## Important Assets
 
-```sh
-bundle exec pod install
-```
+- `src/assets/tflite/species_model.tflite` is required by the native species inference bridge.
+- The file currently exists as a placeholder in the repository and must be replaced with the real trained model before production use.
+- Lottie assets are expected in `src/assets/lottie/`.
 
-For more information, please visit [CocoaPods Getting Started guide](https://guides.cocoapods.org/using/getting-started.html).
+## Architecture Notes
 
-```sh
-# Using npm
-npm run ios
+- Offline audit retry is stored in MMKV under `pending_upload` and retried through `react-native-background-fetch`.
+- Sensitive wallet material is stored in Keychain, not Redux or MMKV.
+- Aadhaar is hashed on-device before being persisted to Redux.
+- AR measurement and species inference are bridged through `android/app/src/main/java/com/terratrustar/ar/ARModule.kt`.
+- The main dashboard is exposed through a bottom-tab navigator hosted inside the root app shell.
 
-# OR using Yarn
-yarn ios
-```
+## Known External Dependencies
 
-If everything is set up correctly, you should see your new app running in the Android Emulator, iOS Simulator, or your connected device.
+- Real Polygon/Alchemy environment values are still required.
+- The production-ready TFLite model file is still required.
+- Maps functionality depends on a valid Android Maps API key.
 
-This is one way to run your app — you can also build it directly from Android Studio or Xcode.
+## Scope
 
-## Step 3: Modify your app
-
-Now that you have successfully run the app, let's make changes!
-
-Open `App.tsx` in your text editor of choice and make some changes. When you save, your app will automatically update and reflect these changes — this is powered by [Fast Refresh](https://reactnative.dev/docs/fast-refresh).
-
-When you want to forcefully reload, for example to reset the state of your app, you can perform a full reload:
-
-- **Android**: Press the <kbd>R</kbd> key twice or select **"Reload"** from the **Dev Menu**, accessed via <kbd>Ctrl</kbd> + <kbd>M</kbd> (Windows/Linux) or <kbd>Cmd ⌘</kbd> + <kbd>M</kbd> (macOS).
-- **iOS**: Press <kbd>R</kbd> in iOS Simulator.
-
-## Congratulations! :tada:
-
-You've successfully run and modified your React Native App. :partying_face:
-
-### Now what?
-
-- If you want to add this new React Native code to an existing application, check out the [Integration guide](https://reactnative.dev/docs/integration-with-existing-apps).
-- If you're curious to learn more about React Native, check out the [docs](https://reactnative.dev/docs/getting-started).
-
-# Troubleshooting
-
-If you're having issues getting the above steps to work, see the [Troubleshooting](https://reactnative.dev/docs/troubleshooting) page.
-
-# Learn More
-
-To learn more about React Native, take a look at the following resources:
-
-- [React Native Website](https://reactnative.dev) - learn more about React Native.
-- [Getting Started](https://reactnative.dev/docs/environment-setup) - an **overview** of React Native and how setup your environment.
-- [Learn the Basics](https://reactnative.dev/docs/getting-started) - a **guided tour** of the React Native **basics**.
-- [Blog](https://reactnative.dev/blog) - read the latest official React Native **Blog** posts.
-- [`@facebook/react-native`](https://github.com/facebook/react-native) - the Open Source; GitHub **repository** for React Native.
+This workspace targets the Android mobile client. iOS scaffold files may exist from the React Native project template, but Android is the supported platform for current development and validation.

@@ -1,15 +1,21 @@
-import '../../global.css';
 import React, {useEffect} from 'react';
+import {View, Text, TouchableOpacity} from 'react-native';
 import {Provider} from 'react-redux';
 import {PersistGate} from 'redux-persist/integration/react';
 import {NavigationContainer} from '@react-navigation/native';
 import {createNativeStackNavigator} from '@react-navigation/native-stack';
+import {createBottomTabNavigator} from '@react-navigation/bottom-tabs';
 import BackgroundFetch from 'react-native-background-fetch';
+import NetInfo from '@react-native-community/netinfo';
 
 import {store, persistor} from '../store';
 import type {RootStackParamList} from '../types/navigation';
+import {navigationRef} from '../services/navigationRef';
+import {useAppSelector, useAppDispatch} from '../store/hooks';
+import {hideBanner, showBanner} from '../store/uiSlice';
 import Loader from '../common/components/Loader';
-import {retryPendingUpload} from '../services/pendingUploadService';
+import {retryPendingAuditUpload} from '../services/api';
+import {COLORS} from '../common/constants/colors';
 
 // Auth screens
 import SplashScreen from '../features/auth/screens/SplashScreen';
@@ -36,9 +42,39 @@ import HomeScreen from '../features/dashboard/screens/HomeScreen';
 import CreditHistoryScreen from '../features/dashboard/screens/CreditHistoryScreen';
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
+const Tab = createBottomTabNavigator();
 
-function configureBackgroundFetch() {
-  BackgroundFetch.configure(
+function MainTabs() {
+  return (
+    <Tab.Navigator
+      screenOptions={{
+        headerShown: false,
+        tabBarActiveTintColor: COLORS.FOREST_GREEN,
+        tabBarInactiveTintColor: COLORS.DISABLED_GREY,
+        tabBarStyle: {
+          backgroundColor: COLORS.CARD_WHITE,
+          borderTopColor: COLORS.OFF_WHITE,
+          height: 64,
+          paddingBottom: 8,
+          paddingTop: 8,
+        },
+      }}>
+      <Tab.Screen
+        name="DashboardHomeTab"
+        component={HomeScreen}
+        options={{title: 'Home'}}
+      />
+      <Tab.Screen
+        name="DashboardHistoryTab"
+        component={CreditHistoryScreen}
+        options={{title: 'Credit History'}}
+      />
+    </Tab.Navigator>
+  );
+}
+
+async function configureBackgroundFetch() {
+  await BackgroundFetch.configure(
     {
       minimumFetchInterval: 15,
       stopOnTerminate: false,
@@ -47,25 +83,83 @@ function configureBackgroundFetch() {
       requiredNetworkType: BackgroundFetch.NETWORK_TYPE_ANY,
     },
     async taskId => {
-      await retryPendingUpload(taskId);
+      await retryPendingAuditUpload();
       BackgroundFetch.finish(taskId);
     },
     async taskId => {
-      // Timeout handler
       BackgroundFetch.finish(taskId);
     },
   );
 }
 
-const App = () => {
+function AppLifecycleEffects() {
+  const dispatch = useAppDispatch();
+  const bannerType = useAppSelector(state => state.ui.bannerType);
+
   useEffect(() => {
-    configureBackgroundFetch();
+    void configureBackgroundFetch();
   }, []);
 
+  useEffect(() => {
+    const unsubscribe = NetInfo.addEventListener(state => {
+      const isOffline =
+        state.isConnected === false || state.isInternetReachable === false;
+
+      if (isOffline) {
+        dispatch(
+          showBanner({
+            message: 'No internet connection. Your data is saved locally.',
+            type: 'offline',
+          }),
+        );
+        return;
+      }
+
+      if (bannerType === 'offline') {
+        dispatch(hideBanner());
+      }
+    });
+
+    return unsubscribe;
+  }, [bannerType, dispatch]);
+
+  return null;
+}
+
+function GlobalBanner() {
+  const bannerMessage = useAppSelector(state => state.ui.bannerMessage);
+  const bannerType = useAppSelector(state => state.ui.bannerType);
+  const dispatch = useAppDispatch();
+
+  if (!bannerMessage) return null;
+
+  const backgroundColor =
+    bannerType === 'error'
+      ? COLORS.ERROR_RED
+      : bannerType === 'offline'
+        ? COLORS.WARNING_ORANGE
+        : COLORS.TEAL;
+
+  return (
+    <TouchableOpacity
+      className="px-4 py-3"
+      style={{backgroundColor}}
+      onPress={() => dispatch(hideBanner())}
+      activeOpacity={0.8}>
+      <Text className="text-center text-sm font-medium text-white">
+        {bannerMessage}
+      </Text>
+    </TouchableOpacity>
+  );
+}
+
+const App = () => {
   return (
     <Provider store={store}>
       <PersistGate loading={<Loader />} persistor={persistor}>
-        <NavigationContainer>
+        <AppLifecycleEffects />
+        <NavigationContainer ref={navigationRef}>
+          <GlobalBanner />
           <Stack.Navigator
             initialRouteName="SplashScreen"
             screenOptions={{headerShown: false}}>
@@ -120,7 +214,7 @@ const App = () => {
             {/* Dashboard */}
             <Stack.Screen
               name="HomeScreen"
-              component={HomeScreen}
+              component={MainTabs}
               options={{gestureEnabled: false}}
             />
             <Stack.Screen

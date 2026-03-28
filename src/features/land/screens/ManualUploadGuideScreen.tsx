@@ -2,15 +2,15 @@ import React, {useCallback, useState} from 'react';
 import {View, Text, TouchableOpacity, ScrollView, Linking} from 'react-native';
 import {useNavigation} from '@react-navigation/native';
 import type {NativeStackNavigationProp} from '@react-navigation/native-stack';
-import DocumentPicker, {types} from 'react-native-document-picker';
-import Geolocation from 'react-native-geolocation-service';
+import {pick, types, isErrorWithCode, errorCodes} from '@react-native-documents/picker';
 import NetInfo from '@react-native-community/netinfo';
 import LottieView from 'lottie-react-native';
 
 import type {RootStackParamList} from '../../../types/navigation';
 import {useAppDispatch} from '../../../store/hooks';
-import {setCurrentDraft, type OCRResult, type BoundarySource, type GeoJSONPolygon} from '../store/landSlice';
+import {setCurrentDraft, type BoundarySource, type GeoJSONPolygon} from '../store/landSlice';
 import api from '../../../services/api';
+import {COLORS} from '../../../common/constants/colors';
 
 type Nav = NativeStackNavigationProp<RootStackParamList>;
 
@@ -25,27 +25,18 @@ interface Step {
 }
 
 const STEPS: Step[] = [
-  {number: 1, title: 'Visit the Government Portal', description: ''},
-  {number: 2, title: 'Locate Your Plot', description: 'Use your Survey Number and village name to find your land parcel on the map.'},
-  {number: 3, title: 'Take a Screenshot', description: 'Capture a clear screenshot showing your entire land boundary on the map.'},
-  {number: 4, title: 'Upload the Screenshot', description: "We'll extract the boundary from your screenshot automatically."},
+  {number: 1, title: 'Open bhunaksha.mahabhumi.gov.in', description: ''},
+  {number: 2, title: 'Select your District, Taluka, Village from the menus', description: ''},
+  {number: 3, title: 'Find your Survey Number and tap Download', description: ''},
+  {number: 4, title: 'Come back here and upload the downloaded image', description: ''},
 ];
-
-const getGPS = (): Promise<{lat: number; lng: number} | null> =>
-  new Promise(resolve => {
-    Geolocation.getCurrentPosition(
-      pos => resolve({lat: pos.coords.latitude, lng: pos.coords.longitude}),
-      () => resolve(null),
-      {timeout: 5000, enableHighAccuracy: false},
-    );
-  });
 
 const ManualUploadGuideScreen = () => {
   const navigation = useNavigation<Nav>();
   const dispatch = useAppDispatch();
 
   const [isLoading, setIsLoading] = useState(false);
-  const [loadingText, setLoadingText] = useState('Reading your document…');
+  const [loadingText, setLoadingText] = useState('Processing your map…');
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [isOffline, setIsOffline] = useState(false);
 
@@ -64,80 +55,52 @@ const ManualUploadGuideScreen = () => {
     }
 
     try {
-      const result = await DocumentPicker.pickSingle({type: [types.images]});
+      const [result] = await pick({type: [types.images]});
 
       if (result.size && result.size > MAX_FILE_SIZE) {
-        setErrorMessage('Image is too large. Please take a clearer, smaller photo.');
+        setErrorMessage('Image is too large. Please use a smaller file.');
         return;
       }
 
       setIsLoading(true);
-      setLoadingText('Reading your document…');
+      setLoadingText('Processing your map…');
 
-      // Step 1: OCR via verify-document
+      // Layer 3: Upload to process-manual-map endpoint (OpenCV extraction)
       const formData = new FormData();
-      formData.append('image', {
+      formData.append('map_image', {
         uri: result.uri,
-        type: result.type ?? 'image/jpeg',
-        name: result.name ?? 'boundary_screenshot.jpg',
+        type: result.nativeType ?? 'image/jpeg',
+        name: result.name ?? 'map.jpg',
       } as unknown as Blob);
 
-      const {data: ocrData} = await api.post('/land/verify-document', formData, {
+      const {data} = await api.post('/api/v1/land/process-manual-map', formData, {
         headers: {'Content-Type': 'multipart/form-data'},
       });
 
-      const ocrResult = (ocrData as {ocr_result: OCRResult}).ocr_result;
-      dispatch(setCurrentDraft({ocr_result: ocrResult}));
-
-      // Step 2: Fetch boundary
-      setLoadingText('Fetching boundary…');
-
-      const gps = await getGPS();
-      const params: Record<string, string | number> = {
-        survey_number: ocrResult.survey_number,
-        district: ocrResult.district,
-        taluka: ocrResult.taluka,
-        village: ocrResult.village,
-        state: ocrResult.state,
+      const responseData = data as {
+        boundary: GeoJSONPolygon;
+        boundary_source: string;
+        satellite_thumbnail_url?: string;
       };
-      if (gps) {
-        params.user_lat = gps.lat;
-        params.user_lng = gps.lng;
-      }
 
-      dispatch(setCurrentDraft({fetch_status: 'fetching'}));
-      const {data: boundaryData} = await api.get('/land/fetch-boundary', {params});
-
-      if ((boundaryData as {status: string}).status === 'success') {
-        const successData = boundaryData as {
-          status: 'success';
-          boundary_source: string;
-          geojson: {geometry: object; properties: {area_sqm?: number}};
-          satellite_thumbnail_url: string;
-        };
-        dispatch(
-          setCurrentDraft({
-            boundary: successData.geojson.geometry as GeoJSONPolygon,
-            boundary_source: successData.boundary_source as BoundarySource,
-            satellite_thumbnail_url: successData.satellite_thumbnail_url,
-            area_sqm: successData.geojson.properties.area_sqm ?? null,
-            fetch_status: 'success',
-          }),
-        );
-        navigation.navigate('BoundaryConfirmScreen');
-      } else {
-        setErrorMessage('Could not extract boundary from this image. Please try a different screenshot.');
-        dispatch(setCurrentDraft({fetch_status: 'error'}));
-      }
+      dispatch(
+        setCurrentDraft({
+          boundary: responseData.boundary,
+          boundarySource: (responseData.boundary_source as BoundarySource) ?? 'MANUAL',
+          satelliteThumbnailUrl: responseData.satellite_thumbnail_url ?? null,
+          fetchStatus: 'success',
+        }),
+      );
+      navigation.navigate('BoundaryConfirmScreen');
     } catch (err: unknown) {
-      const axiosErr = err as {response?: {status?: number}; code?: string};
-      if (axiosErr.code === 'DOCUMENT_PICKER_CANCELED') {
+      if (isErrorWithCode(err) && err.code === errorCodes.OPERATION_CANCELED) {
         return;
       }
+      const axiosErr = err as {response?: {status?: number}};
       if (!axiosErr.response) {
         setIsOffline(true);
       } else if (axiosErr.response.status === 422) {
-        setErrorMessage('Could not extract required fields. Image quality too low. Please retake screenshot.');
+        setErrorMessage('Could not extract boundary from this image. Please try a different file.');
       } else {
         setErrorMessage('Something went wrong. Please try again.');
       }
@@ -147,7 +110,7 @@ const ManualUploadGuideScreen = () => {
   }, [dispatch, navigation]);
 
   return (
-    <View className="flex-1 bg-[#0A3D2E]">
+    <View style={{flex: 1, backgroundColor: COLORS.DARK_SLATE}}>
       {/* Header */}
       <View className="px-6 pt-14 pb-4">
         <TouchableOpacity
@@ -183,7 +146,7 @@ const ManualUploadGuideScreen = () => {
               <View
                 className={`w-10 h-10 rounded-full items-center justify-center ${
                   step.number === 1
-                    ? 'bg-[#EC5B13]'
+                    ? 'bg-[#2F855A]'
                     : 'bg-white/10 border-2 border-white/20'
                 }`}>
                 <Text className="text-white font-bold text-base">
@@ -200,20 +163,17 @@ const ManualUploadGuideScreen = () => {
               <Text className="text-white text-base font-bold mt-2">
                 {step.title}
               </Text>
-              {step.number === 1 ? (
+              {step.number === 1 && (
                 <TouchableOpacity
-                  className="bg-[#114D3A] rounded-lg p-3 mt-2 flex-row items-center min-h-[48px]"
+                  className="rounded-lg p-3 mt-2 flex-row items-center min-h-[48px]"
+                  style={{backgroundColor: 'rgba(47,133,90,0.2)'}}
                   onPress={openPortal}
                   activeOpacity={0.7}>
-                  <Text className="text-[#EC5B13] text-sm font-medium flex-1">
+                  <Text style={{color: COLORS.TEAL}} className="text-sm font-medium flex-1">
                     Open bhunaksha.mahabhumi.gov.in
                   </Text>
-                  <Text className="text-[#EC5B13] text-base ml-2">→</Text>
+                  <Text style={{color: COLORS.TEAL}} className="text-base ml-2">→</Text>
                 </TouchableOpacity>
-              ) : (
-                <Text className="text-white/50 text-sm mt-1 leading-5">
-                  {step.description}
-                </Text>
               )}
             </View>
           </View>
@@ -230,13 +190,14 @@ const ManualUploadGuideScreen = () => {
       {/* Upload button + footer */}
       <View className="px-6 pb-8 pt-4">
         <TouchableOpacity
-          className="bg-[#EC5B13] rounded-xl h-14 items-center justify-center flex-row min-h-[48px]"
+          className="rounded-xl h-[52px] items-center justify-center flex-row min-h-[48px]"
+          style={{backgroundColor: COLORS.FOREST_GREEN}}
           onPress={onUpload}
           disabled={isLoading}
           activeOpacity={0.7}>
           <Text className="text-white text-lg mr-2">↑</Text>
           <Text className="text-white font-semibold text-base">
-            Upload Boundary Screenshot
+            Upload Downloaded Image
           </Text>
         </TouchableOpacity>
         <Text className="text-white/30 text-xs text-center mt-3">

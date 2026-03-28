@@ -69,18 +69,18 @@ describe('landSlice', () => {
     it('merges partial draft into current', () => {
       const result = landReducer(
         landInitialState,
-        setCurrentDraft({fetch_status: 'fetching'}),
+        setCurrentDraft({fetchStatus: 'fetching'}),
       );
-      expect(result.currentDraft.fetch_status).toBe('fetching');
-      expect(result.currentDraft.ocr_result).toBeNull();
+      expect(result.currentDraft.fetchStatus).toBe('fetching');
+      expect(result.currentDraft.ocrResult).toBeNull();
     });
 
-    it('sets ocr_result without overwriting other fields', () => {
+    it('sets ocrResult without overwriting other fields', () => {
       const state: LandState = {
         ...landInitialState,
         currentDraft: {
           ...landInitialState.currentDraft,
-          fetch_status: 'fetching',
+          fetchStatus: 'fetching',
         },
       };
       const ocr = {
@@ -92,9 +92,9 @@ describe('landSlice', () => {
         state: 'Maharashtra',
         extraction_confidence: 0.87,
       };
-      const result = landReducer(state, setCurrentDraft({ocr_result: ocr}));
-      expect(result.currentDraft.ocr_result?.survey_number).toBe('47');
-      expect(result.currentDraft.fetch_status).toBe('fetching');
+      const result = landReducer(state, setCurrentDraft({ocrResult: ocr}));
+      expect(result.currentDraft.ocrResult?.survey_number).toBe('47');
+      expect(result.currentDraft.fetchStatus).toBe('fetching');
     });
   });
 
@@ -103,7 +103,7 @@ describe('landSlice', () => {
       const state: LandState = {
         ...landInitialState,
         currentDraft: {
-          ocr_result: {
+          ocrResult: {
             survey_number: '47',
             owner_name: 'Ramesh',
             village: 'Kharadi',
@@ -113,10 +113,9 @@ describe('landSlice', () => {
             extraction_confidence: 0.87,
           },
           boundary: {type: 'Polygon', coordinates: [[[0, 0], [1, 0], [1, 1], [0, 0]]]},
-          boundary_source: 'WMS_AUTO',
-          satellite_thumbnail_url: 'https://example.com/sat.png',
-          area_sqm: 4856.2,
-          fetch_status: 'success',
+          boundarySource: 'WMS_AUTO',
+          satelliteThumbnailUrl: 'https://example.com/sat.png',
+          fetchStatus: 'success',
         },
       };
       const result = landReducer(state, clearCurrentDraft());
@@ -129,7 +128,7 @@ describe('landSlice', () => {
         parcels: [mockParcel],
         currentDraft: {
           ...landInitialState.currentDraft,
-          fetch_status: 'error',
+          fetchStatus: 'error',
         },
       };
       const result = landReducer(state, clearCurrentDraft());

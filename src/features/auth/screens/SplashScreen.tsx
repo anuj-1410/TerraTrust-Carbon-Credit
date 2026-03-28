@@ -1,24 +1,18 @@
 import React, {useEffect} from 'react';
-import {View, Text, Image} from 'react-native';
+import {View, Text} from 'react-native';
 import LottieView from 'lottie-react-native';
 import {useNavigation} from '@react-navigation/native';
 import type {NativeStackNavigationProp} from '@react-navigation/native-stack';
 import type {RootStackParamList} from '../../../types/navigation';
-import {useAppSelector} from '../../../store/hooks';
 import {supabase} from '../../../services/supabase';
-import {createWallet} from '../../../services/wallet';
-import api from '../../../services/api';
 import {useAppDispatch} from '../../../store/hooks';
-import {setWalletAddress} from '../store/authSlice';
+import {setUser, setWalletAddress, setKycCompleted} from '../store/authSlice';
 
 type Nav = NativeStackNavigationProp<RootStackParamList, 'SplashScreen'>;
 
 const SplashScreen = () => {
   const navigation = useNavigation<Nav>();
   const dispatch = useAppDispatch();
-  const isAuthenticated = useAppSelector(state => state.auth.isAuthenticated);
-  const kycCompleted = useAppSelector(state => state.auth.kycCompleted);
-  const walletAddress = useAppSelector(state => state.auth.walletAddress);
 
   useEffect(() => {
     const checkSession = async () => {
@@ -26,22 +20,33 @@ const SplashScreen = () => {
         data: {session},
       } = await supabase.auth.getSession();
 
-      if (session !== null && isAuthenticated) {
-        if (kycCompleted) {
-          navigation.replace('HomeScreen');
-        } else {
-          // Retry wallet creation if needed
-          if (walletAddress === null) {
-            try {
-              const address = await createWallet();
-              dispatch(setWalletAddress(address));
-              await api.post('/api/v1/auth/register-wallet', {
-                wallet_address: address,
-              });
-            } catch {
-              // Non-blocking — proceed to KYC
-            }
+      if (session) {
+        // Fetch user profile from Supabase users table
+        const {data: profile} = await supabase
+          .from('users')
+          .select('name, phone, aadhaar_hash, wallet_address, kyc_completed')
+          .eq('id', session.user.id)
+          .single();
+
+        if (profile) {
+          dispatch(
+            setUser({
+              id: session.user.id,
+              name: profile.name ?? '',
+              phone: profile.phone ?? session.user.phone ?? '',
+              aadhaar_hash: profile.aadhaar_hash ?? '',
+            }),
+          );
+          if (profile.wallet_address) {
+            dispatch(setWalletAddress(profile.wallet_address));
           }
+          if (profile.kyc_completed) {
+            dispatch(setKycCompleted(true));
+            navigation.replace('HomeScreen');
+          } else {
+            navigation.replace('KYCScreen');
+          }
+        } else {
           navigation.replace('KYCScreen');
         }
       } else {
@@ -50,10 +55,10 @@ const SplashScreen = () => {
     };
 
     checkSession();
-  }, [navigation, isAuthenticated, kycCompleted, walletAddress, dispatch]);
+  }, [navigation, dispatch]);
 
   return (
-    <View className="flex-1 items-center justify-center bg-[#0A3D2E]">
+    <View className="flex-1 items-center justify-center bg-[#2F855A]">
       <View className="mb-6 h-[120px] w-[120px] items-center justify-center rounded-3xl bg-white">
         <Text className="text-5xl">🌿</Text>
       </View>
@@ -63,13 +68,6 @@ const SplashScreen = () => {
         loop
         style={{width: 100, height: 100}}
       />
-      <Text className="mt-4 text-[28px] font-bold text-white">TerraTrust</Text>
-      <Text className="mt-2 text-sm text-white/50">
-        Verifying your identity...
-      </Text>
-      <View className="absolute bottom-10">
-        <Text className="text-xs text-white/30">Powered by Blockchain</Text>
-      </View>
     </View>
   );
 };

@@ -3,8 +3,38 @@ import React from 'react';
 import {Alert} from 'react-native';
 
 // Mock modules before imports
+jest.mock('react-native-config', () => ({
+  __esModule: true,
+  default: {API_BASE_URL: 'http://test'},
+  API_BASE_URL: 'http://test',
+}));
+
+jest.mock('react-native-mmkv', () => ({
+  createMMKV: jest.fn(() => ({
+    getString: jest.fn(),
+    set: jest.fn(),
+    remove: jest.fn(),
+  })),
+}));
+
+jest.mock('react-native-quick-crypto', () => ({
+  createHash: jest.fn(() => ({
+    update: jest.fn(),
+    digest: jest.fn(() => 'mock-hash'),
+  })),
+}));
+
+jest.mock('../../../../services/api', () => ({
+  __esModule: true,
+  default: {
+    get: jest.fn(),
+    post: jest.fn(),
+  },
+}));
+
 jest.mock('react-native-device-info', () => ({
-  isRooted: jest.fn(() => Promise.resolve(false)),
+  getTags: jest.fn(() => Promise.resolve('release-keys')),
+  getType: jest.fn(() => Promise.resolve('user')),
 }));
 
 jest.mock('../../../../services/ar-bridge', () => ({
@@ -34,6 +64,7 @@ jest.mock('../../../../store/hooks', () => ({
       },
       audit: {
         walkingPathMetres: 120,
+        zones: [],
         errorMessage: null,
       },
     }),

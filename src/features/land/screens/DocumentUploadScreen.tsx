@@ -11,7 +11,7 @@ import {
 import {useNavigation} from '@react-navigation/native';
 import type {NativeStackNavigationProp} from '@react-navigation/native-stack';
 import {Camera, useCameraDevice} from 'react-native-vision-camera';
-import DocumentPicker, {types} from 'react-native-document-picker';
+import {pick, types, isErrorWithCode, errorCodes} from '@react-native-documents/picker';
 import Geolocation from 'react-native-geolocation-service';
 import NetInfo from '@react-native-community/netinfo';
 import LottieView from 'lottie-react-native';
@@ -85,20 +85,21 @@ const DocumentUploadScreen = () => {
 
   const pickFromGallery = useCallback(async () => {
     try {
-      const result = await DocumentPicker.pickSingle({type: [types.images]});
+      const [result] = await pick({type: [types.images]});
       if (result.size && result.size > MAX_FILE_SIZE) {
         setErrorMessage('Image is too large. Please take a clearer, smaller photo.');
         setScreenState('error');
         return;
       }
       setImageUri(result.uri);
-      setImageMime(result.type ?? 'image/jpeg');
+      setImageMime(result.nativeType ?? 'image/jpeg');
       setScreenState('preview');
     } catch (err: unknown) {
-      if (!DocumentPicker.isCancel(err as Error)) {
-        setErrorMessage('Failed to pick image. Please try again.');
-        setScreenState('error');
+      if (isErrorWithCode(err) && err.code === errorCodes.OPERATION_CANCELED) {
+        return;
       }
+      setErrorMessage('Failed to pick image. Please try again.');
+      setScreenState('error');
     }
   }, []);
 
@@ -124,13 +125,13 @@ const DocumentUploadScreen = () => {
     } as unknown as Blob);
 
     try {
-      const {data} = await api.post('/land/verify-document', formData, {
+      const {data} = await api.post('/api/v1/land/verify-document', formData, {
         headers: {'Content-Type': 'multipart/form-data'},
         timeout: 60_000,
       });
       const result = data as OCRResult;
       setOcrResult(result);
-      dispatch(setCurrentDraft({ocr_result: result}));
+      dispatch(setCurrentDraft({ocrResult: result}));
       setScreenState('ocr_result');
     } catch (err: unknown) {
       const axiosErr = err as {response?: {status?: number; data?: {error?: string}}};
@@ -163,7 +164,7 @@ const DocumentUploadScreen = () => {
       return;
     }
 
-    dispatch(setCurrentDraft({fetch_status: 'fetching'}));
+    dispatch(setCurrentDraft({fetchStatus: 'fetching'}));
     setScreenState('loading');
 
     const gps = await getGPS();
@@ -181,7 +182,7 @@ const DocumentUploadScreen = () => {
         params.user_lng = gps.lng;
       }
 
-      const {data} = await api.get('/land/fetch-boundary', {params});
+      const {data} = await api.get('/api/v1/land/fetch-boundary', {params});
 
       if ((data as {status: string}).status === 'success') {
         const successData = data as {
@@ -194,20 +195,19 @@ const DocumentUploadScreen = () => {
         dispatch(
           setCurrentDraft({
             boundary: successData.geojson.geometry as import('../store/landSlice').GeoJSONPolygon,
-            boundary_source: successData.boundary_source as import('../store/landSlice').BoundarySource,
-            satellite_thumbnail_url: successData.satellite_thumbnail_url,
-            area_sqm: props.area_sqm ?? null,
-            fetch_status: 'success',
+            boundarySource: successData.boundary_source as import('../store/landSlice').BoundarySource,
+            satelliteThumbnailUrl: successData.satellite_thumbnail_url,
+            fetchStatus: 'success',
           }),
         );
         navigation.navigate('BoundaryConfirmScreen');
       } else if ((data as {status: string}).status === 'manual_required') {
-        dispatch(setCurrentDraft({fetch_status: 'manual_required'}));
+        dispatch(setCurrentDraft({fetchStatus: 'manual_required'}));
         navigation.navigate('ManualUploadGuideScreen');
       }
     } catch (err: unknown) {
       const axiosErr = err as {response?: unknown};
-      dispatch(setCurrentDraft({fetch_status: 'error'}));
+      dispatch(setCurrentDraft({fetchStatus: 'error'}));
       if (!axiosErr.response) {
         setIsOffline(true);
       }
@@ -250,7 +250,7 @@ const DocumentUploadScreen = () => {
             className="w-16 h-16 rounded-full bg-white items-center justify-center"
             onPress={takePhoto}
             activeOpacity={0.7}>
-            <View className="w-14 h-14 rounded-full border-4 border-[#0A3D2E]" />
+            <View className="w-14 h-14 rounded-full border-4 border-[#2F855A]" />
           </TouchableOpacity>
         </View>
         <TouchableOpacity
@@ -266,7 +266,7 @@ const DocumentUploadScreen = () => {
   // Loading
   if (screenState === 'loading') {
     return (
-      <View className="flex-1 bg-[#0A3D2E] items-center justify-center px-8">
+      <View className="flex-1 bg-[#2D3748] items-center justify-center px-8">
         <LottieView
           source={require('../../../assets/lottie/spinning_leaf.json')}
           autoPlay
@@ -276,14 +276,13 @@ const DocumentUploadScreen = () => {
         <Text className="text-white text-lg mt-6 font-medium">
           Reading your document…
         </Text>
-        <Text className="text-white/50 text-sm mt-2">AI OCR Processing</Text>
       </View>
     );
   }
 
   return (
     <ScrollView
-      className="flex-1 bg-[#0A3D2E]"
+      className="flex-1 bg-[#2D3748]"
       contentContainerStyle={{flexGrow: 1}}>
       {/* Offline banner */}
       {isOffline && (

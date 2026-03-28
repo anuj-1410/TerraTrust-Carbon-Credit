@@ -22,6 +22,7 @@ export interface LandParcel {
   is_verified: boolean;
   status: LandStatus;
   last_audit_year: number | null;
+  last_audit_date?: string | null;
   thumbnail_url: string | null;
   created_at: string;
 }
@@ -37,12 +38,11 @@ export interface OCRResult {
 }
 
 export interface LandDraft {
-  ocr_result: OCRResult | null;
+  ocrResult: OCRResult | null;
   boundary: GeoJSONPolygon | null;
-  boundary_source: BoundarySource | null;
-  satellite_thumbnail_url: string | null;
-  area_sqm: number | null;
-  fetch_status: 'idle' | 'fetching' | 'success' | 'manual_required' | 'error';
+  boundarySource: BoundarySource | null;
+  satelliteThumbnailUrl: string | null;
+  fetchStatus: 'idle' | 'fetching' | 'success' | 'manual_required' | 'error';
 }
 
 export interface LandState {
@@ -54,12 +54,11 @@ export interface LandState {
 export const landInitialState: LandState = {
   parcels: [],
   currentDraft: {
-    ocr_result: null,
+    ocrResult: null,
     boundary: null,
-    boundary_source: null,
-    satellite_thumbnail_url: null,
-    area_sqm: null,
-    fetch_status: 'idle',
+    boundarySource: null,
+    satelliteThumbnailUrl: null,
+    fetchStatus: 'idle',
   },
   lastSyncedAt: null,
 };

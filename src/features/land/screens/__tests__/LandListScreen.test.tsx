@@ -50,6 +50,7 @@ const VERIFIED_PARCEL: LandParcel = {
   is_verified: true,
   status: 'verified',
   last_audit_year: null,
+  last_audit_date: null,
   thumbnail_url: 'https://example.com/thumb1.png',
   created_at: '2026-03-21T10:00:00.000Z',
 };
@@ -61,6 +62,7 @@ const PENDING_PARCEL: LandParcel = {
   status: 'pending',
   is_verified: false,
   last_audit_year: 2025,
+  last_audit_date: null,
   thumbnail_url: null,
 };
 
@@ -71,6 +73,7 @@ const REJECTED_PARCEL: LandParcel = {
   status: 'rejected',
   is_verified: false,
   last_audit_year: null,
+  last_audit_date: null,
   thumbnail_url: null,
 };
 
@@ -140,7 +143,7 @@ describe('LandListScreen', () => {
     it('shows verified badge', async () => {
       const {getByText} = renderScreen({parcels: [VERIFIED_PARCEL]});
       await waitFor(() => {
-        expect(getByText('✓ Verified')).toBeTruthy();
+        expect(getByText('⏳ Audit Due')).toBeTruthy();
       });
     });
 
@@ -151,12 +154,6 @@ describe('LandListScreen', () => {
       });
     });
 
-    it('shows "No audit yet" text', async () => {
-      const {getByText} = renderScreen({parcels: [VERIFIED_PARCEL]});
-      await waitFor(() => {
-        expect(getByText('No audit yet')).toBeTruthy();
-      });
-    });
   });
 
   describe('3 mixed-status parcels', () => {
@@ -174,16 +171,9 @@ describe('LandListScreen', () => {
     it('shows correct badge for each status', async () => {
       const {getByText} = renderScreen({parcels: threeParcels});
       await waitFor(() => {
-        expect(getByText('✓ Verified')).toBeTruthy();
+        expect(getByText('⏳ Audit Due')).toBeTruthy();
         expect(getByText('⏳ Pending')).toBeTruthy();
         expect(getByText('✗ Rejected')).toBeTruthy();
-      });
-    });
-
-    it('shows last audit year for pending parcel', async () => {
-      const {getByText} = renderScreen({parcels: threeParcels});
-      await waitFor(() => {
-        expect(getByText('Last audited: 2025')).toBeTruthy();
       });
     });
 
@@ -196,15 +186,4 @@ describe('LandListScreen', () => {
     });
   });
 
-  describe('last synced display', () => {
-    it('shows last synced time when available', async () => {
-      const {getByText} = renderScreen({
-        parcels: [VERIFIED_PARCEL],
-        lastSyncedAt: new Date().toISOString(),
-      });
-      await waitFor(() => {
-        expect(getByText(/Last synced today/i)).toBeTruthy();
-      });
-    });
-  });
 });

@@ -4,6 +4,8 @@ declare module 'react-native-config' {
     SUPABASE_URL: string;
     SUPABASE_ANON_KEY: string;
     GOOGLE_MAPS_API_KEY: string;
+    ALCHEMY_POLYGON_AMOY_URL: string;
+    CONTRACT_ADDRESS: string;
   }
 
   const Config: NativeConfig;

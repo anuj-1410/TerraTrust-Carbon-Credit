@@ -1,27 +1,31 @@
 import React, {useCallback} from 'react';
 import {View, Text, TouchableOpacity, ScrollView, Image} from 'react-native';
-import {useNavigation} from '@react-navigation/native';
+import {useNavigation, useRoute} from '@react-navigation/native';
 import type {NativeStackNavigationProp} from '@react-navigation/native-stack';
+import type {RouteProp} from '@react-navigation/native';
 import type {RootStackParamList} from '../../../types/navigation';
 import {useAppDispatch, useAppSelector} from '../../../store/hooks';
 import type {AuditState} from '../store/auditSlice';
-import {setCurrentZoneIndex} from '../store/auditSlice';
+import {addScannedTree, setCurrentZoneIndex} from '../store/auditSlice';
 
 type NavProp = NativeStackNavigationProp<RootStackParamList, 'TreeResultScreen'>;
+type RouteType = RouteProp<RootStackParamList, 'TreeResultScreen'>;
 
 const TreeResultScreen = () => {
   const navigation = useNavigation<NavProp>();
+  const route = useRoute<RouteType>();
   const dispatch = useAppDispatch();
   const audit = useAppSelector(state => state.audit as unknown as AuditState);
   const {scannedTrees, zones, currentZoneIndex, minTreesRequired} = audit;
 
-  // The last scanned tree is the one we just saved from ARCameraScreen
-  const tree = scannedTrees[scannedTrees.length - 1];
+  // Flaw #85: Read pending tree from route params instead of already-saved array
+  const tree = route.params.pendingTree;
   const currentZone = zones[currentZoneIndex] ?? null;
 
+  // Count includes already-saved trees + this pending one
   const treesInZone = scannedTrees.filter(
     t => t.zone_id === currentZone?.zone_id,
-  ).length;
+  ).length + 1; // +1 for pending tree
   const treesPerZone = Math.max(
     3,
     Math.floor(minTreesRequired / Math.max(zones.length, 1)),
@@ -48,35 +52,34 @@ const TreeResultScreen = () => {
     };
   })();
 
-  // FR-035: zone-minimum check — after save, check zone completion
   const zoneMinReached = treesInZone >= treesPerZone;
   const allZonesComplete =
     zoneMinReached && currentZoneIndex >= zones.length - 1;
 
+  // Flaw #85/#86: "Confirm and Save Tree" — dispatches addScannedTree
   const handleConfirmSave = useCallback(() => {
-    // Tree was already saved in ARCameraScreen via addScannedTree dispatch.
-    // Here we handle zone-minimum navigation logic (T032).
+    if (!tree) return;
+    dispatch(addScannedTree(tree));
+
     if (allZonesComplete) {
       navigation.navigate('AuditCompleteScreen');
     } else if (zoneMinReached) {
-      // Move to next zone
       dispatch(setCurrentZoneIndex(currentZoneIndex + 1));
       navigation.navigate('ZoneNavigationScreen', {
         auditId: audit.activeAuditId!,
         landId: audit.activeLandId!,
       });
     } else {
-      // Stay in current zone — go back to camera
       navigation.navigate('ARCameraScreen', {
         zoneId: currentZone?.zone_id ?? '',
         zoneIndex: currentZoneIndex,
       });
     }
   }, [
+    tree,
     allZonesComplete,
     zoneMinReached,
     currentZoneIndex,
-    zones.length,
     audit.activeAuditId,
     audit.activeLandId,
     currentZone,
@@ -84,8 +87,8 @@ const TreeResultScreen = () => {
     navigation,
   ]);
 
+  // Flaw #87: Rescan discards pendingTree — just navigate back without saving
   const handleRescan = useCallback(() => {
-    // Go back to camera without saving (tree already saved — pop it)
     navigation.goBack();
   }, [navigation]);
 
@@ -238,11 +241,7 @@ const TreeResultScreen = () => {
           className="h-14 rounded-xl bg-[#2D6A4F] items-center justify-center flex-row"
           activeOpacity={0.7}>
           <Text className="text-white text-base font-bold">
-            {allZonesComplete
-              ? 'Complete Audit'
-              : zoneMinReached
-                ? 'Move to Next Zone'
-                : 'Scan Next Tree'}
+            Confirm and Save Tree
           </Text>
           <Text className="text-white text-lg ml-2">✓</Text>
         </TouchableOpacity>

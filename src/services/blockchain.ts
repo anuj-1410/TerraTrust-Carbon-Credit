@@ -1,24 +1,22 @@
 import {ethers} from 'ethers';
 import Config from 'react-native-config';
 
-const CTT_CONTRACT_ADDRESS = '0x0000000000000000000000000000000000000000'; // TODO: Replace with deployed CTT contract address
-
-const ERC20_BALANCE_ABI = [
-  'function balanceOf(address owner) view returns (uint256)',
+const ERC1155_BALANCE_ABI = [
+  'function balanceOf(address account, uint256 id) view returns (uint256)',
 ];
 
+// Token ID 1 = Carbon Credit Token per SRS Section 10.7
+const CTT_TOKEN_ID = 1;
+
 export async function getCTTBalance(walletAddress: string): Promise<number> {
-  const provider = new ethers.JsonRpcProvider(
-    Config.API_BASE_URL?.replace('/api/v1', '') ||
-      'https://polygon-rpc.com',
-  );
+  const provider = new ethers.JsonRpcProvider(Config.ALCHEMY_POLYGON_AMOY_URL);
 
   const contract = new ethers.Contract(
-    CTT_CONTRACT_ADDRESS,
-    ERC20_BALANCE_ABI,
+    Config.CONTRACT_ADDRESS,
+    ERC1155_BALANCE_ABI,
     provider,
   );
 
-  const balance: bigint = await contract.balanceOf(walletAddress);
-  return Number(ethers.formatUnits(balance, 18));
+  const balance: bigint = await contract.balanceOf(walletAddress, CTT_TOKEN_ID);
+  return Number(balance);
 }

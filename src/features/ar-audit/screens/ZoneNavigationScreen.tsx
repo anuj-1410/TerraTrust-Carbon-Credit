@@ -1,4 +1,4 @@
-import React, {useEffect, useRef} from 'react';
+import React, {useEffect, useRef, useState} from 'react';
 import {View, Text, TouchableOpacity} from 'react-native';
 import {useNavigation, useRoute} from '@react-navigation/native';
 import type {NativeStackNavigationProp} from '@react-navigation/native-stack';
@@ -6,6 +6,7 @@ import type {RouteProp} from '@react-navigation/native';
 import MapView, {
   Circle,
   Marker,
+  Polygon,
   Polyline,
   PROVIDER_GOOGLE,
 } from 'react-native-maps';
@@ -15,6 +16,8 @@ import {useAppSelector} from '../../../store/hooks';
 import type {AuditState} from '../store/auditSlice';
 import type {LandState} from '../../land/store/landSlice';
 import {useGeofence} from '../../../common/hooks/useGeofence';
+import {ensureLocationPermission} from '../../../common/utils/permissions';
+import {COLORS} from '../../../common/constants/colors';
 
 type NavProp = NativeStackNavigationProp<RootStackParamList, 'ZoneNavigationScreen'>;
 type RouteType = RouteProp<RootStackParamList, 'ZoneNavigationScreen'>;
@@ -34,10 +37,25 @@ const ZoneNavigationScreen = () => {
   const {zones, currentZoneIndex, scannedTrees, minTreesRequired} = audit;
   const currentZone = zones[currentZoneIndex] ?? null;
 
+  const ZONE_LETTERS = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J'];
+  const currentZoneLetter = ZONE_LETTERS[currentZoneIndex] ?? String(currentZoneIndex + 1);
+  const [hasLocationPermission, setHasLocationPermission] = useState<boolean | null>(null);
+
+  // Convert farm boundary GeoJSON to polygon coordinates
+  const boundaryCoords = React.useMemo(() => {
+    if (!boundary?.coordinates?.[0]) return [];
+    return boundary.coordinates[0].map(c => ({latitude: c[1], longitude: c[0]}));
+  }, [boundary]);
+
   const {isInsideBoundary, isAtZoneCentre, currentPosition} = useGeofence(
     boundary,
     currentZone,
+    landId,
   );
+
+  useEffect(() => {
+    void ensureLocationPermission().then(setHasLocationPermission);
+  }, []);
 
   // Fire haptic on zone arrival
   const prevAtZone = useRef(false);
@@ -135,6 +153,17 @@ const ZoneNavigationScreen = () => {
                 }
               : undefined
           }>
+          {/* Farm boundary polygon overlay — Flaw #76 */}
+          {boundaryCoords.length > 0 && (
+            <Polygon
+              coordinates={boundaryCoords}
+              strokeColor={COLORS.FOREST_GREEN}
+              strokeWidth={2}
+              lineDashPattern={[10, 5]}
+              fillColor="rgba(47, 133, 90, 0.05)"
+            />
+          )}
+
           {/* Farmer GPS blue dot */}
           {currentPosition && (
             <Marker
@@ -152,14 +181,14 @@ const ZoneNavigationScreen = () => {
             const isComplete = zone.is_complete;
             const isCurrent = idx === currentZoneIndex;
             const fillColor = isComplete
-              ? 'rgba(156,163,175,0.25)'
+              ? 'rgba(160,174,192,0.25)'
               : isCurrent
-                ? 'rgba(45,106,79,0.20)'
-                : 'rgba(200,200,200,0.15)';
+                ? 'rgba(56,178,172,0.18)'
+                : 'rgba(200,200,200,0.12)';
             const strokeColor = isComplete
-              ? '#9CA3AF'
+              ? COLORS.DISABLED_GREY
               : isCurrent
-                ? '#2D6A4F'
+                ? COLORS.TEAL
                 : '#D1D5DB';
 
             return (
@@ -177,9 +206,11 @@ const ZoneNavigationScreen = () => {
             );
           })}
 
-          {/* Zone label markers */}
+          {/* Zone label markers — current zone labeled, completed/upcoming unlabeled */}
           {zones.map((zone, idx) => {
             const isComplete = zone.is_complete;
+            const isCurrent = idx === currentZoneIndex;
+            const zoneLetter = ZONE_LETTERS[idx] ?? String(idx + 1);
             return (
               <Marker
                 key={`label-${zone.zone_id}`}
@@ -188,27 +219,24 @@ const ZoneNavigationScreen = () => {
                   longitude: zone.centre_gps.lng,
                 }}
                 anchor={{x: 0.5, y: 0.5}}>
-                <View
-                  className={`w-7 h-7 rounded-full items-center justify-center ${
-                    isComplete
-                      ? 'bg-[#9CA3AF]'
-                      : idx === currentZoneIndex
-                        ? 'bg-[#2D6A4F]'
-                        : 'bg-white border border-[#D1D5DB]'
-                  }`}>
-                  {isComplete ? (
-                    <Text className="text-white text-xs font-bold">✓</Text>
-                  ) : (
-                    <Text
-                      className={`text-xs font-bold ${
-                        idx === currentZoneIndex
-                          ? 'text-white'
-                          : 'text-[#6B7280]'
-                      }`}>
-                      {idx + 1}
+                {isCurrent ? (
+                  <View
+                    className="rounded-full px-3 py-2"
+                    style={{backgroundColor: COLORS.TEAL}}>
+                    <Text className="text-xs font-bold text-white">
+                      Zone {zoneLetter}
                     </Text>
-                  )}
-                </View>
+                  </View>
+                ) : (
+                  <View
+                    className="h-7 w-7 rounded-full"
+                    style={{
+                      backgroundColor: isComplete ? COLORS.DISABLED_GREY : COLORS.CARD_WHITE,
+                      borderWidth: isComplete ? 0 : 2,
+                      borderColor: COLORS.DISABLED_GREY,
+                    }}
+                  />
+                )}
               </Marker>
             );
           })}
@@ -239,10 +267,19 @@ const ZoneNavigationScreen = () => {
         </View>
       )}
 
-      {/* Zone Info Card — from Stitch design */}
+      {hasLocationPermission === false && (
+        <View className="mx-4 mt-2 rounded-2xl px-4 py-3 flex-row items-center" style={{backgroundColor: '#FEF3C7'}}>
+          <Text className="text-lg mr-3">📍</Text>
+          <Text className="flex-1 text-sm leading-5" style={{color: '#92400E'}}>
+            Location permission is required to navigate to your audit zone.
+          </Text>
+        </View>
+      )}
+
+      {/* Zone Info Card */}
       <View className="mx-4 mt-3 bg-white rounded-2xl p-4 shadow-sm">
         <Text className="text-[#191C1B] text-lg font-bold">
-          {currentZone?.label ?? `Zone ${currentZoneIndex + 1}`}
+          Zone {currentZoneLetter}
         </Text>
 
         {/* Distance + status row */}
@@ -268,6 +305,22 @@ const ZoneNavigationScreen = () => {
           </View>
         </View>
 
+        {/* Direction instruction — Flaw #79 */}
+        {distanceToZone !== null && distanceToZone > 0 && currentZone && currentPosition && (
+          <Text className="text-[#6B7280] text-sm mt-2">
+            Zone {currentZoneLetter} is {distanceToZone}m away. Walk toward the{' '}
+            {(() => {
+              const dLat = currentZone.centre_gps.lat - currentPosition.lat;
+              const dLng = currentZone.centre_gps.lng - currentPosition.lng;
+              if (Math.abs(dLat) > Math.abs(dLng)) {
+                return dLat > 0 ? 'north' : 'south';
+              }
+              return dLng > 0 ? 'east' : 'west';
+            })()}{' '}
+            corner of your field.
+          </Text>
+        )}
+
         {/* Trees progress */}
         <View className="flex-row items-center mt-3">
           <Text className="text-[#6B7280] text-sm">
@@ -291,9 +344,15 @@ const ZoneNavigationScreen = () => {
       <View className="px-4 pb-8 pt-3">
         <TouchableOpacity
           onPress={handleStartScanning}
-          disabled={!isAtZoneCentre || (currentPosition != null && !isInsideBoundary)}
+          disabled={
+            hasLocationPermission === false ||
+            !isAtZoneCentre ||
+            (currentPosition != null && !isInsideBoundary)
+          }
           className={`h-14 rounded-xl items-center justify-center flex-row ${
-            isAtZoneCentre && (isInsideBoundary || !currentPosition)
+            hasLocationPermission !== false &&
+            isAtZoneCentre &&
+            (isInsideBoundary || !currentPosition)
               ? 'bg-[#2D6A4F]'
               : 'bg-[#9CA3AF]'
           }`}
@@ -301,7 +360,7 @@ const ZoneNavigationScreen = () => {
           <Text className="text-white text-base font-bold">
             {isAtZoneCentre
               ? "You're here — Start Scanning"
-              : `Walk to Zone ${currentZoneIndex + 1}`}
+              : `Start Scanning in Zone ${currentZoneLetter}`}
           </Text>
           <Text className="text-white text-lg ml-2">
             {isAtZoneCentre ? '📷' : '🔒'}
