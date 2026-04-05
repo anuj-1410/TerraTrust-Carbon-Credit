@@ -91,7 +91,7 @@ const KYCScreen = () => {
 
       if (response.status === 200) {
         await syncProfile(aadhaarHash);
-        reset({fullName: data.fullName, aadhaarNumber: ''});
+        reset({fullName: '', aadhaarNumber: ''});
         navigation.reset({
           index: 0,
           routes: [{name: getAuthenticatedEntryRoute(true)}],
@@ -103,7 +103,7 @@ const KYCScreen = () => {
         const message = axiosErr.response?.data?.error;
         if (message === 'KYC already completed') {
           await syncProfile(existingAadhaarHash);
-          reset({fullName: data.fullName, aadhaarNumber: ''});
+          reset({fullName: '', aadhaarNumber: ''});
           navigation.reset({
             index: 0,
             routes: [{name: getAuthenticatedEntryRoute(true)}],

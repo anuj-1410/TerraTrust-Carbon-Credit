@@ -1,4 +1,4 @@
-import React, {useCallback, useEffect, useMemo, useRef, useState} from 'react';
+import React, {useCallback, useEffect, useMemo, useState} from 'react';
 import {
   BackHandler,
   Linking,
@@ -15,7 +15,6 @@ import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityI
 
 import Button from '../../../common/components/Button';
 import {COLORS} from '../../../common/constants/colors';
-import api from '../../../services/api';
 import {useAppDispatch, useAppSelector} from '../../../store/hooks';
 import {
   setAuditResult,
@@ -23,8 +22,9 @@ import {
   setUploadStatus,
   type AuditResultResponse,
 } from '../store/auditSlice';
-import {fetchCreditsThunk} from '../../dashboard/store/creditsSlice';
-import {addNotification} from '../../notifications/store/notificationsSlice';
+import {setPendingMint} from '../../dashboard/store/creditsSlice';
+import {store} from '../../../store';
+import {syncAuditStatus} from '../utils/auditStatus';
 import type {RootStackParamList} from '../../../types/navigation';
 
 type Nav = NativeStackNavigationProp<RootStackParamList, 'AuditStatusScreen'>;
@@ -41,7 +41,6 @@ const AuditStatusScreen = () => {
     auditResult ?? {status: 'CALCULATING'},
   );
   const [statusHint, setStatusHint] = useState('');
-  const hasAnnouncedTerminalStateRef = useRef(false);
 
   const goHome = useCallback(() => {
     navigation.reset({index: 0, routes: [{name: 'HomeScreen'}]});
@@ -70,64 +69,13 @@ const AuditStatusScreen = () => {
       }, delayMs);
     };
 
-    const announceTerminalState = (result: AuditResultResponse) => {
-      if (hasAnnouncedTerminalStateRef.current) {
-        return;
-      }
-
-      hasAnnouncedTerminalStateRef.current = true;
-
-      if (result.status === 'MINTED') {
-        dispatch(setUploadStatus('success'));
-        dispatch(fetchCreditsThunk());
-        dispatch(
-          addNotification({
-            id: `${route.params.auditId}-minted`,
-            type: 'credits_ready',
-            title: 'Credits ready',
-            body: `Your audit issued ${result.credits_issued ?? 0} CTT.`,
-            createdAt: new Date().toISOString(),
-            read: false,
-            auditId: route.params.auditId,
-          }),
-        );
-        return;
-      }
-
-      if (result.status === 'COMPLETE_NO_CREDITS') {
-        dispatch(setUploadStatus('success'));
-        dispatch(
-          addNotification({
-            id: `${route.params.auditId}-complete`,
-            type: 'audit_submitted',
-            title: 'Audit complete',
-            body: 'This audit cycle completed with 0 credits issued.',
-            createdAt: new Date().toISOString(),
-            read: false,
-            auditId: route.params.auditId,
-          }),
-        );
-        return;
-      }
-
-      dispatch(setUploadStatus('error'));
-      dispatch(
-        addNotification({
-          id: `${route.params.auditId}-failed`,
-          type: 'audit_failed',
-          title: 'Audit failed',
-          body: 'TerraTrust could not finish your audit processing.',
-          createdAt: new Date().toISOString(),
-          read: false,
-          auditId: route.params.auditId,
-        }),
-      );
-    };
-
     const pollStatus = async () => {
       try {
-        const response = await api.get(`/api/v1/audit/result/${route.params.auditId}`);
-        const nextResult = response.data as AuditResultResponse;
+        const nextResult = await syncAuditStatus({
+          auditId: route.params.auditId,
+          dispatch,
+          getState: store.getState,
+        });
 
         if (!isMounted) {
           return;
@@ -135,15 +83,11 @@ const AuditStatusScreen = () => {
 
         setStatusHint('');
         setCurrentResult(nextResult);
-        dispatch(setAuditResult(nextResult));
-        dispatch(setLastPolledAt(new Date().toISOString()));
 
         if (nextResult.status === 'CALCULATING') {
           scheduleNextPoll(5000);
           return;
         }
-
-        announceTerminalState(nextResult);
       } catch (error: any) {
         if (!isMounted) {
           return;
@@ -163,7 +107,9 @@ const AuditStatusScreen = () => {
         };
         setCurrentResult(failedResult);
         dispatch(setAuditResult(failedResult));
+        dispatch(setLastPolledAt(new Date().toISOString()));
         dispatch(setUploadStatus('error'));
+        dispatch(setPendingMint(false));
       }
     };
 

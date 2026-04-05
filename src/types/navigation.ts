@@ -26,7 +26,6 @@ export type HistoryStackParamList = {
 export type ProfileStackParamList = {
   ProfileScreen: undefined;
   SettingsScreen: undefined;
-  WalletRecoveryScreen: undefined;
 };
 
 export type MainTabParamList = {

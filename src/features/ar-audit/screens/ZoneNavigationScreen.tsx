@@ -14,8 +14,6 @@ import ReactNativeHapticFeedback from 'react-native-haptic-feedback';
 import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
 import type {RootStackParamList} from '../../../types/navigation';
 import {useAppSelector} from '../../../store/hooks';
-import type {AuditState} from '../store/auditSlice';
-import type {LandState} from '../../land/store/landSlice';
 import {useGeofence} from '../../../common/hooks/useGeofence';
 import {ensureLocationPermission} from '../../../common/utils/permissions';
 import {COLORS} from '../../../common/constants/colors';
@@ -28,10 +26,8 @@ const ZoneNavigationScreen = () => {
   const route = useRoute<RouteType>();
   const {landId, originTab: routeOriginTab} = route.params;
 
-  const audit = useAppSelector(state => state.audit as unknown as AuditState);
-  const parcels = useAppSelector(
-    state => (state.land as unknown as LandState).parcels,
-  );
+  const audit = useAppSelector(state => state.audit);
+  const parcels = useAppSelector(state => state.land.parcels);
   const parcel = parcels.find(p => p.id === landId);
   const boundary = parcel?.boundary_geojson ?? null;
 
@@ -49,7 +45,7 @@ const ZoneNavigationScreen = () => {
     return boundary.coordinates[0].map(c => ({latitude: c[1], longitude: c[0]}));
   }, [boundary]);
 
-  const {isInsideBoundary, isAtZoneCentre, currentPosition} = useGeofence(
+  const {isInsideBoundary, isAtZoneCentre, currentPosition, gpsAccuracy, hasWeakSignal} = useGeofence(
     boundary,
     currentZone,
     landId,
@@ -287,6 +283,15 @@ const ZoneNavigationScreen = () => {
           <MaterialCommunityIcons color="#92400E" name="map-marker-outline" size={20} />
           <Text className="flex-1 text-sm leading-5" style={{color: '#92400E'}}>
             Location permission is required to navigate to your audit zone.
+          </Text>
+        </View>
+      )}
+
+      {hasWeakSignal && gpsAccuracy !== null && (
+        <View className="mx-4 mt-2 rounded-2xl px-4 py-3 flex-row items-center" style={{backgroundColor: '#FEF3C7'}}>
+          <MaterialCommunityIcons color="#92400E" name="crosshairs-question" size={20} />
+          <Text className="flex-1 text-sm leading-5" style={{color: '#92400E'}}>
+            GPS signal is weak right now (accuracy ±{Math.round(gpsAccuracy)}m). Move to an open area for better zone guidance.
           </Text>
         </View>
       )}

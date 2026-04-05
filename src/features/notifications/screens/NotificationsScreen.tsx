@@ -16,6 +16,14 @@ import type {RootStackParamList} from '../../../types/navigation';
 
 type Nav = NativeStackNavigationProp<RootStackParamList, 'NotificationsScreen'>;
 
+const NOTIFICATION_ICON: Record<NotificationItem['type'], keyof typeof MaterialCommunityIcons.glyphMap> = {
+  credits_ready: 'cash-multiple',
+  audit_submitted: 'progress-clock',
+  audit_failed: 'alert-circle-outline',
+  audit_due: 'calendar-alert',
+  land_registration_complete: 'map-check-outline',
+};
+
 const NotificationsScreen = () => {
   const navigation = useNavigation<Nav>();
   const dispatch = useAppDispatch();
@@ -92,6 +100,13 @@ const NotificationsScreen = () => {
             <TouchableOpacity key={item.id} onPress={() => openNotification(item)} activeOpacity={0.75}>
               <Card className="mb-3">
                 <View className="flex-row items-start justify-between">
+                  <View className="mr-3 mt-1 h-10 w-10 items-center justify-center rounded-full" style={{backgroundColor: 'rgba(47,133,90,0.12)'}}>
+                    <MaterialCommunityIcons
+                      color={item.read ? COLORS.DISABLED_GREY : COLORS.FOREST_GREEN}
+                      name={NOTIFICATION_ICON[item.type]}
+                      size={20}
+                    />
+                  </View>
                   <View className="flex-1 pr-4">
                     <Text className="text-base font-semibold" style={{color: COLORS.DARK_SLATE}}>
                       {item.title}

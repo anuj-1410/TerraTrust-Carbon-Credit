@@ -3,8 +3,6 @@ import {
   View,
   Text,
   TouchableOpacity,
-  Modal,
-  FlatList,
   Alert,
 } from 'react-native';
 import {useNavigation, useRoute} from '@react-navigation/native';
@@ -26,7 +24,7 @@ import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityI
 import type {RootStackParamList} from '../../../types/navigation';
 import Badge from '../../../common/components/Badge';
 import {useAppSelector} from '../../../store/hooks';
-import type {AuditState, TreeSample} from '../store/auditSlice';
+import type {TreeSample} from '../store/auditSlice';
 import {
   measureTreeDiameter,
   identifySpecies,
@@ -36,7 +34,6 @@ import {
 } from '../../../services/ar-bridge';
 import {hashPhoto, readFileAsBase64} from '../../../common/utils/hash';
 import {
-  APPROVED_SPECIES,
   APPROVED_SPECIES_NAMES,
   getWoodDensity,
 } from '../../../common/constants/species';
@@ -81,7 +78,8 @@ const ARCameraScreen = () => {
   const cameraRef = useRef<Camera>(null);
   const device = useCameraDevice('back');
 
-  const audit = useAppSelector(state => state.audit as unknown as AuditState);
+  const audit = useAppSelector(state => state.audit);
+  const gpsHighAccuracy = useAppSelector(state => state.profile.gpsHighAccuracy);
   const {zones, scannedTrees, arTier, minTreesRequired} = audit;
   const currentZone = zones[zoneIndex] ?? null;
   const returnedDiameter = route.params.returnDiameter;
@@ -94,7 +92,6 @@ const ARCameraScreen = () => {
   const [speciesName, setSpeciesName] = useState<string | null>(null);
   const [speciesConfidence, setSpeciesConfidence] = useState(0);
   const [woodDensity, setWoodDensity] = useState(0);
-  const [showSpeciesDropdown, setShowSpeciesDropdown] = useState(false);
 
   // Measurement
   const [diameterCm, setDiameterCm] = useState<number | null>(null);
@@ -167,10 +164,10 @@ const ARCameraScreen = () => {
         setGpsAccuracy(pos.coords.accuracy);
       },
       () => {},
-      {enableHighAccuracy: true, distanceFilter: 1, interval: 3000},
+      {enableHighAccuracy: gpsHighAccuracy, distanceFilter: 1, interval: 3000},
     );
     return () => Geolocation.clearWatch(watchId);
-  }, []);
+  }, [gpsHighAccuracy]);
 
   const totalScanned = scannedTrees.length;
   const totalRequired = minTreesRequired;
@@ -195,7 +192,7 @@ const ARCameraScreen = () => {
 
       const result = await withTimeout(identifySpecies(imgBase64), 10000);
 
-      if (result.confidence >= 0.6) {
+      if (result.confidence >= 0.8) {
         // Check if approved
         if (!APPROVED_SPECIES_NAMES.includes(result.species)) {
           Alert.alert(
@@ -212,25 +209,18 @@ const ARCameraScreen = () => {
         setPhase('species_done');
         setStatusText('Species identified — Measure diameter');
       } else {
-        // Low confidence — show dropdown
-        setShowSpeciesDropdown(true);
-        setPhase('species_done');
-        setStatusText('Select species manually');
+        Alert.alert(
+          'Retake Species Photo',
+          'Species confidence is too low. Please retake the species photo and try again.',
+        );
+        setPhase('idle');
+        setStatusText('Point camera at tree trunk');
       }
     } catch {
       Alert.alert('Species ID Failed', 'Could not identify species. Please try again.');
       setPhase('idle');
       setStatusText('Point camera at tree trunk');
     }
-  }, []);
-
-  const handleSelectSpecies = useCallback((name: string) => {
-    setSpeciesName(name);
-    setSpeciesConfidence(1.0); // manual selection = full confidence
-    setWoodDensity(getWoodDensity(name) ?? 0);
-    setShowSpeciesDropdown(false);
-    setPhase('species_done');
-    setStatusText('Species selected — Measure diameter');
   }, []);
 
   // ──── MEASURE DIAMETER ────
@@ -405,6 +395,14 @@ const ARCameraScreen = () => {
       return;
     }
 
+    if (gpsAccuracy > 30) {
+      Alert.alert(
+        'Weak GPS Signal',
+        'GPS accuracy is too weak to save this tree. Move to an open area and try again.',
+      );
+      return;
+    }
+
     let nextEvidenceBase64 = evidenceBase64;
     let nextEvidenceHash = evidenceHash;
 
@@ -565,9 +563,7 @@ const ARCameraScreen = () => {
 
       {/* Species overlay card — visible after identification */}
       {speciesName && phase !== 'idle' && phase !== 'identifying' && phase !== 'success' && (
-        <TouchableOpacity
-          onPress={() => setShowSpeciesDropdown(true)}
-          className="absolute top-28 left-5 right-5 bg-black/60 rounded-2xl p-4">
+        <View className="absolute top-28 left-5 right-5 bg-black/60 rounded-2xl p-4">
           <View className="flex-row items-center justify-between">
             <View className="flex-row items-center">
               <MaterialCommunityIcons color="#FFFFFF" name="sprout" size={18} />
@@ -579,15 +575,12 @@ const ARCameraScreen = () => {
               {Math.round(speciesConfidence * 100)}%
             </Text>
           </View>
-          <Text className="text-white/50 text-xs mt-1">
-            Tap to change species
-          </Text>
           <Text
             className="text-white/70 text-xs mt-1"
             style={{fontFamily: 'RobotoMono-Regular'}}>
             Density: {woodDensity.toFixed(2)} g/cm³
           </Text>
-        </TouchableOpacity>
+        </View>
       )}
 
       {/* Measurement progress — Tier 1 ring / Tier 2 motion guide */}
@@ -810,44 +803,6 @@ const ARCameraScreen = () => {
         </View>
       )}
 
-      {/* Species dropdown modal */}
-      <Modal visible={showSpeciesDropdown} transparent animationType="slide">
-        <View className="flex-1 justify-end bg-black/50">
-          <View className="bg-white rounded-t-3xl px-5 pt-4 pb-8 max-h-[70%]">
-            <View className="flex-row justify-between items-center mb-4">
-              <Text className="text-[#191C1B] text-lg font-bold">
-                Select Species
-              </Text>
-              <TouchableOpacity onPress={() => setShowSpeciesDropdown(false)}>
-                <MaterialCommunityIcons color="#6B7280" name="close" size={24} />
-              </TouchableOpacity>
-            </View>
-            <FlatList
-              data={APPROVED_SPECIES}
-              keyExtractor={item => item.name}
-              renderItem={({item}) => (
-                <TouchableOpacity
-                  onPress={() => handleSelectSpecies(item.name)}
-                  className="py-4 border-b border-[#F2F4F2] flex-row justify-between items-center">
-                  <View>
-                    <Text className="text-[#191C1B] text-base font-semibold">
-                      {item.name}
-                    </Text>
-                    <Text className="text-[#6B7280] text-xs">
-                      {item.scientificName}
-                    </Text>
-                  </View>
-                  <Text
-                    className="text-[#6B7280] text-sm"
-                    style={{fontFamily: 'RobotoMono-Regular'}}>
-                    ρ {item.woodDensity.toFixed(2)}
-                  </Text>
-                </TouchableOpacity>
-              )}
-            />
-          </View>
-        </View>
-      </Modal>
     </View>
   );
 };

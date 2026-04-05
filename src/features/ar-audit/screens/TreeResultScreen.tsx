@@ -7,7 +7,6 @@ import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityI
 import type {RootStackParamList} from '../../../types/navigation';
 import Badge from '../../../common/components/Badge';
 import {useAppDispatch, useAppSelector} from '../../../store/hooks';
-import type {AuditState} from '../store/auditSlice';
 import {addScannedTree, setCurrentZoneIndex} from '../store/auditSlice';
 
 type NavProp = NativeStackNavigationProp<RootStackParamList, 'TreeResultScreen'>;
@@ -17,7 +16,7 @@ const TreeResultScreen = () => {
   const navigation = useNavigation<NavProp>();
   const route = useRoute<RouteType>();
   const dispatch = useAppDispatch();
-  const audit = useAppSelector(state => state.audit as unknown as AuditState);
+  const audit = useAppSelector(state => state.audit);
   const {scannedTrees, zones, currentZoneIndex, minTreesRequired} = audit;
 
   // Flaw #85: Read pending tree from route params instead of already-saved array

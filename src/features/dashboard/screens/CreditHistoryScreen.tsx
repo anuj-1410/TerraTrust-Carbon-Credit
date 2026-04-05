@@ -116,7 +116,7 @@ const CreditHistoryScreen = () => {
           <Text
             className="text-center text-base font-[Roboto]"
             style={{color: COLORS.DISABLED_GREY}}>
-            No audits yet. Complete your first audit to see your history.
+            No credit history yet. Complete your first audit to earn credits.
           </Text>
         </View>
       </View>
