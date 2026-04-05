@@ -1,5 +1,5 @@
 import React, {useEffect, useRef, useState} from 'react';
-import {View, Text, TouchableOpacity} from 'react-native';
+import {Alert, View, Text, TouchableOpacity} from 'react-native';
 import {useNavigation, useRoute} from '@react-navigation/native';
 import type {NativeStackNavigationProp} from '@react-navigation/native-stack';
 import type {RouteProp} from '@react-navigation/native';
@@ -11,6 +11,7 @@ import MapView, {
   PROVIDER_GOOGLE,
 } from 'react-native-maps';
 import ReactNativeHapticFeedback from 'react-native-haptic-feedback';
+import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
 import type {RootStackParamList} from '../../../types/navigation';
 import {useAppSelector} from '../../../store/hooks';
 import type {AuditState} from '../store/auditSlice';
@@ -25,7 +26,7 @@ type RouteType = RouteProp<RootStackParamList, 'ZoneNavigationScreen'>;
 const ZoneNavigationScreen = () => {
   const navigation = useNavigation<NavProp>();
   const route = useRoute<RouteType>();
-  const {landId} = route.params;
+  const {landId, originTab: routeOriginTab} = route.params;
 
   const audit = useAppSelector(state => state.audit as unknown as AuditState);
   const parcels = useAppSelector(
@@ -35,6 +36,7 @@ const ZoneNavigationScreen = () => {
   const boundary = parcel?.boundary_geojson ?? null;
 
   const {zones, currentZoneIndex, scannedTrees, minTreesRequired} = audit;
+  const originTab = audit.originTab ?? routeOriginTab ?? 'HomeTab';
   const currentZone = zones[currentZoneIndex] ?? null;
 
   const ZONE_LETTERS = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J'];
@@ -99,6 +101,21 @@ const ZoneNavigationScreen = () => {
     });
   };
 
+  const handleExitAudit = () => {
+    Alert.alert('Exit audit?', 'Your progress will be saved.', [
+      {text: 'Keep auditing', style: 'cancel'},
+      {
+        text: 'Exit audit',
+        style: 'destructive',
+        onPress: () =>
+          navigation.reset({
+            index: 0,
+            routes: [{name: 'HomeScreen', params: {screen: originTab}}],
+          }),
+      },
+    ]);
+  };
+
   // Compute distance to current zone centre
   const distanceToZone = (() => {
     if (!currentPosition || !currentZone) return null;
@@ -117,22 +134,6 @@ const ZoneNavigationScreen = () => {
 
   return (
     <View className="flex-1 bg-[#F8FAF8]">
-      {/* Header */}
-      <View className="bg-[#1B4332] pt-12 pb-4 px-5 flex-row items-center">
-        <TouchableOpacity
-          onPress={() => navigation.goBack()}
-          className="w-12 h-12 items-center justify-center rounded-full"
-          accessibilityLabel="Go back">
-          <Text className="text-white text-2xl">←</Text>
-        </TouchableOpacity>
-        <Text className="flex-1 text-white text-xl font-bold text-center">
-          Zone Navigation
-        </Text>
-        <Text className="text-white/70 text-sm">
-          Zone {currentZoneIndex + 1} of {zones.length}
-        </Text>
-      </View>
-
       {/* Map — mapType="standard" ONLY, NEVER satellite */}
       <View className="flex-1">
         <MapView
@@ -254,12 +255,26 @@ const ZoneNavigationScreen = () => {
             />
           )}
         </MapView>
+
+        <View className="absolute left-4 right-4 top-12 flex-row items-center justify-between">
+          <TouchableOpacity
+            onPress={handleExitAudit}
+            className="h-12 w-12 items-center justify-center rounded-full bg-black/30"
+            accessibilityLabel="Exit audit">
+            <MaterialCommunityIcons color="#FFFFFF" name="arrow-left" size={24} />
+          </TouchableOpacity>
+          <View className="rounded-full bg-black/30 px-4 py-2">
+            <Text className="text-sm font-semibold text-white">
+              Zone {currentZoneIndex + 1} of {zones.length}
+            </Text>
+          </View>
+        </View>
       </View>
 
       {/* Geofence warning banner — FR-008 */}
       {currentPosition && !isInsideBoundary && (
         <View className="mx-4 mt-2 bg-[#FEF3C7] rounded-2xl px-4 py-3 flex-row items-center">
-          <Text className="text-lg mr-3">⚠️</Text>
+          <MaterialCommunityIcons color="#92400E" name="alert-outline" size={20} />
           <Text className="flex-1 text-[#92400E] text-sm leading-5">
             You appear to be outside your registered land boundary. Please
             return to your land to scan.
@@ -269,7 +284,7 @@ const ZoneNavigationScreen = () => {
 
       {hasLocationPermission === false && (
         <View className="mx-4 mt-2 rounded-2xl px-4 py-3 flex-row items-center" style={{backgroundColor: '#FEF3C7'}}>
-          <Text className="text-lg mr-3">📍</Text>
+          <MaterialCommunityIcons color="#92400E" name="map-marker-outline" size={20} />
           <Text className="flex-1 text-sm leading-5" style={{color: '#92400E'}}>
             Location permission is required to navigate to your audit zone.
           </Text>
@@ -285,7 +300,7 @@ const ZoneNavigationScreen = () => {
         {/* Distance + status row */}
         <View className="flex-row items-center justify-between mt-2">
           <View className="flex-row items-center">
-            <Text className="text-base mr-2">🚶</Text>
+            <MaterialCommunityIcons color="#6B7280" name="walk" size={18} />
             <Text
               className="text-[#6B7280] text-sm"
               style={{fontFamily: 'RobotoMono-Regular'}}>
@@ -362,9 +377,11 @@ const ZoneNavigationScreen = () => {
               ? "You're here — Start Scanning"
               : `Start Scanning in Zone ${currentZoneLetter}`}
           </Text>
-          <Text className="text-white text-lg ml-2">
-            {isAtZoneCentre ? '📷' : '🔒'}
-          </Text>
+          <MaterialCommunityIcons
+            color="#FFFFFF"
+            name={isAtZoneCentre ? 'camera-outline' : 'lock-outline'}
+            size={18}
+          />
         </TouchableOpacity>
       </View>
     </View>

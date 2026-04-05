@@ -10,6 +10,7 @@ import {
 import LottieView from 'lottie-react-native';
 import {useNavigation} from '@react-navigation/native';
 import type {NativeStackNavigationProp} from '@react-navigation/native-stack';
+import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
 
 import {useAppSelector, useAppDispatch} from '../../../store/hooks';
 import {fetchCreditsThunk} from '../store/creditsSlice';
@@ -98,7 +99,10 @@ const HomeScreen = () => {
   };
 
   const openLandDetail = (parcelId: string) => {
-    navigation.navigate('LandDetailScreen', {landId: parcelId});
+    navigation.navigate('LandDetailScreen', {
+      landId: parcelId,
+      originTab: 'HomeTab',
+    });
   };
 
   const handleParcelAction = (parcel: LandParcel) => {
@@ -113,6 +117,7 @@ const HomeScreen = () => {
       navigation.navigate('AuditStartScreen', {
         landId: parcel.id,
         landName: parcel.farm_name,
+        originTab: 'HomeTab',
       });
       return;
     }
@@ -140,9 +145,11 @@ const HomeScreen = () => {
             onPress={() => navigation.navigate('NotificationsScreen')}
             activeOpacity={0.7}>
             <View>
-              <Text className="text-xl" style={{color: COLORS.DARK_SLATE}}>
-                🔔
-              </Text>
+              <MaterialCommunityIcons
+                color={COLORS.DARK_SLATE}
+                name="bell-outline"
+                size={22}
+              />
               {unreadNotifications > 0 ? (
                 <View
                   className="absolute -right-2 -top-1 min-h-[20px] min-w-[20px] items-center justify-center rounded-full px-1"
@@ -186,12 +193,18 @@ const HomeScreen = () => {
           {/* Pending Mint Banner */}
           {pendingMint && (
             <View
-              className="mt-3 rounded-lg px-3 py-2"
+              className="mt-3 flex-row items-center rounded-lg px-3 py-2"
               style={{backgroundColor: 'rgba(221, 107, 32, 0.1)'}}>
+              <MaterialCommunityIcons
+                color={COLORS.WARNING_ORANGE}
+                name="progress-clock"
+                size={16}
+              />
               <Text
                 className="text-sm font-[Roboto]"
                 style={{color: COLORS.WARNING_ORANGE}}>
-                ⏳ Minting in progress…
+                {' '}
+                Minting in progress...
               </Text>
             </View>
           )}
@@ -206,11 +219,14 @@ const HomeScreen = () => {
                 );
               }
             }}>
-            <Text
-              className="text-sm font-[Roboto]"
-              style={{color: COLORS.TEAL}}>
-              View on PolygonScan ↗
+            <Text className="text-sm font-[Roboto]" style={{color: COLORS.TEAL}}>
+              View on PolygonScan
             </Text>
+            <MaterialCommunityIcons
+              color={COLORS.TEAL}
+              name="open-in-new"
+              size={16}
+            />
           </TouchableOpacity>
         </View>
 
@@ -354,15 +370,24 @@ const HomeScreen = () => {
           ))}
           {history.length > 0 && (
             <TouchableOpacity
-              className="min-h-[48px] min-w-[48px] items-center justify-center mt-1"
+              className="mt-1 min-h-[48px] min-w-[48px] flex-row items-center justify-center"
               onPress={() =>
-                navigation.navigate('CreditHistoryScreen', {source: 'home'})
+                navigation.navigate('HomeScreen', {
+                  screen: 'HistoryTab',
+                  params: {
+                    screen: 'CreditHistoryScreen',
+                    params: {source: 'history'},
+                  },
+                })
               }>
-              <Text
-                className="text-sm font-bold font-[Roboto]"
-                style={{color: COLORS.TEAL}}>
-                View All History →
+              <Text className="text-sm font-bold font-[Roboto]" style={{color: COLORS.TEAL}}>
+                View All History
               </Text>
+              <MaterialCommunityIcons
+                color={COLORS.TEAL}
+                name="arrow-right"
+                size={18}
+              />
             </TouchableOpacity>
           )}
         </View>

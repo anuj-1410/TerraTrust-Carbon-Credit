@@ -1,5 +1,6 @@
 import React, {useState} from 'react';
 import {
+  ActivityIndicator,
   View,
   Text,
   TextInput,
@@ -19,7 +20,6 @@ import {setUser, setWalletAddress, setKycCompleted} from '../store/authSlice';
 import api from '../../../services/api';
 import {type AuthBootstrapResponse} from '../../../services/firebase';
 import {sha256} from '../../../common/utils/hash';
-import Loader from '../../../common/components/Loader';
 import {getAuthenticatedEntryRoute} from '../../../common/utils/onboarding';
 
 type Nav = NativeStackNavigationProp<RootStackParamList, 'KYCScreen'>;
@@ -215,7 +215,7 @@ const KYCScreen = () => {
             disabled={isLoading || !isFormReady}
             activeOpacity={0.8}>
             {isLoading ? (
-              <Loader />
+              <ActivityIndicator color="#FFFFFF" />
             ) : (
               <Text className="text-base font-bold text-white">Continue</Text>
             )}

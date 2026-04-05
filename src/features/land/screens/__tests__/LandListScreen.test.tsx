@@ -120,7 +120,7 @@ describe('LandListScreen', () => {
         expect(
           getByText('Add your first land parcel to get started'),
         ).toBeTruthy();
-        expect(getByText('Add Your First Parcel')).toBeTruthy();
+        expect(getByText('Register Your First Land')).toBeTruthy();
       });
     });
   });
@@ -143,7 +143,7 @@ describe('LandListScreen', () => {
     it('shows verified badge', async () => {
       const {getByText} = renderScreen({parcels: [VERIFIED_PARCEL]});
       await waitFor(() => {
-        expect(getByText('✓ Verified')).toBeTruthy();
+        expect(getByText('Verified')).toBeTruthy();
         expect(getByText('Annual audit is due.')).toBeTruthy();
       });
     });
@@ -172,9 +172,9 @@ describe('LandListScreen', () => {
     it('shows correct badge for each status', async () => {
       const {getByText} = renderScreen({parcels: threeParcels});
       await waitFor(() => {
-        expect(getByText('✓ Verified')).toBeTruthy();
-        expect(getByText('⏳ Pending')).toBeTruthy();
-        expect(getByText('✗ Rejected')).toBeTruthy();
+        expect(getByText('Verified')).toBeTruthy();
+        expect(getByText('Pending')).toBeTruthy();
+        expect(getByText('Rejected')).toBeTruthy();
       });
     });
 

@@ -10,6 +10,7 @@ import {
 import {BarChart} from 'react-native-chart-kit';
 import LottieView from 'lottie-react-native';
 import {useNavigation} from '@react-navigation/native';
+import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
 
 import {useAppSelector, useAppDispatch} from '../../../store/hooks';
 import {fetchCreditsThunk} from '../store/creditsSlice';
@@ -98,9 +99,11 @@ const CreditHistoryScreen = () => {
             <TouchableOpacity
               className="min-h-[48px] min-w-[48px] items-center justify-center"
               onPress={() => navigation.goBack()}>
-              <Text className="text-2xl" style={{color: COLORS.DARK_SLATE}}>
-                ←
-              </Text>
+              <MaterialCommunityIcons
+                color={COLORS.DARK_SLATE}
+                name="arrow-left"
+                size={24}
+              />
             </TouchableOpacity>
           ) : null}
           <Text
@@ -129,9 +132,11 @@ const CreditHistoryScreen = () => {
             <TouchableOpacity
               className="min-h-[48px] min-w-[48px] items-center justify-center"
               onPress={() => navigation.goBack()}>
-              <Text className="text-2xl" style={{color: COLORS.DARK_SLATE}}>
-                ←
-              </Text>
+              <MaterialCommunityIcons
+                color={COLORS.DARK_SLATE}
+                name="arrow-left"
+                size={24}
+              />
             </TouchableOpacity>
           ) : null}
           <Text

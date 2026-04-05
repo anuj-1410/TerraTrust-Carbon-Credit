@@ -3,7 +3,9 @@ import {View, Text, TouchableOpacity, ScrollView, Image} from 'react-native';
 import {useNavigation, useRoute} from '@react-navigation/native';
 import type {NativeStackNavigationProp} from '@react-navigation/native-stack';
 import type {RouteProp} from '@react-navigation/native';
+import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
 import type {RootStackParamList} from '../../../types/navigation';
+import Badge from '../../../common/components/Badge';
 import {useAppDispatch, useAppSelector} from '../../../store/hooks';
 import type {AuditState} from '../store/auditSlice';
 import {addScannedTree, setCurrentZoneIndex} from '../store/auditSlice';
@@ -32,23 +34,20 @@ const TreeResultScreen = () => {
   );
 
   const precisionBadge = (() => {
-    if (!tree) return {label: '', bgColor: '', textColor: ''};
+    if (!tree) return {label: '', variant: 'manual' as const};
     if (tree.measurement_tier === 1)
       return {
-        label: '◉ High Precision',
-        bgColor: 'bg-[#D1FAE5]',
-        textColor: 'text-[#065F46]',
+        label: 'High Precision',
+        variant: 'high-precision' as const,
       };
     if (tree.measurement_tier === 2)
       return {
-        label: '◉ Standard Precision',
-        bgColor: 'bg-[#FEF3C7]',
-        textColor: 'text-[#92400E]',
+        label: 'Standard Precision',
+        variant: 'standard-precision' as const,
       };
     return {
-      label: '◎ Manual Measurement',
-      bgColor: 'bg-[#F3F4F6]',
-      textColor: 'text-[#6B7280]',
+      label: 'Manual Measurement',
+      variant: 'manual' as const,
     };
   })();
 
@@ -108,7 +107,7 @@ const TreeResultScreen = () => {
           onPress={() => navigation.goBack()}
           className="w-12 h-12 items-center justify-center rounded-full"
           accessibilityLabel="Go back">
-          <Text className="text-white text-2xl">←</Text>
+          <MaterialCommunityIcons color="#FFFFFF" name="arrow-left" size={24} />
         </TouchableOpacity>
         <Text className="flex-1 text-white text-xl font-bold text-center mr-12">
           Tree Scan Result
@@ -123,16 +122,12 @@ const TreeResultScreen = () => {
           {/* Species */}
           <View className="flex-row items-center justify-between mb-4">
             <View className="flex-row items-center">
-              <Text className="text-lg mr-2">🌿</Text>
+              <MaterialCommunityIcons color="#2D6A4F" name="sprout" size={18} />
               <Text className="text-[#191C1B] text-xl font-bold">
                 {tree.species}
               </Text>
             </View>
-            <View className="bg-[#D1FAE5] px-3 py-1 rounded-full flex-row items-center">
-              <Text className="text-[#065F46] text-xs font-semibold">
-                ✓ Verified
-              </Text>
-            </View>
+            <Badge label="Verified" variant="verified" />
           </View>
 
           <View className="h-px bg-[#F2F4F2]" />
@@ -147,12 +142,8 @@ const TreeResultScreen = () => {
               style={{fontFamily: 'RobotoMono-Bold'}}>
               {tree.dbh_cm.toFixed(1)} cm
             </Text>
-            <View
-              className={`self-start px-3 py-1 rounded-full mt-2 ${precisionBadge.bgColor}`}>
-              <Text
-                className={`text-xs font-semibold ${precisionBadge.textColor}`}>
-                {precisionBadge.label}
-              </Text>
+            <View className="mt-2 self-start">
+              <Badge label={precisionBadge.label} variant={precisionBadge.variant} />
             </View>
           </View>
 
@@ -243,7 +234,7 @@ const TreeResultScreen = () => {
           <Text className="text-white text-base font-bold">
             Confirm and Save Tree
           </Text>
-          <Text className="text-white text-lg ml-2">✓</Text>
+          <MaterialCommunityIcons color="#FFFFFF" name="check" size={18} />
         </TouchableOpacity>
         <TouchableOpacity
           onPress={handleRescan}

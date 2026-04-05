@@ -9,13 +9,13 @@ export type CreditHistoryParams = {
 export type HomeStackParamList = {
   DashboardHomeScreen: undefined;
   CreditHistoryScreen: CreditHistoryParams | undefined;
-  LandDetailScreen: {landId: string};
+  LandDetailScreen: {landId: string; originTab?: MainAppOriginTab};
   EditLandNameScreen: {landId: string};
 };
 
 export type LandStackParamList = {
   LandListScreen: undefined;
-  LandDetailScreen: {landId: string};
+  LandDetailScreen: {landId: string; originTab?: MainAppOriginTab};
   EditLandNameScreen: {landId: string};
 };
 
@@ -36,6 +36,8 @@ export type MainTabParamList = {
   ProfileTab: NavigatorScreenParams<ProfileStackParamList> | undefined;
 };
 
+export type MainAppOriginTab = Extract<keyof MainTabParamList, 'HomeTab' | 'LandTab'>;
+
 export type RootStackParamList = {
   SplashScreen: undefined;
   LoginScreen: undefined;
@@ -48,7 +50,7 @@ export type RootStackParamList = {
   DashboardHomeScreen: undefined;
   LandListScreen: undefined;
   CreditHistoryScreen: CreditHistoryParams | undefined;
-  LandDetailScreen: {landId: string};
+  LandDetailScreen: {landId: string; originTab?: MainAppOriginTab};
   EditLandNameScreen: {landId: string};
   ProfileScreen: undefined;
   SettingsScreen: undefined;
@@ -59,14 +61,25 @@ export type RootStackParamList = {
   ManualUploadGuideScreen: undefined;
   LandRegistrationSuccessScreen: {landId: string};
 
-  AuditStartScreen: {landId: string; landName: string};
-  ZoneNavigationScreen: {auditId: string; landId: string};
+  AuditStartScreen: {
+    landId: string;
+    landName: string;
+    originTab?: MainAppOriginTab;
+  };
+  ZoneNavigationScreen: {
+    auditId: string;
+    landId: string;
+    originTab?: MainAppOriginTab;
+  };
   ARCameraScreen: {
     zoneId: string;
     zoneIndex: number;
     returnDiameter?: number;
   };
-  ManualMeasureScreen: {returnDiameter?: number} | undefined;
+  ManualMeasureScreen: {
+    zoneId: string;
+    zoneIndex: number;
+  };
   TreeResultScreen: {pendingTree: TreeSample};
   AuditCompleteScreen: undefined;
   AuditStatusScreen: {auditId: string};

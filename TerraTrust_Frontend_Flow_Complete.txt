@@ -5,8 +5,8 @@ TERRATRUST-AR — COMPLETE FRONTEND FLOW & NAVIGATION SPECIFICATION
 Document Purpose  : Complete screen-by-screen navigation, tab structure,
                     missing screens, and full user flow for AI agent implementation
 Based On          : SRS v3.1, Backend System Design v3.1, FDD v3.1
-Platform          : Android (React Native CLI + TypeScript)
-Navigation Library: React Navigation v6
+Platform          : Android (React Native CLI 0.84.1 + TypeScript 5.9.x)
+Navigation Library: React Navigation v7
 Date              : April 2026
 
 ================================================================================
@@ -46,7 +46,7 @@ MISSING — Within Existing Screens:
 SECTION 2: NAVIGATION ARCHITECTURE — COMPLETE STRUCTURE
 ================================================================================
 
-The app uses THREE navigator types from React Navigation v6:
+The app uses THREE navigator types from React Navigation v7:
 
   1. RootNavigator (Native Stack) — top-level router between auth and main app
   2. MainTabNavigator (Bottom Tabs) — the primary navigation after login

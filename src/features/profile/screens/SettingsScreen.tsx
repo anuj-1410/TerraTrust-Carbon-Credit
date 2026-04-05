@@ -3,6 +3,7 @@ import {Switch, Text, TouchableOpacity, View} from 'react-native';
 import DeviceInfo from 'react-native-device-info';
 import {useNavigation} from '@react-navigation/native';
 import type {NativeStackNavigationProp} from '@react-navigation/native-stack';
+import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
 
 import Card from '../../../common/components/Card';
 import {COLORS} from '../../../common/constants/colors';
@@ -31,7 +32,11 @@ const SettingsScreen = () => {
         <TouchableOpacity
           className="min-h-[48px] min-w-[48px] items-center justify-center"
           onPress={() => navigation.goBack()}>
-          <Text className="text-2xl" style={{color: COLORS.DARK_SLATE}}>←</Text>
+          <MaterialCommunityIcons
+            color={COLORS.DARK_SLATE}
+            name="arrow-left"
+            size={24}
+          />
         </TouchableOpacity>
         <Text className="ml-3 text-2xl font-bold" style={{color: COLORS.DARK_SLATE}}>
           Settings

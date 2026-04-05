@@ -1,5 +1,6 @@
 import React, {useState, useRef, useEffect, useCallback} from 'react';
 import {
+  ActivityIndicator,
   View,
   Text,
   TextInput,
@@ -17,9 +18,9 @@ import {
   sendPhoneOtp,
   type AuthBootstrapResponse,
 } from '../../../services/firebase';
+import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
 import {useAppDispatch, useAppSelector} from '../../../store/hooks';
 import {setUser, setWalletAddress, setKycCompleted} from '../store/authSlice';
-import Loader from '../../../common/components/Loader';
 import {getAuthenticatedEntryRoute} from '../../../common/utils/onboarding';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'OTPScreen'>;
@@ -232,7 +233,11 @@ const OTPScreen = ({route, navigation}: Props) => {
           className="min-h-[48px] min-w-[48px] items-center justify-center self-start"
           onPress={() => navigation.replace('LoginScreen')}
           activeOpacity={0.7}>
-          <Text className="text-2xl text-[#2F855A]">←</Text>
+          <MaterialCommunityIcons
+            color="#2F855A"
+            name="arrow-left"
+            size={24}
+          />
         </TouchableOpacity>
 
         <Text className="text-base text-gray-700">
@@ -285,7 +290,7 @@ const OTPScreen = ({route, navigation}: Props) => {
           disabled={isLoading || !isOtpComplete}
           activeOpacity={0.8}>
           {isLoading ? (
-            <Loader />
+            <ActivityIndicator color="#FFFFFF" />
           ) : (
             <Text className="text-base font-bold text-white">Verify OTP</Text>
           )}

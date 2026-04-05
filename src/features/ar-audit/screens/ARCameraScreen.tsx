@@ -11,6 +11,7 @@ import {useNavigation, useRoute} from '@react-navigation/native';
 import type {NativeStackNavigationProp} from '@react-navigation/native-stack';
 import type {RouteProp} from '@react-navigation/native';
 import {Camera, useCameraDevice} from 'react-native-vision-camera';
+import Geolocation from 'react-native-geolocation-service';
 import Animated, {
   useSharedValue,
   useAnimatedStyle,
@@ -20,8 +21,10 @@ import Animated, {
 } from 'react-native-reanimated';
 import ReactNativeHapticFeedback from 'react-native-haptic-feedback';
 import LottieView from 'lottie-react-native';
+import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
 
 import type {RootStackParamList} from '../../../types/navigation';
+import Badge from '../../../common/components/Badge';
 import {useAppSelector} from '../../../store/hooks';
 import type {AuditState, TreeSample} from '../store/auditSlice';
 import {
@@ -52,6 +55,24 @@ type MeasurePhase =
   | 'height_top'
   | 'result'
   | 'success';
+
+function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      reject(new Error('Timed out'));
+    }, timeoutMs);
+
+    promise
+      .then(result => {
+        clearTimeout(timer);
+        resolve(result);
+      })
+      .catch(error => {
+        clearTimeout(timer);
+        reject(error);
+      });
+  });
+}
 
 const ARCameraScreen = () => {
   const navigation = useNavigation<NavProp>();
@@ -139,9 +160,8 @@ const ARCameraScreen = () => {
 
   // GPS location for tree capture
   useEffect(() => {
-    const Geolocation = require('react-native-geolocation-service').default;
     const watchId = Geolocation.watchPosition(
-      (pos: any) => {
+      pos => {
         setGpsLat(pos.coords.latitude);
         setGpsLng(pos.coords.longitude);
         setGpsAccuracy(pos.coords.accuracy);
@@ -173,7 +193,7 @@ const ARCameraScreen = () => {
       const snapshot = await cameraRef.current.takeSnapshot({quality: 80});
       const imgBase64 = await readFileAsBase64(snapshot.path);
 
-      const result = await identifySpecies(imgBase64);
+      const result = await withTimeout(identifySpecies(imgBase64), 10000);
 
       if (result.confidence >= 0.6) {
         // Check if approved
@@ -216,7 +236,7 @@ const ARCameraScreen = () => {
   // ──── MEASURE DIAMETER ────
   const handleMeasureDiameter = useCallback(async () => {
     if (arTier === 3) {
-      navigation.navigate('ManualMeasureScreen', {});
+      navigation.navigate('ManualMeasureScreen', {zoneId, zoneIndex});
       return;
     }
 
@@ -240,14 +260,14 @@ const ARCameraScreen = () => {
         );
       }
 
-      const result = await measureTreeDiameter();
+      const result = await withTimeout(measureTreeDiameter(), 10000);
 
       // FR-021: confidence < 0.7 → retry
       if (result.confidence < 0.7) {
         setConsecutiveFailures(f => f + 1);
         if (consecutiveFailures + 1 >= 3) {
           // FR-027: 3 failures → ManualMeasure
-          navigation.navigate('ManualMeasureScreen', {});
+          navigation.navigate('ManualMeasureScreen', {zoneId, zoneIndex});
           return;
         }
         Alert.alert(
@@ -263,7 +283,7 @@ const ARCameraScreen = () => {
       if (result.diameter_cm < 5 || result.diameter_cm > 200) {
         setConsecutiveFailures(f => f + 1);
         if (consecutiveFailures + 1 >= 3) {
-          navigation.navigate('ManualMeasureScreen', {});
+          navigation.navigate('ManualMeasureScreen', {zoneId, zoneIndex});
           return;
         }
         Alert.alert(
@@ -295,7 +315,7 @@ const ARCameraScreen = () => {
     } catch {
       setConsecutiveFailures(f => f + 1);
       if (consecutiveFailures + 1 >= 3) {
-        navigation.navigate('ManualMeasureScreen', {});
+        navigation.navigate('ManualMeasureScreen', {zoneId, zoneIndex});
         return;
       }
       Alert.alert(
@@ -305,7 +325,7 @@ const ARCameraScreen = () => {
       setPhase('species_done');
       setStatusText('Try again — Measure diameter');
     }
-  }, [arTier, consecutiveFailures, navigation, timerProgress, slamArrowX]);
+  }, [arTier, consecutiveFailures, navigation, slamArrowX, timerProgress, zoneId, zoneIndex]);
 
   const handleStartHeightMeasurement = useCallback(async () => {
     if (!canMeasureArHeight) {
@@ -317,7 +337,7 @@ const ARCameraScreen = () => {
     }
 
     try {
-      await beginHeightMeasurement();
+      await withTimeout(beginHeightMeasurement(), 5000);
       setPhase('height_base');
       setStatusText(
         'GEDI satellite data not available. Point at the base of the tree, then tap Base.',
@@ -332,7 +352,7 @@ const ARCameraScreen = () => {
 
   const handleCaptureHeightBase = useCallback(async () => {
     try {
-      await captureHeightPoint('base');
+      await withTimeout(captureHeightPoint('base'), 5000);
       setPhase('height_top');
       setStatusText('Base marked. Tilt to the top of the tree, then tap Top.');
     } catch {
@@ -345,7 +365,7 @@ const ARCameraScreen = () => {
 
   const handleCaptureHeightTop = useCallback(async () => {
     try {
-      const result = await captureHeightPoint('top');
+      const result = await withTimeout(captureHeightPoint('top'), 5000);
       const heightM = result.height_m ?? null;
       setArHeightM(heightM);
       ReactNativeHapticFeedback.trigger('impactMedium');
@@ -374,7 +394,7 @@ const ARCameraScreen = () => {
   }, [diameterCm]);
 
   // ──── ACCEPT — navigate to TreeResult with pendingTree (Flaw #81) ────
-  const handleAcceptSave = useCallback(() => {
+  const handleAcceptSave = useCallback(async () => {
     if (!speciesName || diameterCm === null) return;
 
     if (requiresArHeightBeforeSave && arHeightM === null) {
@@ -383,6 +403,17 @@ const ARCameraScreen = () => {
         'This zone has no GEDI satellite height data, so you need to capture tree height before saving.',
       );
       return;
+    }
+
+    let nextEvidenceBase64 = evidenceBase64;
+    let nextEvidenceHash = evidenceHash;
+
+    if ((!nextEvidenceBase64 || !nextEvidenceHash) && cameraRef.current) {
+      const snapshot = await cameraRef.current.takeSnapshot({quality: 80});
+      nextEvidenceBase64 = await readFileAsBase64(snapshot.path);
+      nextEvidenceHash = await hashPhoto(nextEvidenceBase64);
+      setEvidenceBase64(nextEvidenceBase64);
+      setEvidenceHash(nextEvidenceHash);
     }
 
     const pendingTree: TreeSample = {
@@ -398,8 +429,8 @@ const ARCameraScreen = () => {
       gps_lat: gpsLat,
       gps_lng: gpsLng,
       gps_accuracy_m: gpsAccuracy,
-      evidence_photo_base64: evidenceBase64 ?? '',
-      evidence_photo_hash: evidenceHash ?? '',
+      evidence_photo_base64: nextEvidenceBase64 ?? '',
+      evidence_photo_hash: nextEvidenceHash ?? '',
       scan_timestamp: new Date().toISOString(),
     };
 
@@ -434,9 +465,15 @@ const ARCameraScreen = () => {
   }, []);
 
   const precisionBadge = (() => {
-    if (tierUsed === 1) return {label: '◉ High Precision', color: 'bg-[#D1FAE5] text-[#065F46]'};
-    if (tierUsed === 2) return {label: '◉ Standard Precision', color: 'bg-[#FEF3C7] text-[#92400E]'};
-    return {label: '◎ Manual Measurement', color: 'bg-[#F3F4F6] text-[#6B7280]'};
+    if (tierUsed === 1) {
+      return {label: 'High Precision', variant: 'high-precision' as const};
+    }
+
+    if (tierUsed === 2) {
+      return {label: 'Standard Precision', variant: 'standard-precision' as const};
+    }
+
+    return {label: 'Manual Measurement', variant: 'manual' as const};
   })();
 
   if (hasCameraPermission === false) {
@@ -461,7 +498,7 @@ const ARCameraScreen = () => {
   if (hasCameraPermission === null) {
     return (
       <View className="flex-1 items-center justify-center bg-black">
-        <Text className="text-lg text-white">Checking camera permission…</Text>
+        <Text className="text-lg text-white">Checking camera permission...</Text>
       </View>
     );
   }
@@ -490,7 +527,7 @@ const ARCameraScreen = () => {
         <TouchableOpacity
           onPress={() => navigation.goBack()}
           className="w-12 h-12 items-center justify-center">
-          <Text className="text-white text-2xl">←</Text>
+          <MaterialCommunityIcons color="#FFFFFF" name="arrow-left" size={24} />
         </TouchableOpacity>
         <Text className="flex-1 text-white text-base text-center">
           {statusText}
@@ -533,8 +570,8 @@ const ARCameraScreen = () => {
           className="absolute top-28 left-5 right-5 bg-black/60 rounded-2xl p-4">
           <View className="flex-row items-center justify-between">
             <View className="flex-row items-center">
-              <Text className="text-lg mr-2">🌿</Text>
-              <Text className="text-white text-lg font-bold">
+              <MaterialCommunityIcons color="#FFFFFF" name="sprout" size={18} />
+              <Text className="ml-2 text-white text-lg font-bold">
                 {speciesName}
               </Text>
             </View>
@@ -565,7 +602,7 @@ const ARCameraScreen = () => {
             </View>
           ) : (
             <Animated.View style={slamArrowStyle}>
-              <Text className="text-white text-4xl">⟷</Text>
+              <MaterialCommunityIcons color="#FFFFFF" name="arrow-left-right" size={36} />
             </Animated.View>
           )}
           <Text className="text-white text-sm mt-3">
@@ -585,20 +622,28 @@ const ARCameraScreen = () => {
               <TouchableOpacity
                 onPress={handleIdentifySpecies}
                 className="flex-1 h-14 rounded-xl border-2 border-white/60 items-center justify-center">
-                <Text className="text-white text-sm font-semibold">
-                  🔍 Identify Species
-                </Text>
+                <View className="flex-row items-center">
+                  <MaterialCommunityIcons color="#FFFFFF" name="magnify" size={18} />
+                  <Text className="ml-2 text-white text-sm font-semibold">
+                    Identify Species
+                  </Text>
+                </View>
               </TouchableOpacity>
             )}
 
             {/* Measure Diameter */}
             {phase === 'species_done' && speciesName && (
               <TouchableOpacity
-                onPress={handleMeasureDiameter}
+                onPress={() => {
+                  void handleMeasureDiameter();
+                }}
                 className="flex-1 h-14 rounded-xl bg-[#2D6A4F] items-center justify-center mx-2">
-                <Text className="text-white text-base font-bold">
-                  📏 Measure Diameter
-                </Text>
+                <View className="flex-row items-center">
+                  <MaterialCommunityIcons color="#FFFFFF" name="ruler" size={18} />
+                  <Text className="ml-2 text-white text-base font-bold">
+                    Measure Diameter
+                  </Text>
+                </View>
               </TouchableOpacity>
             )}
 
@@ -606,9 +651,14 @@ const ARCameraScreen = () => {
             {phase === 'species_done' &&
               canMeasureArHeight && (
                 <TouchableOpacity
-                  onPress={handleStartHeightMeasurement}
+                  onPress={() => {
+                    void handleStartHeightMeasurement();
+                  }}
                   className="h-14 px-4 rounded-xl border-2 border-white/60 items-center justify-center">
-                  <Text className="text-white text-sm">📐 Height</Text>
+                  <View className="flex-row items-center">
+                    <MaterialCommunityIcons color="#FFFFFF" name="arrow-expand-vertical" size={18} />
+                    <Text className="ml-2 text-white text-sm">Height</Text>
+                  </View>
                 </TouchableOpacity>
               )}
           </View>
@@ -638,11 +688,14 @@ const ARCameraScreen = () => {
               </Text>
             </TouchableOpacity>
             <TouchableOpacity
-              onPress={
-                phase === 'height_base'
-                  ? handleCaptureHeightBase
-                  : handleCaptureHeightTop
-              }
+              onPress={() => {
+                if (phase === 'height_base') {
+                  void handleCaptureHeightBase();
+                  return;
+                }
+
+                void handleCaptureHeightTop();
+              }}
               className="flex-1 h-14 rounded-xl bg-[#2D6A4F] items-center justify-center">
               <Text className="text-white text-base font-bold">
                 {phase === 'height_base' ? 'Mark Base' : 'Mark Top'}
@@ -666,10 +719,8 @@ const ARCameraScreen = () => {
           </Text>
 
           {/* Precision badge */}
-          <View className={`self-start px-3 py-1.5 rounded-full mb-3 ${precisionBadge.color.split(' ')[0]}`}>
-            <Text className={`text-xs font-semibold ${precisionBadge.color.split(' ')[1]}`}>
-              {precisionBadge.label}
-            </Text>
+          <View className="mb-3 self-start">
+            <Badge label={precisionBadge.label} variant={precisionBadge.variant} />
           </View>
 
           {/* Confidence */}
@@ -705,7 +756,9 @@ const ARCameraScreen = () => {
 
           {canMeasureArHeight && arHeightM === null && (
             <TouchableOpacity
-              onPress={handleStartHeightMeasurement}
+              onPress={() => {
+                void handleStartHeightMeasurement();
+              }}
               className="mb-3 h-12 rounded-xl border-2 border-[#2D6A4F] items-center justify-center">
               <Text className="text-[#2D6A4F] text-base font-semibold">
                 Measure Height
@@ -723,7 +776,9 @@ const ARCameraScreen = () => {
               </Text>
             </TouchableOpacity>
             <TouchableOpacity
-              onPress={handleAcceptSave}
+              onPress={() => {
+                void handleAcceptSave();
+              }}
               disabled={requiresArHeightBeforeSave && arHeightM === null}
               className="flex-1 h-14 rounded-xl items-center justify-center"
               style={{
@@ -764,7 +819,7 @@ const ARCameraScreen = () => {
                 Select Species
               </Text>
               <TouchableOpacity onPress={() => setShowSpeciesDropdown(false)}>
-                <Text className="text-[#6B7280] text-2xl">✕</Text>
+                <MaterialCommunityIcons color="#6B7280" name="close" size={24} />
               </TouchableOpacity>
             </View>
             <FlatList

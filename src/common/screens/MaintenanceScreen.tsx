@@ -3,6 +3,7 @@ import {BackHandler, Linking, Text, View} from 'react-native';
 import DeviceInfo from 'react-native-device-info';
 import {useNavigation} from '@react-navigation/native';
 import type {NativeStackNavigationProp} from '@react-navigation/native-stack';
+import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
 
 import Button from '../components/Button';
 import Card from '../components/Card';
@@ -40,7 +41,7 @@ const MaintenanceScreen = () => {
 
   return (
     <View className="flex-1 items-center justify-center px-6" style={{backgroundColor: COLORS.OFF_WHITE}}>
-      <Text className="text-5xl">🌿</Text>
+      <MaterialCommunityIcons color={COLORS.FOREST_GREEN} name="sprout" size={52} />
       <Text className="mt-5 text-3xl font-bold" style={{color: COLORS.DARK_SLATE}}>
         TerraTrust Maintenance
       </Text>

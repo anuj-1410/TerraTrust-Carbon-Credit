@@ -2,6 +2,7 @@ import React, {useMemo, useState} from 'react';
 import {View, Text, TouchableOpacity} from 'react-native';
 import {useNavigation} from '@react-navigation/native';
 import type {NativeStackNavigationProp} from '@react-navigation/native-stack';
+import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
 
 import Card from '../../../common/components/Card';
 import Button from '../../../common/components/Button';
@@ -15,17 +16,17 @@ const ONBOARDING_CARDS = [
   {
     title: 'Register Your Land',
     body: 'Upload your 7/12 document once. TerraTrust verifies the official boundary before any audit starts.',
-    accent: '🌾',
+    accentIcon: 'map-outline',
   },
   {
     title: 'Scan Trees Zone by Zone',
     body: 'Follow the guided route, scan trees inside each zone, and save progress even when the internet is weak.',
-    accent: '📷',
+    accentIcon: 'camera-outline',
   },
   {
     title: 'Track Credits Clearly',
     body: 'See audit history, carbon credits earned, and certificates from one simple dashboard.',
-    accent: '📈',
+    accentIcon: 'chart-line',
   },
 ];
 
@@ -56,7 +57,11 @@ const OnboardingScreen = () => {
       <View className="flex-1 justify-center">
         <Card className="rounded-[24px] px-6 py-8">
           <View className="h-24 w-24 items-center justify-center self-center rounded-full" style={{backgroundColor: 'rgba(47,133,90,0.12)'}}>
-            <Text className="text-5xl">{currentCard.accent}</Text>
+            <MaterialCommunityIcons
+              color={COLORS.FOREST_GREEN}
+              name={currentCard.accentIcon}
+              size={46}
+            />
           </View>
 
           <Text className="mt-8 text-center text-3xl font-bold" style={{color: COLORS.DARK_SLATE}}>

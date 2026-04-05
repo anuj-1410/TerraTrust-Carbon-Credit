@@ -1,5 +1,6 @@
 import React, {useState} from 'react';
 import {
+  ActivityIndicator,
   View,
   Text,
   TextInput,
@@ -15,7 +16,6 @@ import {zodResolver} from '@hookform/resolvers/zod';
 import {z} from 'zod';
 import type {RootStackParamList} from '../../../types/navigation';
 import {sendPhoneOtp} from '../../../services/firebase';
-import Loader from '../../../common/components/Loader';
 
 type Nav = NativeStackNavigationProp<RootStackParamList, 'LoginScreen'>;
 
@@ -129,7 +129,7 @@ const LoginScreen = () => {
             disabled={isLoading || !isPhoneValid}
             activeOpacity={0.8}>
             {isLoading ? (
-              <Loader />
+              <ActivityIndicator color="#FFFFFF" />
             ) : (
               <Text className="text-base font-bold text-white">Send OTP</Text>
             )}

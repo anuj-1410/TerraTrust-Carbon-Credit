@@ -10,6 +10,7 @@ import {
 import {useNavigation, useRoute} from '@react-navigation/native';
 import type {RouteProp} from '@react-navigation/native';
 import type {NativeStackNavigationProp} from '@react-navigation/native-stack';
+import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
 
 import Badge from '../../../common/components/Badge';
 import Card from '../../../common/components/Card';
@@ -36,7 +37,7 @@ const PROCESSING_STATUSES = new Set(['PROCESSING', 'CALCULATING', 'READY_TO_MINT
 const LandDetailScreen = () => {
   const navigation = useNavigation<Nav>();
   const route = useRoute<RouteType>();
-  const {landId} = route.params;
+  const {landId, originTab = 'LandTab'} = route.params;
   const parcel = useAppSelector(state =>
     state.land.parcels.find(item => item.id === landId),
   );
@@ -115,7 +116,11 @@ const LandDetailScreen = () => {
           <TouchableOpacity
             className="min-h-[48px] min-w-[48px] items-center justify-center"
             onPress={() => navigation.goBack()}>
-            <Text className="text-2xl" style={{color: COLORS.DARK_SLATE}}>←</Text>
+            <MaterialCommunityIcons
+              color={COLORS.DARK_SLATE}
+              name="arrow-left"
+              size={24}
+            />
           </TouchableOpacity>
           <Text className="flex-1 text-center text-xl font-bold" style={{color: COLORS.DARK_SLATE}}>
             {parcel.farm_name}
@@ -131,7 +136,11 @@ const LandDetailScreen = () => {
           <Image source={{uri: parcel.thumbnail_url}} className="h-52 w-full" resizeMode="cover" />
         ) : (
           <View className="h-52 items-center justify-center" style={{backgroundColor: 'rgba(47,133,90,0.12)'}}>
-            <Text className="text-5xl">🌾</Text>
+            <MaterialCommunityIcons
+              color={COLORS.FOREST_GREEN}
+              name="map-outline"
+              size={56}
+            />
           </View>
         )}
 
@@ -164,7 +173,10 @@ const LandDetailScreen = () => {
                 <Text className="font-semibold">District:</Text> {parcel.district}
               </Text>
               <Text style={{color: COLORS.DARK_SLATE}}>
-                <Text className="font-semibold">Boundary Source:</Text> {parcel.boundary_source}
+                <Text className="font-semibold">Boundary Source:</Text>{' '}
+                {parcel.boundary_source === 'MANUAL'
+                  ? 'Manual Map'
+                  : 'Official Government Record'}
               </Text>
               <Text style={{color: COLORS.DARK_SLATE}}>
                 <Text className="font-semibold">Registered:</Text>{' '}
@@ -221,7 +233,7 @@ const LandDetailScreen = () => {
                 }>
                 <Text className="font-semibold text-white">View Audit Status</Text>
               </TouchableOpacity>
-            ) : (
+            ) : parcel.is_verified ? (
               <TouchableOpacity
                 className="min-h-[52px] items-center justify-center rounded-xl"
                 style={{backgroundColor: COLORS.FOREST_GREEN}}
@@ -229,10 +241,19 @@ const LandDetailScreen = () => {
                   navigation.navigate('AuditStartScreen', {
                     landId: parcel.id,
                     landName: parcel.farm_name,
+                    originTab,
                   })
                 }>
                 <Text className="font-semibold text-white">Start Audit</Text>
               </TouchableOpacity>
+            ) : (
+              <View
+                className="min-h-[52px] items-center justify-center rounded-xl px-4"
+                style={{backgroundColor: 'rgba(160,174,192,0.25)'}}>
+                <Text style={{color: COLORS.DARK_SLATE}}>
+                  Finish land verification before starting an audit.
+                </Text>
+              </View>
             )}
 
             {parcel.latest_certificate_url ? (
@@ -243,12 +264,6 @@ const LandDetailScreen = () => {
                 <Text style={{color: COLORS.TEAL}}>View Latest Certificate</Text>
               </TouchableOpacity>
             ) : null}
-
-            <TouchableOpacity
-              className="min-h-[48px] items-center justify-center"
-              onPress={() => navigation.navigate('DocumentUploadScreen')}>
-              <Text style={{color: COLORS.ERROR_RED}}>Report boundary issue</Text>
-            </TouchableOpacity>
           </View>
         </View>
       </ScrollView>
