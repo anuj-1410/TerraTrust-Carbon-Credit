@@ -29,6 +29,9 @@ const WalletRecoveryScreen = () => {
   const navigation = useNavigation<Nav>();
   const dispatch = useAppDispatch();
   const phone = useAppSelector(state => state.auth.user?.phone ?? '');
+  const notificationsEnabled = useAppSelector(
+    state => state.profile.notificationsEnabled,
+  );
   const [step, setStep] = useState<RecoveryStep>('intro');
   const [otpCode, setOtpCode] = useState('');
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -71,16 +74,20 @@ const WalletRecoveryScreen = () => {
 
       dispatch(setWalletRecoveryPending(true));
       dispatch(setPendingWalletAddress(newWalletAddress));
-      dispatch(
-        addNotification({
-          id: `wallet-recovery-${Date.now()}`,
-          type: 'audit_submitted',
-          title: 'Wallet recovery submitted',
-          body: 'TerraTrust received your wallet recovery request.',
-          createdAt: new Date().toISOString(),
-          read: false,
-        }),
-      );
+
+      if (notificationsEnabled) {
+        dispatch(
+          addNotification({
+            id: 'wallet-recovery-pending',
+            type: 'audit_submitted',
+            title: 'Wallet recovery submitted',
+            body: 'TerraTrust received your wallet recovery request.',
+            createdAt: new Date().toISOString(),
+            read: false,
+          }),
+        );
+      }
+
       setStep('success');
     } catch (error: any) {
       setErrorMessage(

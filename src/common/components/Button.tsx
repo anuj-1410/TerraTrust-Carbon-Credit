@@ -16,12 +16,16 @@ const Button = ({label, variant = 'primary', className, ...props}: ButtonProps) 
       borderWidth: 1,
       borderColor: COLORS.FOREST_GREEN,
     },
-    destructive: {backgroundColor: COLORS.ERROR_RED},
+    destructive: {
+      backgroundColor: 'transparent',
+      borderWidth: 1,
+      borderColor: COLORS.ERROR_RED,
+    },
   };
   const textStyles = {
     primary: {color: COLORS.CARD_WHITE},
     secondary: {color: COLORS.FOREST_GREEN},
-    destructive: {color: COLORS.CARD_WHITE},
+    destructive: {color: COLORS.ERROR_RED},
   };
 
   return (

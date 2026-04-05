@@ -15,8 +15,7 @@ import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityI
 import type {RootStackParamList} from '../../../types/navigation';
 import {useAppDispatch, useAppSelector} from '../../../store/hooks';
 import {fetchZones, setOriginTab} from '../store/auditSlice';
-import type {AuditState, FetchZonesError} from '../store/auditSlice';
-import type {LandState} from '../../land/store/landSlice';
+import type {FetchZonesError} from '../store/auditSlice';
 import {isMockLocationEnabled} from '../../../services/ar-bridge';
 import {hectaresToAcres} from '../../../common/utils/units';
 import {ensureLocationPermission} from '../../../common/utils/permissions';
@@ -34,10 +33,8 @@ const AuditStartScreen = () => {
   const {landId, landName, originTab = 'HomeTab'} = route.params;
   const dispatch = useAppDispatch();
 
-  const parcels = useAppSelector(
-    state => (state.land as unknown as LandState).parcels,
-  );
-  const audit = useAppSelector(state => state.audit as unknown as AuditState);
+  const parcels = useAppSelector(state => state.land.parcels);
+  const audit = useAppSelector(state => state.audit);
   const parcel = parcels.find(p => p.id === landId);
 
   const [loading, setLoading] = useState(false);

@@ -7,17 +7,17 @@ import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityI
 
 import type {RootStackParamList} from '../../../types/navigation';
 import {useAppDispatch, useAppSelector} from '../../../store/hooks';
-import type {AuditState} from '../store/auditSlice';
 import {submitAudit} from '../store/auditSlice';
 import {estimateTco2eFromTrees} from '../../../common/utils/chave';
 import {COLORS} from '../../../common/constants/colors';
+import {setPendingMint} from '../../dashboard/store/creditsSlice';
 
 type NavProp = NativeStackNavigationProp<RootStackParamList, 'AuditCompleteScreen'>;
 
 const AuditCompleteScreen = () => {
   const navigation = useNavigation<NavProp>();
   const dispatch = useAppDispatch();
-  const audit = useAppSelector(state => state.audit as unknown as AuditState);
+  const audit = useAppSelector(state => state.audit);
   const {
     scannedTrees,
     zones,
@@ -41,6 +41,7 @@ const AuditCompleteScreen = () => {
       const auditId = result.audit_id ?? activeAuditId;
 
       if (auditId) {
+        dispatch(setPendingMint(true));
         navigation.replace('AuditStatusScreen', {auditId});
       }
     } catch {

@@ -350,6 +350,15 @@ const HomeScreen = () => {
             style={{color: COLORS.DARK_SLATE}}>
             Credit History
           </Text>
+          {previewHistory.length === 0 ? (
+            <View
+              className="rounded-xl p-4 shadow-sm"
+              style={{backgroundColor: COLORS.CARD_WHITE}}>
+              <Text style={{color: COLORS.DISABLED_GREY}}>
+                No credit history yet. Complete your first audit to earn credits.
+              </Text>
+            </View>
+          ) : null}
           {previewHistory.map((record: AuditRecord, index: number) => (
             <TouchableOpacity
               key={`${record.audit_year}-${record.minted_at ?? index}`}

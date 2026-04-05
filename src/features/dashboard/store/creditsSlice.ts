@@ -33,11 +33,22 @@ export const fetchCreditsThunk = createAsyncThunk<
 >('credits/fetchCredits', async (_, {dispatch, getState}) => {
   const response = await api.get('/api/v1/credits/balance');
   const walletAddress = getState().auth.walletAddress;
+  const responseData = response.data as {
+    balance_ctt?: number;
+    history?: AuditRecord[];
+    items?: AuditRecord[];
+  };
+  const history = Array.isArray(responseData.history)
+    ? responseData.history
+    : Array.isArray(responseData.items)
+      ? responseData.items
+      : [];
+  const apiBalance = Number(responseData.balance_ctt ?? 0);
 
-  dispatch(setHistory(response.data.history));
+  dispatch(setHistory(history));
 
   if (!walletAddress) {
-    dispatch(setBalance(response.data.balance_ctt));
+    dispatch(setBalance(apiBalance));
     dispatch(setLastFetchedAt(new Date().toISOString()));
     return;
   }
@@ -46,7 +57,7 @@ export const fetchCreditsThunk = createAsyncThunk<
     const blockchainBalance = await getCTTBalance(walletAddress);
     dispatch(setBalance(blockchainBalance));
   } catch {
-    dispatch(setBalance(response.data.balance_ctt));
+    dispatch(setBalance(apiBalance));
   }
 
   dispatch(setLastFetchedAt(new Date().toISOString()));

@@ -33,6 +33,9 @@ import Loader from '../common/components/Loader';
 import api, {retryPendingAuditUpload} from '../services/api';
 import {COLORS} from '../common/constants/colors';
 import {useARTier} from '../common/hooks/useARTier';
+import {setPendingMint} from '../features/dashboard/store/creditsSlice';
+import {setUploadStatus} from '../features/ar-audit/store/auditSlice';
+import {syncAuditStatus} from '../features/ar-audit/utils/auditStatus';
 
 // Auth screens
 import SplashScreen from '../features/auth/screens/SplashScreen';
@@ -198,10 +201,6 @@ function ProfileStackNavigator() {
     <ProfileStack.Navigator screenOptions={{headerShown: false}}>
       <ProfileStack.Screen name="ProfileScreen" component={ProfileScreen} />
       <ProfileStack.Screen name="SettingsScreen" component={SettingsScreen} />
-      <ProfileStack.Screen
-        name="WalletRecoveryScreen"
-        component={WalletRecoveryScreen}
-      />
     </ProfileStack.Navigator>
   );
 }
@@ -305,8 +304,29 @@ async function configureBackgroundFetch() {
       requiredNetworkType: BackgroundFetch.NETWORK_TYPE_ANY,
     },
     async taskId => {
-      await retryPendingAuditUpload();
-      BackgroundFetch.finish(taskId);
+      try {
+        const retriedUpload = await retryPendingAuditUpload();
+
+        if (retriedUpload) {
+          store.dispatch(setUploadStatus('processing'));
+          store.dispatch(setPendingMint(true));
+        }
+
+        const {activeAuditId, uploadStatus} = store.getState().audit;
+
+        if (
+          activeAuditId &&
+          (uploadStatus === 'processing' || retriedUpload)
+        ) {
+          await syncAuditStatus({
+            auditId: activeAuditId,
+            dispatch: store.dispatch,
+            getState: store.getState,
+          });
+        }
+      } finally {
+        BackgroundFetch.finish(taskId);
+      }
     },
     async taskId => {
       BackgroundFetch.finish(taskId);
@@ -323,6 +343,8 @@ function AppLifecycleEffects() {
   const maintenanceMessage = useAppSelector(
     state => state.ui.maintenanceMessage,
   );
+  const activeAuditId = useAppSelector(state => state.audit.activeAuditId);
+  const auditUploadStatus = useAppSelector(state => state.audit.uploadStatus);
   const wasOfflineRef = useRef(false);
   const lastBackPressRef = useRef(0);
 
@@ -375,14 +397,59 @@ function AppLifecycleEffects() {
 
       if (wasOfflineRef.current) {
         wasOfflineRef.current = false;
-        void retryPendingAuditUpload();
+        void (async () => {
+          const retriedUpload = await retryPendingAuditUpload();
+
+          if (retriedUpload) {
+            dispatch(setUploadStatus('processing'));
+            dispatch(setPendingMint(true));
+          }
+
+          if (activeAuditId && (auditUploadStatus === 'processing' || retriedUpload)) {
+            await syncAuditStatus({
+              auditId: activeAuditId,
+              dispatch,
+              getState: store.getState,
+            });
+          }
+        })();
       }
 
       void api.get('/api/v1/status').catch(() => undefined);
     });
 
     return unsubscribe;
-  }, [bannerType, dispatch]);
+  }, [activeAuditId, auditUploadStatus, bannerType, dispatch]);
+
+  useEffect(() => {
+    if (!activeAuditId || auditUploadStatus !== 'processing') {
+      return;
+    }
+
+    const pollAuditInShell = async () => {
+      if (navigationRef.getCurrentRoute()?.name === 'AuditStatusScreen') {
+        return;
+      }
+
+      try {
+        await syncAuditStatus({
+          auditId: activeAuditId,
+          dispatch,
+          getState: store.getState,
+        });
+      } catch {
+        // Ignore transient polling failures in the app shell.
+      }
+    };
+
+    void pollAuditInShell();
+
+    const intervalId = setInterval(() => {
+      void pollAuditInShell();
+    }, 5000);
+
+    return () => clearInterval(intervalId);
+  }, [activeAuditId, auditUploadStatus, dispatch]);
 
   useEffect(() => {
     if (!maintenanceMode || !navigationRef.isReady()) {
@@ -563,6 +630,11 @@ const App = () => {
             <RootStack.Screen
               name="NotificationsScreen"
               component={NotificationsScreen}
+              options={{presentation: 'fullScreenModal'}}
+            />
+            <RootStack.Screen
+              name="WalletRecoveryScreen"
+              component={WalletRecoveryScreen}
               options={{presentation: 'fullScreenModal'}}
             />
             <RootStack.Screen

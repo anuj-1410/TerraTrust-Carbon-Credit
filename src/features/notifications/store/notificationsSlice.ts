@@ -31,6 +31,15 @@ const notificationsSlice = createSlice({
   initialState: notificationsInitialState,
   reducers: {
     addNotification(state, action: PayloadAction<NotificationItem>) {
+      const existingIndex = state.items.findIndex(
+        notification => notification.id === action.payload.id,
+      );
+
+      if (existingIndex >= 0) {
+        state.items[existingIndex] = action.payload;
+        return;
+      }
+
       state.items.unshift(action.payload);
     },
     markNotificationRead(state, action: PayloadAction<string>) {
