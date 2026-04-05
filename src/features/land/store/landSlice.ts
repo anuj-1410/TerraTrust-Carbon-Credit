@@ -23,6 +23,18 @@ export interface LandParcel {
   status: LandStatus;
   last_audit_year: number | null;
   last_audit_date?: string | null;
+  current_audit_id?: string | null;
+  current_audit_status?:
+    | 'PROCESSING'
+    | 'CALCULATING'
+    | 'READY_TO_MINT'
+    | 'MINTED'
+    | 'COMPLETE_NO_CREDITS'
+    | 'FAILED'
+    | null;
+  latest_certificate_url?: string | null;
+  latest_tx_hash?: string | null;
+  latest_credits_issued?: number | null;
   thumbnail_url: string | null;
   created_at: string;
 }
@@ -73,6 +85,16 @@ const landSlice = createSlice({
     addParcel(state, action: PayloadAction<LandParcel>) {
       state.parcels.push(action.payload);
     },
+    updateParcel(
+      state,
+      action: PayloadAction<{id: string; changes: Partial<LandParcel>}>,
+    ) {
+      state.parcels = state.parcels.map(parcel =>
+        parcel.id === action.payload.id
+          ? {...parcel, ...action.payload.changes}
+          : parcel,
+      );
+    },
     setCurrentDraft(state, action: PayloadAction<Partial<LandDraft>>) {
       state.currentDraft = {...state.currentDraft, ...action.payload};
     },
@@ -82,9 +104,22 @@ const landSlice = createSlice({
     setLastSynced(state, action: PayloadAction<string>) {
       state.lastSyncedAt = action.payload;
     },
+    clearCachedSatelliteImages(state) {
+      state.parcels = state.parcels.map(parcel => ({
+        ...parcel,
+        thumbnail_url: null,
+      }));
+    },
   },
 });
 
-export const {setParcels, addParcel, setCurrentDraft, clearCurrentDraft, setLastSynced} =
-  landSlice.actions;
+export const {
+  setParcels,
+  addParcel,
+  updateParcel,
+  setCurrentDraft,
+  clearCurrentDraft,
+  setLastSynced,
+  clearCachedSatelliteImages,
+} = landSlice.actions;
 export default landSlice.reducer;

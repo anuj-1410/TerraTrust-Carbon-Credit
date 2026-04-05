@@ -14,7 +14,7 @@ import DeviceInfo from 'react-native-device-info';
 import type {RootStackParamList} from '../../../types/navigation';
 import {useAppDispatch, useAppSelector} from '../../../store/hooks';
 import {fetchZones} from '../store/auditSlice';
-import type {AuditState} from '../store/auditSlice';
+import type {AuditState, FetchZonesError} from '../store/auditSlice';
 import type {LandState} from '../../land/store/landSlice';
 import {isMockLocationEnabled} from '../../../services/ar-bridge';
 import {hectaresToAcres} from '../../../common/utils/units';
@@ -78,9 +78,20 @@ const AuditStartScreen = () => {
         landId,
       });
     } catch (error: any) {
+      const fetchZonesError = error as FetchZonesError;
+
+      if (fetchZonesError.existingAuditId) {
+        navigation.replace('AuditStatusScreen', {
+          auditId: fetchZonesError.existingAuditId,
+        });
+        return;
+      }
+
       Alert.alert(
         'Unable to Start Audit',
-        error?.message || audit.errorMessage || 'Please check your connection and try again.',
+        fetchZonesError.message ||
+          audit.errorMessage ||
+          'Please check your connection and try again.',
         [{text: 'Retry', onPress: handleStartAudit}, {text: 'Cancel'}],
       );
     } finally {
@@ -121,7 +132,7 @@ const AuditStartScreen = () => {
           <Text className="text-white text-2xl">←</Text>
         </TouchableOpacity>
         <Text className="flex-1 text-white text-xl font-bold text-center mr-12">
-          Audit Overview
+          Annual Audit
         </Text>
       </View>
 
@@ -200,8 +211,8 @@ const AuditStartScreen = () => {
 
         {/* Description text */}
         <Text className="text-sm text-center mt-5 leading-6 px-4" style={{color: '#6B7280'}}>
-          You will walk to {audit.zones.length || '—'} locations on your land and scan trees at each one.
-          This takes about 20-30 minutes.
+          TerraTrust will generate your sampling zones and guide you through each tree scan on your land.
+          This usually takes about 20-30 minutes.
         </Text>
       </ScrollView>
 

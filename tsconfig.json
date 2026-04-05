@@ -2,27 +2,6 @@
   "extends": "@react-native/typescript-config",
   "compilerOptions": {
     "strict": true,
-    "baseUrl": "src",
-    "paths": {
-      "@features/*": [
-        "features/*"
-      ],
-      "@services/*": [
-        "services/*"
-      ],
-      "@common/*": [
-        "common/*"
-      ],
-      "@store/*": [
-        "store/*"
-      ],
-      "@types/*": [
-        "types/*"
-      ],
-      "@assets/*": [
-        "assets/*"
-      ]
-    },
     "types": [
       "jest"
     ]

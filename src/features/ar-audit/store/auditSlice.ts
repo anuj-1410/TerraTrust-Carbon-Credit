@@ -1,7 +1,6 @@
 import {createSlice, createAsyncThunk, type PayloadAction} from '@reduxjs/toolkit';
 import api from '../../../services/api';
 import {detectARTier as detectARTierBridge} from '../../../services/ar-bridge';
-import {hashPhoto} from '../../../common/utils/hash';
 import type {RootState} from '../../../store/index';
 
 export type ARTier = 1 | 2 | 3;
@@ -12,6 +11,17 @@ export type UploadStatus =
   | 'success'
   | 'error'
   | 'offline';
+
+export interface AuditResultResponse {
+  status: 'CALCULATING' | 'MINTED' | 'COMPLETE_NO_CREDITS' | 'FAILED';
+  credits_issued?: number;
+  audit_year?: number;
+  total_biomass_tonnes?: number;
+  tx_hash?: string;
+  ipfs_certificate_url?: string;
+  reason?: string;
+  error?: string;
+}
 
 export interface GPS {
   lat: number;
@@ -63,6 +73,11 @@ export interface AuditZonesResponse {
   min_trees_required: number;
 }
 
+export interface FetchZonesError {
+  message: string;
+  existingAuditId?: string;
+}
+
 export interface AuditState {
   activeAuditId: string | null;
   activeLandId: string | null;
@@ -75,6 +90,8 @@ export interface AuditState {
   walkingPathMetres: number;
   minTreesRequired: number;
   errorMessage: string | null;
+  auditResult: AuditResultResponse | null;
+  lastPolledAt: string | null;
 }
 
 export const auditInitialState: AuditState = {
@@ -89,6 +106,8 @@ export const auditInitialState: AuditState = {
   walkingPathMetres: 0,
   minTreesRequired: 9,
   errorMessage: null,
+  auditResult: null,
+  lastPolledAt: null,
 };
 
 // --- Async Thunks ---
@@ -96,7 +115,7 @@ export const auditInitialState: AuditState = {
 export const fetchZones = createAsyncThunk<
   AuditZonesResponse,
   string,
-  {rejectValue: string}
+  {rejectValue: FetchZonesError}
 >('audit/fetchZones', async (landId, {rejectWithValue}) => {
   try {
     const response = await api.get<AuditZonesResponse>(
@@ -105,17 +124,31 @@ export const fetchZones = createAsyncThunk<
     return response.data;
   } catch (error: any) {
     if (error.response?.status === 401) {
-      return rejectWithValue('Your session has expired. Please log in again.');
+      return rejectWithValue({
+        message: 'Your session has expired. Please log in again.',
+      });
     }
     if (error.response?.status === 404) {
-      return rejectWithValue('Land parcel not found.');
+      return rejectWithValue({message: 'Land parcel not found.'});
+    }
+    if (error.response?.status === 409) {
+      return rejectWithValue({
+        message:
+          error.response.data?.error ??
+          'An audit for this land is already in progress.',
+        existingAuditId:
+          error.response.data?.audit_id ??
+          error.response.data?.existing_audit_id ??
+          undefined,
+      });
     }
     if (error.response?.data?.error) {
-      return rejectWithValue(error.response.data.error);
+      return rejectWithValue({message: error.response.data.error});
     }
-    return rejectWithValue(
-      'Unable to generate sampling zones. Please check your connection and try again.',
-    );
+    return rejectWithValue({
+      message:
+        'Unable to generate sampling zones. Please check your connection and try again.',
+    });
   }
 });
 
@@ -131,28 +164,31 @@ export const submitAudit = createAsyncThunk<
   void,
   {state: RootState; rejectValue: string}
 >('audit/submitAudit', async (_, {getState, rejectWithValue}) => {
-  const state = getState();
-  const audit = state.audit as unknown as AuditState;
-  const {activeAuditId, activeLandId, scannedTrees} = audit;
+  const {activeAuditId, activeLandId, scannedTrees} = getState().audit;
 
   if (!activeAuditId || !activeLandId) {
     return rejectWithValue('No active audit session.');
   }
 
-  const payload = {
-    land_id: activeLandId,
-    audit_id: activeAuditId,
-    trees: scannedTrees.map(tree => ({
+  const trees = scannedTrees.map(tree => ({
       zone_id: tree.zone_id,
       species: tree.species,
+      species_confidence: tree.species_confidence,
       dbh_cm: tree.dbh_cm,
       height_m: tree.ar_height_m,
       gps: {lat: tree.gps_lat, lng: tree.gps_lng},
+      gps_accuracy_m: tree.gps_accuracy_m,
       ar_tier_used: tree.measurement_tier,
       confidence_score: tree.confidence_score,
       evidence_photo_base64: tree.evidence_photo_base64,
-      evidence_photo_hash: hashPhoto(tree.evidence_photo_base64),
-    })),
+      evidence_photo_hash: tree.evidence_photo_hash,
+      scan_timestamp: tree.scan_timestamp,
+    }));
+
+  const payload = {
+    land_id: activeLandId,
+    audit_id: activeAuditId,
+    trees,
   };
 
   try {
@@ -169,26 +205,6 @@ export const submitAudit = createAsyncThunk<
   }
 });
 
-export const pollAuditResult = createAsyncThunk<
-  {status: string; [key: string]: any},
-  string,
-  {rejectValue: string}
->('audit/pollAuditResult', async (auditId, {rejectWithValue}) => {
-  const maxAttempts = 60; // 5 min max (60 * 5s)
-  for (let i = 0; i < maxAttempts; i++) {
-    try {
-      const res = await api.get(`/api/v1/audit/result/${encodeURIComponent(auditId)}`);
-      if (res.data.status !== 'CALCULATING') {
-        return res.data;
-      }
-    } catch (error: any) {
-      return rejectWithValue('Failed to check audit status. Please try again.');
-    }
-    await new Promise(resolve => setTimeout(resolve, 5000));
-  }
-  return rejectWithValue('Audit processing timed out. Please check back later.');
-});
-
 const auditSlice = createSlice({
   name: 'audit',
   initialState: auditInitialState,
@@ -202,6 +218,10 @@ const auditSlice = createSlice({
       state.sessionComplete = false;
       state.uploadStatus = 'idle';
       state.errorMessage = null;
+      state.currentZoneIndex = 0;
+      state.scannedTrees = [];
+      state.auditResult = null;
+      state.lastPolledAt = null;
     },
     setZones(state, action: PayloadAction<SamplingZone[]>) {
       state.zones = action.payload;
@@ -211,6 +231,19 @@ const auditSlice = createSlice({
     },
     addScannedTree(state, action: PayloadAction<TreeSample>) {
       state.scannedTrees.push(action.payload);
+
+      const treesPerZone = Math.max(
+        3,
+        Math.floor(state.minTreesRequired / Math.max(state.zones.length, 1)),
+      );
+      const zone = state.zones.find(item => item.zone_id === action.payload.zone_id);
+
+      if (zone) {
+        zone.trees_scanned += 1;
+        zone.is_complete = zone.trees_scanned >= treesPerZone;
+      }
+
+      state.sessionComplete = state.zones.every(zoneItem => zoneItem.is_complete);
     },
     setArTier(state, action: PayloadAction<ARTier>) {
       state.arTier = action.payload;
@@ -224,6 +257,12 @@ const auditSlice = createSlice({
     setErrorMessage(state, action: PayloadAction<string | null>) {
       state.errorMessage = action.payload;
     },
+    setAuditResult(state, action: PayloadAction<AuditResultResponse | null>) {
+      state.auditResult = action.payload;
+    },
+    setLastPolledAt(state, action: PayloadAction<string | null>) {
+      state.lastPolledAt = action.payload;
+    },
     resetAudit(state) {
       Object.assign(state, auditInitialState);
     },
@@ -236,6 +275,8 @@ const auditSlice = createSlice({
           action.payload;
         state.activeAuditId = audit_id;
         state.activeLandId = action.meta.arg;
+        state.currentZoneIndex = 0;
+        state.scannedTrees = [];
         state.zones = zones.map(z => ({
           ...z,
           trees_scanned: 0,
@@ -243,10 +284,19 @@ const auditSlice = createSlice({
         }));
         state.walkingPathMetres = walking_path_metres;
         state.minTreesRequired = min_trees_required;
+        state.sessionComplete = false;
+        state.uploadStatus = 'idle';
         state.errorMessage = null;
+        state.auditResult = null;
+        state.lastPolledAt = null;
       })
       .addCase(fetchZones.rejected, (state, action) => {
-        state.errorMessage = action.payload ?? 'Failed to load zones.';
+        state.errorMessage = action.payload?.message ?? 'Failed to load zones.';
+
+        if (action.payload?.existingAuditId) {
+          state.activeAuditId = action.payload.existingAuditId;
+          state.activeLandId = action.meta.arg;
+        }
       })
       // detectAndSetARTier
       .addCase(detectAndSetARTier.fulfilled, (state, action) => {
@@ -259,6 +309,7 @@ const auditSlice = createSlice({
       })
       .addCase(submitAudit.fulfilled, state => {
         state.uploadStatus = 'processing';
+        state.errorMessage = null;
       })
       .addCase(submitAudit.rejected, (state, action) => {
         if (action.payload === '__OFFLINE__') {
@@ -268,20 +319,6 @@ const auditSlice = createSlice({
           state.uploadStatus = 'error';
           state.errorMessage = action.payload ?? 'Submission failed.';
         }
-      })
-      // pollAuditResult
-      .addCase(pollAuditResult.fulfilled, (state, action) => {
-        if (action.payload.status === 'MINTED') {
-          state.uploadStatus = 'success';
-        } else if (action.payload.status === 'FAILED') {
-          state.uploadStatus = 'error';
-          state.errorMessage =
-            action.payload.error ?? 'Satellite verification failed.';
-        }
-      })
-      .addCase(pollAuditResult.rejected, (state, action) => {
-        state.uploadStatus = 'error';
-        state.errorMessage = action.payload ?? 'Polling failed.';
       });
   },
 });
@@ -295,6 +332,8 @@ export const {
   setUploadStatus,
   setSessionComplete,
   setErrorMessage,
+  setAuditResult,
+  setLastPolledAt,
   resetAudit,
 } = auditSlice.actions;
 export default auditSlice.reducer;

@@ -1,6 +1,6 @@
 # TerraTrust-AR
 
-TerraTrust-AR is the Android React Native client for the TerraTrust tree-audit and carbon-credit workflow. The app handles farmer auth, land registration, AR-assisted tree measurement, offline audit retry, and dashboard credit visibility while relying on Supabase, backend APIs, MMKV persistence, and native Android AR/TFLite integrations.
+TerraTrust-AR is the Android React Native client for the TerraTrust tree-audit and carbon-credit workflow. The app handles farmer auth, land registration, AR-assisted tree measurement, offline audit retry, and dashboard credit visibility while relying on Firebase phone auth, backend APIs, MMKV persistence, and native Android AR/TFLite integrations.
 
 ## Stack
 
@@ -10,10 +10,10 @@ TerraTrust-AR is the Android React Native client for the TerraTrust tree-audit a
 - React Navigation 7
 - react-native-vision-camera
 - react-native-background-fetch
-- react-native-quick-crypto
+- @react-native-firebase/app + @react-native-firebase/auth
 - react-native-keychain
 - ethers v6
-- Supabase JS
+- native Android hash bridge
 
 ## Prerequisites
 
@@ -34,8 +34,6 @@ Required variables:
 
 ```env
 API_BASE_URL=
-SUPABASE_URL=
-SUPABASE_ANON_KEY=
 GOOGLE_MAPS_API_KEY=
 ALCHEMY_POLYGON_AMOY_URL=
 CONTRACT_ADDRESS=
@@ -44,6 +42,9 @@ CONTRACT_ADDRESS=
 Notes:
 
 - `API_BASE_URL` must be the server root only, for example `http://10.0.2.2:8000`.
+- Firebase Android configuration is loaded from `android/app/google-services.json`, not from `react-native-config`.
+- `ALCHEMY_POLYGON_AMOY_URL` and `CONTRACT_ADDRESS` are used by `src/services/blockchain.ts` for the direct ERC-1155 dashboard balance read.
+- If that chain read fails, the app falls back to `balance_ctt` returned by `GET /api/v1/credits/balance`.
 - `CONTRACT_ADDRESS` is still a deployment-time input and must not remain the zero address.
 - `GOOGLE_MAPS_API_KEY` must be configured for Android Maps usage.
 

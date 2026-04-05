@@ -69,7 +69,7 @@ describe('fetchCreditsThunk', () => {
     mockedBlockchain.getCTTBalance.mockResolvedValue(47.3);
 
     const store = createTestStore();
-    await (store.dispatch as any)(fetchCreditsThunk('0xWALLET'));
+  await (store.dispatch as any)(fetchCreditsThunk());
 
     const state = store.getState().credits;
     expect(state.balance).toBe(47.3);
@@ -84,7 +84,7 @@ describe('fetchCreditsThunk', () => {
     mockedBlockchain.getCTTBalance.mockRejectedValue(new Error('RPC timeout'));
 
     const store = createTestStore();
-    await (store.dispatch as any)(fetchCreditsThunk('0xWALLET'));
+  await (store.dispatch as any)(fetchCreditsThunk());
 
     const state = store.getState().credits;
     expect(state.balance).toBe(40.0);
@@ -98,7 +98,7 @@ describe('fetchCreditsThunk', () => {
     mockedBlockchain.getCTTBalance.mockResolvedValue(50.0);
 
     const store = createTestStore({pendingMint: true});
-    await (store.dispatch as any)(fetchCreditsThunk('0xWALLET'));
+  await (store.dispatch as any)(fetchCreditsThunk());
 
     expect(store.getState().credits.pendingMint).toBe(true);
   });
@@ -110,7 +110,7 @@ describe('fetchCreditsThunk', () => {
     mockedBlockchain.getCTTBalance.mockResolvedValue(50.0);
 
     const store = createTestStore({pendingMint: false});
-    await (store.dispatch as any)(fetchCreditsThunk('0xWALLET'));
+  await (store.dispatch as any)(fetchCreditsThunk());
 
     expect(store.getState().credits.pendingMint).toBe(false);
   });
@@ -124,7 +124,7 @@ describe('fetchCreditsThunk', () => {
     const store = createTestStore();
     expect(store.getState().credits.lastFetchedAt).toBeNull();
 
-    await (store.dispatch as any)(fetchCreditsThunk('0xWALLET'));
+  await (store.dispatch as any)(fetchCreditsThunk());
 
     expect(store.getState().credits.lastFetchedAt).toBe(
       '2026-03-26T10:00:00.000Z',

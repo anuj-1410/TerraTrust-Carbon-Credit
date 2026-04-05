@@ -1,9 +1,8 @@
-import {createMMKV} from 'react-native-mmkv';
+import {MMKV} from 'react-native-mmkv';
 import type {Storage} from 'redux-persist';
 
-export const mmkv = createMMKV({
+export const mmkv = new MMKV({
   id: 'terratrust-store',
-  encryptionKey: 'tt-key',
 });
 
 export const mmkvStorage: Storage = {
@@ -16,7 +15,17 @@ export const mmkvStorage: Storage = {
     return Promise.resolve(value ?? null);
   },
   removeItem: (key: string): Promise<void> => {
-    mmkv.remove(key);
+    mmkv.delete(key);
     return Promise.resolve();
   },
 };
+
+export function clearPersistedAppStatePreserveOnboarding(): void {
+  const onboardingComplete = mmkv.getBoolean('onboarding_complete');
+
+  mmkv.clearAll();
+
+  if (onboardingComplete === true) {
+    mmkv.set('onboarding_complete', true);
+  }
+}

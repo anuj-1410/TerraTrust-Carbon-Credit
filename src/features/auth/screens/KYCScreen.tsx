@@ -15,19 +15,22 @@ import {zodResolver} from '@hookform/resolvers/zod';
 import {z} from 'zod';
 import type {RootStackParamList} from '../../../types/navigation';
 import {useAppSelector, useAppDispatch} from '../../../store/hooks';
-import {setUser, setKycCompleted} from '../store/authSlice';
+import {setUser, setWalletAddress, setKycCompleted} from '../store/authSlice';
 import api from '../../../services/api';
-import {supabase} from '../../../services/supabase';
+import {type AuthBootstrapResponse} from '../../../services/firebase';
 import {sha256} from '../../../common/utils/hash';
 import Loader from '../../../common/components/Loader';
+import {getAuthenticatedEntryRoute} from '../../../common/utils/onboarding';
 
 type Nav = NativeStackNavigationProp<RootStackParamList, 'KYCScreen'>;
 
 const kycSchema = z.object({
   fullName: z
     .string()
-    .min(1, 'Full name is required')
-    .max(255, 'Name must be 255 characters or fewer'),
+    .trim()
+    .min(2, 'Enter your full name as shown on the land document')
+    .max(255, 'Name must be 255 characters or fewer')
+    .regex(/^[A-Za-z ]+$/, 'Use letters and spaces only'),
   aadhaarNumber: z
     .string()
     .regex(/^\d{12}$/, 'Aadhaar number must be exactly 12 digits'),
@@ -38,59 +41,73 @@ type KYCForm = z.infer<typeof kycSchema>;
 const KYCScreen = () => {
   const navigation = useNavigation<Nav>();
   const dispatch = useAppDispatch();
-  const userPhone = useAppSelector(state => state.auth.user?.phone ?? '');
+  const existingAadhaarHash = useAppSelector(
+    state => state.auth.user?.aadhaar_hash ?? '',
+  );
   const [isLoading, setIsLoading] = useState(false);
   const [apiError, setApiError] = useState<string | null>(null);
 
   const {
     control,
     handleSubmit,
+    reset,
+    watch,
     formState: {errors},
   } = useForm<KYCForm>({
     resolver: zodResolver(kycSchema),
+    mode: 'onChange',
     defaultValues: {fullName: '', aadhaarNumber: ''},
   });
+
+  const [fullName, aadhaarNumber] = watch(['fullName', 'aadhaarNumber']);
+  const isFormReady =
+    /^[A-Za-z ]{2,}$/.test(fullName.trim()) && /^\d{12}$/.test(aadhaarNumber);
+
+  const syncProfile = async (aadhaarHash: string) => {
+    const {data: profile} = await api.get<AuthBootstrapResponse>('/api/v1/auth/me');
+
+    dispatch(
+      setUser({
+        id: profile.user_id,
+        firebaseUid: profile.firebase_uid,
+        name: profile.full_name ?? '',
+        phone: profile.phone_number,
+        aadhaar_hash: aadhaarHash,
+      }),
+    );
+    dispatch(setWalletAddress(profile.wallet_address));
+    dispatch(setKycCompleted(profile.kyc_completed));
+  };
 
   const onSubmit = async (data: KYCForm) => {
     setIsLoading(true);
     setApiError(null);
     try {
-      const {
-        data: {session},
-      } = await supabase.auth.getSession();
+      const aadhaarHash = await sha256(data.aadhaarNumber);
       const response = await api.post('/api/v1/auth/kyc', {
         full_name: data.fullName,
         aadhaar_number: data.aadhaarNumber,
       });
 
       if (response.status === 200) {
-        const userId = response.data.user_id;
-        // Compute SHA-256 hash on-device before dispatching to Redux
-        const aadhaarHash = await sha256(data.aadhaarNumber);
-
-        dispatch(
-          setUser({
-            id: userId,
-            name: data.fullName,
-            phone: userPhone || session?.user.phone || '',
-            aadhaar_hash: aadhaarHash,
-          }),
-        );
-        dispatch(setKycCompleted(true));
-        // aadhaarNumber goes out of scope — never stored (D-003)
-        navigation.reset({index: 0, routes: [{name: 'HomeScreen'}]});
+        await syncProfile(aadhaarHash);
+        reset({fullName: data.fullName, aadhaarNumber: ''});
+        navigation.reset({
+          index: 0,
+          routes: [{name: getAuthenticatedEntryRoute(true)}],
+        });
       }
     } catch (err: unknown) {
-      if (
-        err &&
-        typeof err === 'object' &&
-        'response' in err
-      ) {
+      if (err && typeof err === 'object' && 'response' in err) {
         const axiosErr = err as {response?: {data?: {error?: string}}};
         const message = axiosErr.response?.data?.error;
         if (message === 'KYC already completed') {
-          dispatch(setKycCompleted(true));
-          navigation.reset({index: 0, routes: [{name: 'HomeScreen'}]});
+          await syncProfile(existingAadhaarHash);
+          reset({fullName: data.fullName, aadhaarNumber: ''});
+          navigation.reset({
+            index: 0,
+            routes: [{name: getAuthenticatedEntryRoute(true)}],
+          });
           return;
         }
         setApiError(message ?? 'Something went wrong. Please try again.');
@@ -110,6 +127,15 @@ const KYCScreen = () => {
         contentContainerStyle={{flexGrow: 1}}
         keyboardShouldPersistTaps="handled">
         <View className="flex-1 px-6 pt-16">
+          <View className="rounded-xl bg-[#FEF3C7] p-4">
+            <Text className="text-sm font-semibold text-[#92400E]">
+              Use the exact owner name printed on your land document.
+            </Text>
+            <Text className="mt-2 text-sm leading-6 text-[#92400E]">
+              Your Aadhaar is sent securely for KYC verification, and only a hashed value is stored on this device.
+            </Text>
+          </View>
+
           <Text className="text-base text-gray-700 leading-6">
             Enter your name exactly as written on your land document (7/12 Extract)
           </Text>
@@ -128,7 +154,9 @@ const KYCScreen = () => {
                   placeholder="Full name"
                   placeholderTextColor="#9CA3AF"
                   onBlur={onBlur}
-                  onChangeText={onChange}
+                  onChangeText={text =>
+                    onChange(text.replace(/[^A-Za-z ]/g, '').replace(/\s+/g, ' '))
+                  }
                   value={value}
                   editable={!isLoading}
                   autoCapitalize="words"
@@ -158,7 +186,7 @@ const KYCScreen = () => {
                   keyboardType="number-pad"
                   maxLength={12}
                   onBlur={onBlur}
-                  onChangeText={onChange}
+                  onChangeText={text => onChange(text.replace(/\D/g, ''))}
                   value={value}
                   editable={!isLoading}
                 />
@@ -181,10 +209,10 @@ const KYCScreen = () => {
           {/* Continue Button */}
           <TouchableOpacity
             className={`mt-8 min-h-[48px] items-center justify-center rounded-xl ${
-              isLoading ? 'bg-[#2F855A]/70' : 'bg-[#2F855A]'
+              isLoading || !isFormReady ? 'bg-[#9CA3AF]' : 'bg-[#2F855A]'
             } shadow-md`}
             onPress={handleSubmit(onSubmit)}
-            disabled={isLoading}
+            disabled={isLoading || !isFormReady}
             activeOpacity={0.8}>
             {isLoading ? (
               <Loader />

@@ -2,7 +2,6 @@ import {useEffect, useRef, useState, useCallback} from 'react';
 import Geolocation from 'react-native-geolocation-service';
 import type {GPS, SamplingZone} from '../../features/ar-audit/store/auditSlice';
 import type {GeoJSONPolygon} from '../../features/land/store/landSlice';
-import api from '../../services/api';
 
 export interface GeofencePosition extends GPS {
   accuracy: number;
@@ -53,16 +52,14 @@ function pointInPolygon(point: GPS, polygon: GeoJSONPolygon): boolean {
 export function useGeofence(
   boundary: GeoJSONPolygon | null,
   currentZone: SamplingZone | null,
-  landId?: string,
+  _landId?: string,
 ): UseGeofenceResult {
   const [currentPosition, setCurrentPosition] =
     useState<GeofencePosition | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [serverVerified, setServerVerified] = useState<boolean | null>(null);
 
   const lastGoodPosition = useRef<GeofencePosition | null>(null);
   const lastGoodTime = useRef<number>(0);
-  const lastServerCheckPos = useRef<GPS | null>(null);
 
   const getEffectivePosition = useCallback((): GeofencePosition | null => {
     if (currentPosition && currentPosition.accuracy <= ACCURACY_THRESHOLD) {
@@ -109,41 +106,7 @@ export function useGeofence(
   // Local client-side check (fast, preliminary)
   const localInside =
     effectivePos && boundary ? pointInPolygon(effectivePos, boundary) : false;
-
-  // Server-side PostGIS verification for authoritative geofence check
-  useEffect(() => {
-    if (!effectivePos || !landId || !localInside) {
-      setServerVerified(null);
-      return;
-    }
-
-    // Only call server if position changed significantly (>5m)
-    if (
-      lastServerCheckPos.current &&
-      haversineDistance(effectivePos, lastServerCheckPos.current) < 5
-    ) {
-      return;
-    }
-
-    lastServerCheckPos.current = effectivePos;
-
-    api
-      .post('/api/v1/audit/check-geofence', {
-        latitude: effectivePos.lat,
-        longitude: effectivePos.lng,
-        land_id: landId,
-      })
-      .then(response => {
-        setServerVerified(response.data.is_inside);
-      })
-      .catch(() => {
-        // On network error, fall back to local check only
-        setServerVerified(null);
-      });
-  }, [effectivePos, landId, localInside]);
-
-  // Use server result when available, otherwise local check
-  const isInsideBoundary = serverVerified ?? localInside;
+  const isInsideBoundary = localInside;
 
   const isAtZoneCentre =
     effectivePos && currentZone

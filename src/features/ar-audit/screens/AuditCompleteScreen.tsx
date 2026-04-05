@@ -1,4 +1,4 @@
-import React, {useCallback, useEffect, useMemo} from 'react';
+import React, {useCallback, useMemo} from 'react';
 import {View, Text, TouchableOpacity, ScrollView} from 'react-native';
 import {useNavigation} from '@react-navigation/native';
 import type {NativeStackNavigationProp} from '@react-navigation/native-stack';
@@ -7,8 +7,7 @@ import LottieView from 'lottie-react-native';
 import type {RootStackParamList} from '../../../types/navigation';
 import {useAppDispatch, useAppSelector} from '../../../store/hooks';
 import type {AuditState} from '../store/auditSlice';
-import {submitAudit, pollAuditResult} from '../store/auditSlice';
-import {fetchCreditsThunk} from '../../dashboard/store/creditsSlice';
+import {submitAudit} from '../store/auditSlice';
 import {estimateTco2eFromTrees} from '../../../common/utils/chave';
 import {COLORS} from '../../../common/constants/colors';
 
@@ -27,7 +26,6 @@ const AuditCompleteScreen = () => {
     sessionComplete,
     errorMessage,
   } = audit;
-  const walletAddress = useAppSelector(state => state.auth.walletAddress);
 
   const totalTrees = scannedTrees.length;
   const zonesCompleted = Math.min(currentZoneIndex + 1, zones.length);
@@ -36,36 +34,21 @@ const AuditCompleteScreen = () => {
     return estimateTco2eFromTrees(scannedTrees);
   }, [scannedTrees]);
 
-  // Flaw #89: Auto-navigate to HomeScreen after successful minting
-  useEffect(() => {
-    if (uploadStatus === 'success') {
-      if (walletAddress) {
-        dispatch(fetchCreditsThunk(walletAddress));
-      }
-      const timer = setTimeout(() => {
-        navigation.reset({
-          index: 0,
-          routes: [{name: 'HomeScreen'}],
-        });
-      }, 3000); // Show success animation for 3s then navigate
-      return () => clearTimeout(timer);
-    }
-  }, [uploadStatus, walletAddress, dispatch, navigation]);
-
   const handleSubmit = useCallback(async () => {
     try {
-      await dispatch(submitAudit()).unwrap();
-      if (activeAuditId) {
-        dispatch(pollAuditResult(activeAuditId));
+      const result = await dispatch(submitAudit()).unwrap();
+      const auditId = result.audit_id ?? activeAuditId;
+
+      if (auditId) {
+        navigation.replace('AuditStatusScreen', {auditId});
       }
     } catch {
       // Error handled by Redux — uploadStatus will be 'error'
     }
-  }, [dispatch, activeAuditId]);
+  }, [activeAuditId, dispatch, navigation]);
 
   const isProcessing =
     uploadStatus === 'uploading' || uploadStatus === 'processing';
-  const isSuccess = uploadStatus === 'success';
   const isError = uploadStatus === 'error';
   const isOffline = uploadStatus === 'offline';
 
@@ -81,24 +64,6 @@ const AuditCompleteScreen = () => {
       <ScrollView
         className="flex-1 px-5"
         contentContainerStyle={{paddingBottom: 32}}>
-        {/* Success state — Credit Minted */}
-        {isSuccess && (
-          <View className="items-center mt-10">
-            <LottieView
-              source={require('../../../assets/lottie/credit_earned.json')}
-              autoPlay
-              loop={false}
-              style={{width: 180, height: 180}}
-            />
-            <Text className="text-2xl font-bold mt-4" style={{color: COLORS.FOREST_GREEN}}>
-              Carbon Credits Minted!
-            </Text>
-            <Text className="text-sm mt-2" style={{color: '#6B7280'}}>
-              Your credits are now in your wallet
-            </Text>
-          </View>
-        )}
-
         {/* Processing state */}
         {isProcessing && (
           <View className="items-center mt-10">
@@ -109,10 +74,10 @@ const AuditCompleteScreen = () => {
               style={{width: 160, height: 160}}
             />
             <Text className="text-base text-center mt-4 font-semibold" style={{color: COLORS.DARK_SLATE}}>
-              Calculating your carbon credits using satellite data...
+              Submitting your audit and opening status tracking...
             </Text>
             <Text className="text-sm text-center mt-2" style={{color: '#6B7280'}}>
-              This takes about 30-60 seconds.
+              TerraTrust will keep checking the result until processing finishes.
             </Text>
           </View>
         )}
@@ -218,11 +183,6 @@ const AuditCompleteScreen = () => {
               Submit for Satellite Verification
             </Text>
           </TouchableOpacity>
-        )}
-        {isSuccess && (
-          <Text className="text-sm text-center" style={{color: '#6B7280'}}>
-            Redirecting to home…
-          </Text>
         )}
         {isError && (
           <TouchableOpacity

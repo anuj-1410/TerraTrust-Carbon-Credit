@@ -3,11 +3,12 @@
        PROJECT: TERRATRUST-AR
        Autonomous Carbon Credit Verification System for Indian Farmers
 ================================================================================
-Document Version  : 3.1 (Complete — Post All Architecture and Design Reviews)
+Document Version  : 3.1 (Revised — Firebase Auth + Pinata alignment review)
 Date              : March 2026
 Target Platform   : Android (React Native CLI + Native Kotlin)
 Backend           : Python 3.11+ / FastAPI + Celery
-Database          : Supabase (PostgreSQL 15 + PostGIS 3.3) — Cloud Hosted
+Authentication    : Firebase Phone Auth + Firebase Admin token verification
+Database          : Supabase (PostgreSQL 15 + PostGIS 3.3 + Storage) — Cloud Hosted
 Blockchain        : Polygon PoS (Solidity ERC-1155 Smart Contract)
 Satellite Engine  : Google Earth Engine (GEE)
 OCR Engine        : PaddleOCR PP-OCRv5 (Devanagari model)
@@ -35,32 +36,48 @@ Version 3.0 — Major Architecture Upgrade
                 * 3-tier AR measurement system (Depth / SLAM / Manual)
                 * Satellite-guided zone sampling (NDVI-based)
                 * Blockchain contract fixed (burn + double-mint prevention)
-                * NFT.Storage replacing Pinata for IPFS
+                * IPFS evidence storage standardised for blockchain proof
 
-Version 3.1 — Current Version (All Design Reviews Incorporated)
+Version 3.1 — Current Version (Architecture Alignment Review Incorporated)
+                * Authentication architecture finalised:
+                  Firebase Authentication handles phone OTP on mobile.
+                  FastAPI validates Firebase ID tokens via Firebase Admin SDK.
+                  Supabase is used for PostgreSQL/PostGIS + Storage only.
+                * Auth bootstrap endpoint added: GET /api/v1/auth/me
+                  so the app can discover KYC and wallet state after login.
+                * IPFS provider finalised: Pinata replaces NFT.Storage.
+                  On-chain value remains ipfs://CID while the app opens
+                  gateway URLs from the configured Pinata gateway domain.
                 * OCR engine changed: Tesseract → PaddleOCR PP-OCRv5
-                  Reason: F1-Score 0.938 vs 0.797 on Indic scripts.
-                  Built-in orientation correction, no manual deskew needed.
-                  Model: devanagari_PP-OCRv5_mobile_rec. CPU-compatible.
+                  for better Indic-script document handling with built-in
+                  orientation correction and lighter CPU deployment.
                 * Maps strategy corrected and split by screen:
                   - ZoneNavigationScreen: Google Maps (road map for GPS nav)
                   - BoundaryConfirmScreen: GEE Sentinel-2 PNG as background
+                    using react-native-maps with mapType="none" on Android
+                    only. iOS remains future scope and needs a different
+                    base container/provider before release.
                   - LandListScreen thumbnails: GEE Sentinel-2 PNG, cached
                 * Camera library changed: react-native-image-picker →
                   react-native-vision-camera v4 (higher quality for OCR)
                 * KYC updated: Aadhaar number collected and stored as
                   SHA-256 hash only. Never stored in plain text.
+                * Earth Engine setup corrected:
+                  register the Cloud project itself, use service-account JSON
+                  with ee.ServiceAccountCredentials(), and select the required
+                  noncommercial quota tier before rollout.
                 * AR tier naming standardised: Tier 1 / Tier 2 / Tier 3
                   (not A/B/C as used in v3.0)
-                * NISAR phasing clarified: Development + testing until
-                  June 2026. Production primary SAR from June 2026 onwards.
+                * NISAR phasing clarified: Sentinel-1 remains production SAR
+                  until NISAR calibration is confirmed in the live pipeline.
                 * Sampling zone radius table corrected (per FDD v3.1)
                 * Manual polygon drawing (Draw Mode / Walk Mode) confirmed
                   REMOVED as farmer-facing feature — not valid for carbon
                   market boundary verification
                 * Planet Labs NICFI data confirmed removed (no response)
                 * S3 removed — Supabase Storage replaces it
-                * Firebase removed entirely — Supabase Auth handles OTP
+                * Backend-only data access policy documented for Firebase +
+                  Supabase separation. Mobile app does not use Supabase client.
                 * reddit_url field corrected to REDIS_URL in env vars
                 * Complete Python requirements.txt added
                 * Supabase keep-alive strategy documented
@@ -186,7 +203,7 @@ SECTION 2: SYSTEM OVERVIEW AND ARCHITECTURE
        |                            |                            |
        |----HTTPS/JSON----------->  |----SQL query----------->   |
        |                            |                            |
-       |                    Google Earth Engine        NFT.Storage (IPFS)
+      |                    Google Earth Engine           Pinata (IPFS)
        |                    (Satellite Processing)              |
        |                            |                    NISAR (ASF API)
        |                    Polygon Blockchain         Sentinel-1 (GEE)
@@ -230,7 +247,7 @@ SECTION 2: SYSTEM OVERVIEW AND ARCHITECTURE
    → Total biomass = sum of all pixel predictions.
 
 5. Delta from last year calculated → CO2 credits determined.
-   → Evidence packaged as JSON and uploaded to IPFS via NFT.Storage.
+  → Evidence packaged as JSON and uploaded to IPFS via Pinata.
    → Smart contract mints CTT tokens to farmer's blockchain wallet.
    → IPFS CID and transaction hash stored permanently in database.
 
@@ -252,22 +269,29 @@ SECTION 3: COMPLETE TECHNOLOGY STACK
 
 MOBILE APPLICATION
 ------------------
-Framework        : React Native CLI 0.73+
-                   NOTE: NOT Expo. Native modules (ARCore Depth API)
-                   require React Native CLI. Expo cannot access these.
+Framework        : React Native CLI 0.74+
+                   NOTE: Use a plain React Native project with New
+                   Architecture enabled. TerraTrust does not use the
+                   Expo-managed workflow because ARCore and custom native
+                   modules are part of the baseline design.
 Language         : TypeScript 5.0+ (strict mode enabled)
 AR Engine        : Google ARCore (via Native Kotlin Bridge)
 Maps             : react-native-maps (used for ZoneNavigationScreen only
                    — Google Maps road view for GPS walking navigation)
-                   Also used as mapType="none" container in
-                   BoundaryConfirmScreen with GEE satellite PNG as layer.
+                   On Android, BoundaryConfirmScreen reuses it as a
+                   mapType="none" container with a GEE satellite PNG layer.
+                   iOS remains future scope and needs a different base map
+                   container/provider before release.
 Satellite Images : Google Earth Engine (backend-generated Sentinel-2 PNG)
                    Used for BoundaryConfirmScreen background and
                    LandListScreen thumbnails. Not a client library.
 State Management : Redux Toolkit 2.0+ with redux-persist
-Navigation       : React Navigation v6 (native stack)
+Navigation       : React Navigation v6 (native stack + bottom tabs +
+                   per-tab stacks + full-screen modal flows)
 Local Storage    : MMKV (30x faster than AsyncStorage, synchronous,
-                   encrypted — mandatory for AR scan data safety)
+                   optional encryption support for persisted app state;
+                   never hardcode the encryption key; do not use MMKV as
+                   the wallet or secret store)
 Form Validation  : Zod + React Hook Form
 Styling          : NativeWind 4.0+ (Tailwind for React Native)
 ML On-device     : TensorFlow Lite (tree species identification)
@@ -276,7 +300,8 @@ Camera           : react-native-vision-camera v4
                    (higher quality capture for OCR accuracy)
 Background Sync  : react-native-background-fetch
 Security Storage : react-native-keychain (private key in Android Keystore)
-Crypto Hashing   : react-native-quick-crypto (SHA-256 photo hashing)
+Crypto Hashing   : Android java.security.MessageDigest via Kotlin HashModule
+                   (SHA-256 hashing of decoded photo bytes on-device)
 Device Info      : react-native-device-info (mock GPS + root detection)
 Geolocation      : react-native-geolocation-service
 Charting         : react-native-chart-kit + react-native-svg
@@ -294,14 +319,14 @@ Message Broker   : Redis 7.0+ (Celery broker — free on Redis Cloud or
                    Render.com)
 Satellite        : Google Earth Engine Python API (earthengine-api)
 NISAR Data       : asf_search (Alaska Satellite Facility Python library)
-OCR              : PaddleOCR PP-OCRv5 + paddlepaddle (CPU build)
+OCR              : PaddleOCR PP-OCRv5 3.x + paddlepaddle 3.x (CPU build)
                    Model: devanagari_PP-OCRv5_mobile_rec
                    NOTE: Replaces Tesseract. PaddleOCR handles deskew
                    and orientation correction internally.
 Image Processing : OpenCV (cv2) — preprocessing only (not deskew)
 Geo Processing   : Shapely 2.0+ (GeoJSON polygon validation)
-Blockchain       : web3.py 6.0+ (Polygon smart contract calls)
-IPFS Upload      : requests to NFT.Storage REST API
+Blockchain       : web3.py 7.x (Polygon smart contract calls)
+IPFS Upload      : requests to Pinata pinning API (pinJSONToIPFS)
 ML Model         : XGBoost 2.0+ (biomass regression model)
                    Runs via GEE's smileGradientTreeBoost classifier
 Validation       : Pydantic 2.0+ (built into FastAPI)
@@ -312,29 +337,31 @@ DATABASE
 --------
 Platform         : Supabase (cloud-hosted, free tier)
                    AWS Singapore region (closest free region to India)
-                   NOTE: Replaces self-hosted PostgreSQL and Firebase.
+                   NOTE: Replaces self-hosted PostgreSQL. Auth stays on Firebase.
 Database         : PostgreSQL 15
 Spatial Engine   : PostGIS 3.3 (enabled via Supabase SQL Editor)
-Auth             : Supabase Auth (built-in phone OTP — no Firebase needed)
-File Storage     : Supabase Storage (1GB free — AR evidence photos)
-Free Tier Limits : 500MB database, 1GB storage, unlimited API requests
-                   IMPORTANT: Project pauses after 7 days of inactivity.
+Auth             : Firebase Authentication (phone OTP) + Firebase Admin
+                   verification on FastAPI. Supabase Auth is not used.
+File Storage     : Supabase Storage (1GB free — land docs + evidence photos)
+Free Tier Limits : 500MB database, 1GB storage, 5GB egress on Free plan
+                   IMPORTANT: Free projects pause after 1 week of inactivity.
                    Set up a keep-alive cron job (see Section 4).
 
 BLOCKCHAIN
 ----------
 Network          : Polygon PoS
-                   Development: Amoy Testnet (chainId: 80002)
-                   Production:  Mainnet (chainId: 137)
-Language         : Solidity 0.8.20
+                   Current TerraTrust scope: Amoy Testnet (chainId: 80002)
+                   Mainnet deployment is future scope and not part of v3.1
+Language         : Solidity 0.8.29 (exact lock for reproducible bytecode)
 Token Standard   : ERC-1155 (Multi-Token Standard):
                    - Token ID 1 = Carbon Credit Token (fungible)
                    - Token ID = audit_id = Audit Certificate (NFT)
 Library          : OpenZeppelin Contracts (Ownable, ERC1155)
 Dev Tool         : Hardhat + @nomicfoundation/hardhat-toolbox
 RPC Gateway      : Alchemy (free tier — 300M compute units/month)
-Evidence Storage : NFT.Storage (free IPFS, permanent, Filecoin-backed)
-                   NOTE: Replaces Pinata (had storage limits)
+Evidence Storage : Pinata (IPFS pinning + dedicated gateway)
+                   On-chain format remains ipfs://CID.
+                   Human-readable certificate URLs use PINATA_GATEWAY_URL.
 Explorer         : PolygonScan (contract source code verification)
 
 SATELLITE DATA (All free via Google Earth Engine unless noted)
@@ -344,7 +371,8 @@ NISAR L-band  : Primary SAR from June 2026. Joint NASA-ISRO mission.
                 penetrates full tree canopy. 5-10m resolution.
                 Access: asf_search Python library (Alaska Sat. Facility)
                 Product type: GCOV (Geocoded Covariance)
-                Data available: October 2025. Fully calibrated: June 2026.
+                Data available: October 2025. Promote to primary only after
+                calibrated production data is confirmed in your pipeline.
                 Phase 1 (until June 2026): Development/testing only.
                 Phase 2 (June 2026+): Primary production SAR.
 
@@ -415,7 +443,51 @@ Physical Device Required for Testing:
 ---------------------------------------------
 
 ────────────────────────────────────────────────
-A) SUPABASE — Database + Auth + File Storage
+A) FIREBASE — Phone Authentication
+────────────────────────────────────────────────
+URL     : https://firebase.google.com
+Cost    : Free at MVP scale (monitor phone auth quotas and SMS usage)
+
+Setup steps:
+  Step 1: Go to console.firebase.google.com. Create a project named
+    terratrust-ar. Use the same underlying Google Cloud project you
+    plan to use for Maps and Earth Engine.
+  Step 2: Add an Android app to the Firebase project.
+    Package name: [your Android applicationId]
+    Download google-services.json and place it in android/app/.
+  Step 3: In Project Settings → Your apps, register BOTH SHA-1 and SHA-256
+    signing fingerprints for the Android app.
+    Firebase Phone Auth uses app verification (Play Integrity when
+    available, reCAPTCHA fallback otherwise). Without these
+    fingerprints, OTP flows fail on real devices.
+  Step 4: Go to Authentication → Sign-in method.
+    Enable the Phone provider.
+    Set the SMS region policy to allow India (+91) and any testing
+    regions you need.
+  Step 5: For development, configure fictional phone numbers and fixed OTP
+    codes in Authentication → Sign-in method → Phone numbers for
+    testing. Use these numbers on emulator and QA devices to avoid
+    quota burn.
+  Step 6: Enable Firebase App Check for the Android app.
+    Development: use the Debug provider on emulator and QA builds.
+    Production: use the Play Integrity provider.
+    Requirement: reject OTP requests from builds that fail App Check once
+    production rollout begins.
+  Step 7: Generate backend credentials for Firebase Admin SDK:
+    Firebase Console → Project Settings → Service Accounts
+    → Generate new private key.
+    Save the JSON file as firebase-service-account.json in backend/
+    and NEVER commit it to git.
+  Step 8: Add a short privacy notice to the login flow and privacy policy.
+    Firebase sends phone numbers to Google for spam and abuse
+    prevention during phone authentication.
+
+Environment variables from this step:
+  FIREBASE_PROJECT_ID=[your-firebase-project-id]
+  FIREBASE_SERVICE_ACCOUNT_PATH=./firebase-service-account.json
+
+────────────────────────────────────────────────
+B) SUPABASE — Database + File Storage
 ────────────────────────────────────────────────
 URL     : https://supabase.com
 Cost    : Free
@@ -423,47 +495,47 @@ Cost    : Free
 Setup steps:
   Step 1: Go to supabase.com. Click "Start your project". Sign up.
   Step 2: Click "New Project".
-          Name: terratrust-ar
-          Region: Southeast Asia (Singapore) — closest free region to India.
-          NOTE: The old SRS said "AWS Mumbai" but Supabase free tier does
-          not offer Mumbai. Use Singapore.
-          Set a strong database password. Save it securely.
-          Click "Create new project". Wait approximately 2 minutes.
+    Name: terratrust-ar
+    Region: Southeast Asia (Singapore) — closest free region to India.
+    NOTE: Supabase free tier does not currently offer Mumbai.
+    Set a strong database password. Save it securely.
+    Click "Create new project". Wait approximately 2 minutes.
   Step 3: Go to SQL Editor in the Supabase dashboard. Run:
-            CREATE EXTENSION IF NOT EXISTS postgis;
-            CREATE EXTENSION IF NOT EXISTS postgis_topology;
-            CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
-          Click "Run". Confirm you see "Success".
+      CREATE EXTENSION IF NOT EXISTS postgis;
+      CREATE EXTENSION IF NOT EXISTS postgis_topology;
+      CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
+    Click "Run". Confirm you see "Success".
   Step 4: Verify PostGIS works:
-            SELECT PostGIS_Version();
-          Should return a version string like "3.3.2 USE_GEOS=1..."
-  Step 5: Go to Settings → API. Copy and save ALL of these:
-            - Project URL: https://[your-ref].supabase.co
-            - anon/public key (used in mobile app)
-            - service_role/secret key (used in backend ONLY — never in app)
-  Step 6: Go to Authentication → Providers.
-          Enable "Phone" provider.
-          For SMS: You need a Twilio account (free trial) or use
-          Supabase's test OTP feature during development.
-          For development: Supabase lets you set a fixed test OTP in
-          Auth → Settings → Enable "OTP" and add test phone numbers.
-  Step 7: Set up keep-alive to prevent 7-day inactivity pause:
-          Go to cron-job.org (free). Create account. Add a new job:
-          URL: https://[your-api-domain]/health
-          Method: GET
-          Schedule: Every 5 days
-          This pings your backend which in turn keeps Supabase active.
+      SELECT PostGIS_Version();
+    Should return a version string like "3.3.2 USE_GEOS=1..."
+  Step 5: Go to Settings → API. Copy and save BOTH of these:
+      - Project URL: https://[your-ref].supabase.co
+      - service_role/secret key (used in backend ONLY — never in app)
+    The mobile app does NOT use the Supabase client directly in this
+    architecture. All database and storage access flows through FastAPI.
+  Step 6: Create the storage buckets required by the backend:
+      - land-documents
+      - evidence-photos
+    Keep these buckets private. The backend returns signed URLs when
+    the app needs to read a file.
+  Step 7: Set up keep-alive to prevent 1-week inactivity pause:
+    Go to cron-job.org (free). Create account. Add a new job:
+    URL: https://[your-api-domain]/health
+    Method: GET
+    Schedule: Every 5 days
+    This pings your backend which in turn keeps Supabase active.
 
 Environment variables from this step:
   SUPABASE_URL=https://[your-ref].supabase.co
-  SUPABASE_ANON_KEY=[your-anon-key]          ← Mobile app
   SUPABASE_SERVICE_KEY=[service_role_key]    ← Backend only, NEVER in app
 
 ────────────────────────────────────────────────
-B) GOOGLE CLOUD CONSOLE — Maps + ARCore + Earth Engine
+C) GOOGLE CLOUD CONSOLE — Maps + ARCore + Earth Engine
 ────────────────────────────────────────────────
 URL     : https://console.cloud.google.com
-Cost    : Free (with usage limits — stay within them at MVP scale)
+Cost    : Billing-enabled pay-as-you-go.
+          Google Maps now uses per-SKU free billable events instead of
+          the older fixed monthly credit.
 
 Setup steps:
   Step 1: Go to console.cloud.google.com. Sign in with Google account.
@@ -484,12 +556,13 @@ Setup steps:
               (com.terratrustar)
             API restrictions: Maps SDK for Android only
           Click Save.
-  Step 5: Set a daily quota cap on Maps SDK:
-          APIs & Services → Maps SDK for Android → Quotas.
-          Set "Map Loads per day" to 1,000.
-          This prevents unexpected billing at MVP scale.
-          At MVP (few hundred farmers, one audit/year) you will
-          comfortably stay within the 10,000 free loads/month.
+    Step 5: Enable billing controls for Maps SDK for Android.
+      Google Maps Platform requires billing to be enabled for the SDK.
+      Because TerraTrust uses Google Maps only in ZoneNavigationScreen
+      and does not use Dynamic Street View, cost exposure is narrower
+      than a full map-tile design. Still, set Cloud Billing budget alerts
+      and monitor usage from Google Maps Platform reporting instead of
+      relying on older free-load assumptions.
   Step 6: Create a Service Account for Google Earth Engine backend use:
           APIs & Services → Credentials → Create Credentials
           → Service Account.
@@ -514,7 +587,7 @@ Environment variables from this step:
   GEE_SERVICE_ACCOUNT_KEY_PATH=./gee-service-account.json
 
 ────────────────────────────────────────────────
-C) GOOGLE EARTH ENGINE — Satellite Processing Registration
+D) GOOGLE EARTH ENGINE — Satellite Processing Registration
 ────────────────────────────────────────────────
 URL     : https://signup.earthengine.google.com
 Cost    : Free for non-commercial and research use
@@ -534,23 +607,32 @@ Setup steps:
           Go to code.earthengine.google.com.
           Paste in the code editor: print(ee.Number(42).getInfo())
           Click "Run". Should print 42 in the console.
-  Step 3: Register the service account (from Google Cloud Step 6) with
+  Step 3: Ensure the Google Cloud project itself is registered for
           Earth Engine:
-          Go to code.earthengine.google.com → Assets tab.
-          Click "Register a service account".
-          Enter the service account email from Google Cloud Step 6.
+          Go to console.cloud.google.com/earth-engine.
+          Confirm the project is registered and the Earth Engine API is
+          enabled.
+          IMPORTANT: Earth Engine now applies noncommercial quota tiers at
+          the project level. Select the correct tier for this project before
+          rollout. If no tier is selected by April 27, 2026, the project is
+          placed on the Community Tier by default.
+  Step 4: The service account created in Google Cloud does not need
+          separate per-account registration when the project is already
+          registered. Grant the service account the required project
+          permissions and use its JSON key from the backend only.
 
 Test GEE authentication (run after setup):
   import ee
+  service_account = '[sa-email]'
   credentials = ee.ServiceAccountCredentials(
-      email='[sa-email]',
-      key_file='./gee-service-account.json'
+      service_account,
+      './gee-service-account.json'
   )
   ee.Initialize(credentials)
   print(ee.Number(42).getInfo())   # Must print: 42
 
 ────────────────────────────────────────────────
-D) METAMASK — Admin (Oracle) Blockchain Wallet
+E) METAMASK — Admin (Oracle) Blockchain Wallet
 ────────────────────────────────────────────────
 URL     : https://metamask.io
 Cost    : Free
@@ -564,38 +646,33 @@ Setup steps:
           phrase on paper. Store it offline and safely. If this is
           lost, the wallet cannot be recovered — ever.
   Step 3: Add Polygon Amoy Testnet (for development):
-          Click the network dropdown → Add network → Add manually.
-          Network Name:   Polygon Amoy Testnet
-          RPC URL:        https://rpc-amoy.polygon.technology/
-          Chain ID:       80002
-          Currency Symbol: MATIC
-          Block Explorer: https://amoy.polygonscan.com
-          Click Save.
-  Step 4: Get free test MATIC (for Amoy testnet — not real money):
-          Go to faucet.polygon.technology.
-          Connect MetaMask. Request test MATIC.
-          You need test MATIC to pay gas fees during development.
+      Click the network dropdown → Add network → Add manually.
+      Network Name:   Polygon Amoy Testnet
+      RPC URL:        https://rpc-amoy.polygon.technology/
+      Chain ID:       80002
+      Currency Symbol: POL
+      Block Explorer: https://amoy.polygonscan.com
+      Click Save.
+  Step 4: Get free test POL (for Amoy testnet — not real money):
+      Go to faucet.polygon.technology.
+      Connect MetaMask. Request test POL.
+      You need test POL to pay gas fees during development.
   Step 5: Export your private key:
-          MetaMask → Account Details → Export Private Key.
-          Enter your MetaMask password.
-          Copy the private key (starts with 0x).
-          This is your ADMIN_WALLET_PRIVATE_KEY.
-          NEVER share this. NEVER commit to git. Store in .env only.
-  Step 6: Add Polygon Mainnet (for production — not needed until launch):
-          Network Name:   Polygon Mainnet
-          RPC URL:        https://polygon-rpc.com/
-          Chain ID:       137
-          Currency Symbol: MATIC
-          Block Explorer: https://polygonscan.com
-          For mainnet: buy ~0.5 MATIC from any exchange (Rs 25 worth
-          is enough for many transactions at ~Rs 5 per mint).
+      MetaMask → Account Details → Export Private Key.
+      Enter your MetaMask password.
+      Copy the private key (starts with 0x).
+      This is your ADMIN_WALLET_PRIVATE_KEY.
+      NEVER share this. NEVER commit to git. Store in .env only.
+  NOTE: Polygon documentation now labels the gas token as POL. Older
+      tutorials may still say MATIC, but use the Amoy faucet and Amoy
+      explorer values above for this project.
 
 Environment variables from this step:
   ADMIN_WALLET_PRIVATE_KEY=[0x...exported private key]
   ADMIN_WALLET_ADDRESS=[0x...your public wallet address]
 
 ────────────────────────────────────────────────
-E) ALCHEMY — Blockchain RPC Gateway
+F) ALCHEMY — Blockchain RPC Gateway
 ────────────────────────────────────────────────
 URL     : https://alchemy.com
 Cost    : Free (300 million compute units/month — far more than needed)
@@ -614,39 +691,40 @@ Setup steps:
   Step 3: On your app card, click "API Key".
           Copy the HTTPS URL. It looks like:
           https://polygon-amoy.g.alchemy.com/v2/abc123xyz
-  Step 4: Create a second app for mainnet (needed when going live):
-          Name: TerraTrust-AR-Mainnet
-          Network: Mainnet
-          Copy its HTTPS URL too.
+  Step 4: TerraTrust v3.1 uses only the Amoy app above. Do not configure a
+          mainnet app for testing or pilot use.
 
 Environment variables from this step:
   ALCHEMY_POLYGON_AMOY_URL=https://polygon-amoy.g.alchemy.com/v2/[key]
-  ALCHEMY_POLYGON_MAINNET_URL=https://polygon-mainnet.g.alchemy.com/v2/[key]
 
 ────────────────────────────────────────────────
-F) NFT.STORAGE — Permanent IPFS Evidence Storage
+G) PINATA — IPFS Metadata Pinning
 ────────────────────────────────────────────────
-URL     : https://nft.storage
-Cost    : Free, permanently, no file count or size limits
+URL     : https://app.pinata.cloud
+Cost    : Free tier available. Confirm current plan limits before production.
 
-Files stored here are backed by Filecoin Foundation. Even if NFT.Storage
-closes as a company, your files remain retrievable via the IPFS network.
-Every file gets a Content Identifier (CID) that you store on the
-blockchain — this is what makes the audit evidence tamper-proof.
+Pinata is used only for the audit metadata JSON and certificate payload.
+Large binary evidence photos stay in Supabase Storage. The IPFS metadata stores
+hashes, references, and the audit summary that must remain content-addressed.
 
 Setup steps:
-  Step 1: Go to nft.storage. Click "Login".
-          Sign up with GitHub or email.
-  Step 2: Go to the "API Keys" section in your account.
-          Click "New Key".
-          Name: terratrust-backend
-          Click "Create". Copy the API key immediately (shown once).
+  Step 1: Go to app.pinata.cloud. Create an account.
+  Step 2: Open API Keys. Click "New Key".
+    Start with Admin privileges in development, then reduce scope for
+    production if desired.
+    Copy the JWT immediately.
+  Step 3: Open Gateways. Copy your gateway domain.
+    Example format: example-gateway.mypinata.cloud
+  Step 4: Backend upload endpoint used in this project:
+    https://api.pinata.cloud/pinning/pinJSONToIPFS
+    Authorization header format: Bearer [PINATA_JWT]
 
 Environment variables from this step:
-  NFT_STORAGE_API_KEY=[your-api-key]
+  PINATA_JWT=[backend-jwt]
+  PINATA_GATEWAY_URL=[your-gateway].mypinata.cloud
 
 ────────────────────────────────────────────────
-G) POLYGONSCAN — Smart Contract Verification
+H) POLYGONSCAN — Smart Contract Verification
 ────────────────────────────────────────────────
 URL     : https://polygonscan.com
 Cost    : Free
@@ -666,7 +744,7 @@ Environment variables from this step:
   POLYGONSCAN_API_KEY=[your-api-key]
 
 ────────────────────────────────────────────────
-H) ALASKA SATELLITE FACILITY (ASF) — NISAR Satellite Data
+I) ALASKA SATELLITE FACILITY (ASF) — NISAR Satellite Data
 ────────────────────────────────────────────────
 URL     : https://urs.earthdata.nasa.gov
 Cost    : Free
@@ -706,7 +784,7 @@ Environment variables from this step:
   NASA_EARTHDATA_PASSWORD=[your-earthdata-password]
 
 ────────────────────────────────────────────────
-I) HARDHAT — Smart Contract Development Tool
+J) HARDHAT — Smart Contract Development Tool
 ────────────────────────────────────────────────
 No account needed. Local npm installation.
 
@@ -715,11 +793,11 @@ Setup steps (run in your contracts/ folder):
   npm install --save-dev hardhat
   npm install --save-dev @nomicfoundation/hardhat-toolbox
   npm install @openzeppelin/contracts
-  npx hardhat init
+  npx hardhat --init
   (Select: "Create a JavaScript project" when prompted)
 
 ────────────────────────────────────────────────
-J) REDIS CLOUD — Celery Message Broker (Free)
+K) REDIS CLOUD — Celery Message Broker (Free)
 ────────────────────────────────────────────────
 URL     : https://redis.com/try-free/
 Cost    : Free (30MB, always-on)
@@ -755,20 +833,22 @@ BACKEND (.env in backend/ root — NEVER commit to git):
   # Google Earth Engine
   GEE_SERVICE_ACCOUNT_EMAIL=[email]@[project].iam.gserviceaccount.com
   GEE_SERVICE_ACCOUNT_KEY_PATH=./gee-service-account.json
+  GEE_SERVICE_ACCOUNT_JSON={...full JSON credential payload for cloud deployments...}
 
   # NASA NISAR (Alaska Satellite Facility)
   NASA_EARTHDATA_USERNAME=[username]
   NASA_EARTHDATA_PASSWORD=[password]
+  NISAR_PRODUCTION_READY=false
 
   # Blockchain
   ADMIN_WALLET_PRIVATE_KEY=[0x...private key — never share]
   ADMIN_WALLET_ADDRESS=[0x...public address]
   ALCHEMY_POLYGON_AMOY_URL=https://polygon-amoy.g.alchemy.com/v2/[key]
-  ALCHEMY_POLYGON_MAINNET_URL=https://polygon-mainnet.g.alchemy.com/v2/[key]
   CONTRACT_ADDRESS=[deployed address — fill after Section 10 deployment]
 
   # IPFS
-  NFT_STORAGE_API_KEY=[key]
+  PINATA_JWT=[jwt]
+  PINATA_GATEWAY_URL=[your-gateway].mypinata.cloud
 
   # PolygonScan
   POLYGONSCAN_API_KEY=[key]
@@ -776,16 +856,15 @@ BACKEND (.env in backend/ root — NEVER commit to git):
   # App Config
   ENVIRONMENT=development              # or: production
   REDIS_URL=redis://localhost:6379/0   # Update to cloud URL for production
-  CORS_ORIGIN=http://localhost:8081    # React Native Metro bundler port
+  WEB_CORS_ORIGINS=https://[future-web-domain]   # Optional. Not required for mobile-only RN clients.
 
   # Maharashtra LGD API (no key needed — public government API)
   LGD_API_BASE=http://115.124.105.220/API
 
 MOBILE APP (.env.development and .env.production in project root):
   API_BASE_URL=http://10.0.2.2:8000   # Android emulator → host machine
-  SUPABASE_URL=https://[ref].supabase.co
-  SUPABASE_ANON_KEY=[anon-key]
   GOOGLE_MAPS_API_KEY=[maps-api-key]  # For ZoneNavigationScreen only
+  Firebase Android config comes from android/app/google-services.json
 
   NOTE: GOOGLE_MAPS_API_KEY must also be in android/local.properties:
     GOOGLE_MAPS_API_KEY=AIzaSyBxxxxxx
@@ -808,7 +887,8 @@ SECTION 5: MODULE 1 — AUTHENTICATION AND KYC
 5.1 PURPOSE
 -----------
 Establish who the farmer is before any land or tree operations.
-Uses Supabase Auth for phone-based OTP — no passwords required.
+Uses Firebase Authentication for phone-based OTP — no passwords required.
+FastAPI trusts only Firebase ID tokens validated by Firebase Admin SDK.
 The farmer's KYC name is later cross-checked against their land document.
 
 5.2 SCREENS AND FLOWS
@@ -816,18 +896,27 @@ The farmer's KYC name is later cross-checked against their land document.
 
 SCREEN: SplashScreen
   What farmer sees:  App logo centred on screen. Loading indicator.
-  Logic:             Check if valid Supabase auth session exists in MMKV.
-                     If session valid and KYC complete → navigate to HomeScreen
-                     If session valid but KYC not done → navigate to KYCScreen
-                     If no session → navigate to LoginScreen
+  Logic:             Check if Firebase currentUser exists.
+                     If yes: request a fresh Firebase ID token and call
+                     GET /api/v1/auth/me.
+                     If kyc_completed = false → navigate to KYCScreen.
+                     If kyc_completed = true:
+                       Check local onboarding_complete flag in MMKV.
+                       If onboarding_complete = false → navigate to
+                       OnboardingScreen.
+                       Else → navigate to MainTabNavigator with HomeScreen
+                       selected.
+                     If no Firebase user → navigate to LoginScreen.
 
 SCREEN: LoginScreen
   What farmer sees:  Phone number input with +91 prefix shown by default.
                      One large button: "Send OTP"
   Validation:        Input must be exactly 10 digits after the +91 prefix.
                      Invalid: show "Please enter a valid 10-digit number"
-  On submit:         Call supabase.auth.signInWithOtp({ phone: '+91XXXXXXXXXX' })
-                     Supabase sends 6-digit OTP via SMS automatically.
+  On submit:         Call signInWithPhoneNumber(getAuth(), '+91XXXXXXXXXX').
+                     Firebase handles app verification (Play Integrity when
+                     available, reCAPTCHA fallback otherwise) and sends the
+                     6-digit OTP.
   On success:        Navigate to OTPScreen.
 
 SCREEN: OTPScreen
@@ -838,12 +927,17 @@ SCREEN: OTPScreen
                      After timer reaches 0: "Resend OTP" link appears.
   Behaviour:         Each box auto-focuses the next box when a digit is entered.
                      Backspace moves focus back to previous box.
-  On verify:         Call supabase.auth.verifyOtp({ phone, token, type: 'sms' })
-  On success:        Check user profile in Supabase users table.
-                     If no wallet_address on record → run silent wallet
-                     creation (see Section 5.3).
+  On verify:         Call confirmation.confirm(code).
+  On success:        Request GET /api/v1/auth/me with a fresh Firebase ID
+                     token. If no wallet_address on record → run silent
+                     wallet creation (see Section 5.3), then call
+                     POST /api/v1/auth/register-wallet and re-fetch
+                     GET /api/v1/auth/me.
                      If KYC not complete → navigate to KYCScreen.
-                     If KYC complete → navigate to HomeScreen.
+                     If KYC complete and onboarding_complete = false
+                     → navigate to OnboardingScreen.
+                     If KYC complete and onboarding_complete = true
+                     → navigate to MainTabNavigator with HomeScreen selected.
 
 SCREEN: KYCScreen
   What farmer sees:  Two input fields:
@@ -857,7 +951,23 @@ SCREEN: KYCScreen
   On submit:         POST /api/v1/auth/kyc to backend.
                      Backend stores: full_name, SHA-256 hash of Aadhaar
                      (never plain text), sets kyc_completed = true.
-                     Navigate to HomeScreen.
+                     Aadhaar must never be logged, cached, or echoed back in
+                     any client analytics event.
+                     Clear Aadhaar from local component state as soon as the
+                     request resolves.
+                     Navigate to OnboardingScreen on first successful KYC.
+
+SCREEN: OnboardingScreen
+  What farmer sees:  Three swipeable tutorial cards introducing the app flow:
+                     1. Register land from official government records.
+                     2. Walk to sampling zones and scan trees.
+                     3. Track credits, certificates, and audit progress.
+                     Dot indicators below the cards.
+                     "Next" button on cards 1 and 2.
+                     "Get Started" button on card 3.
+                     "Skip" link on cards 1 and 2.
+  On complete:       Write onboarding_complete = true to MMKV and navigate to
+                     MainTabNavigator with HomeScreen selected.
 
 5.3 SILENT WALLET CREATION
 ----------------------------
@@ -877,7 +987,7 @@ Step 2: The private key is stored in react-native-keychain, which uses
         It is NEVER logged in any console or error report.
 
 Step 3: Only the public wallet address is sent to the backend and stored
-        in the Supabase users table (wallet_address column).
+  in the users table row linked by firebase_uid.
 
 Step 4: When the farmer earns Carbon Ton Tokens, the backend Oracle mints
         them to this address. The farmer sees their balance as a plain
@@ -901,7 +1011,27 @@ Code reference (services/wallet.ts):
     return wallet.address; // Only the public address is returned and used
   };
 
-5.4 BACKEND: POST /api/v1/auth/kyc
+5.4 BACKEND: GET /api/v1/auth/me
+----------------------------------
+Called immediately after Firebase sign-in and on every cold app launch.
+Purpose: Bootstrap TerraTrust profile state from the verified Firebase user.
+Process:
+  1. Verify Firebase ID token with Firebase Admin SDK.
+  2. Extract uid and phone_number from the decoded token.
+  3. If no users row exists yet, create a minimal row with:
+       firebase_uid, phone_number, kyc_completed = false.
+  4. Return current profile state.
+Response:
+  {
+    "user_id": "uuid",
+    "firebase_uid": "firebase-uid",
+    "phone_number": "+91XXXXXXXXXX",
+    "full_name": "Ramesh Shankar Patil",
+    "kyc_completed": true,
+    "wallet_address": "0x..."
+  }
+
+5.5 BACKEND: POST /api/v1/auth/kyc
 -------------------------------------
 Request:
   {
@@ -910,7 +1040,7 @@ Request:
   }
 Process:
   1. Validate aadhaar_number is exactly 12 digits.
-  2. Hash aadhaar_number: hashlib.sha256(aadhaar.encode()).hexdigest()
+  2. Hash aadhaar_number: hashlib.sha256(aadhaar_number.encode()).hexdigest()
   3. Store full_name and aadhaar_hash in users table.
   4. Set kyc_completed = true.
 Response:
@@ -918,13 +1048,13 @@ Response:
 Error 400:
   { "error": "Invalid Aadhaar number format" }
 
-5.5 BACKEND: POST /api/v1/auth/register-wallet
+5.6 BACKEND: POST /api/v1/auth/register-wallet
 ------------------------------------------------
 Called after silent wallet creation.
 Request:
   { "wallet_address": "0x..." }
 Process:
-  Store wallet_address in users table for the authenticated user.
+  Store wallet_address in users table for the authenticated Firebase user.
 Response:
   { "status": "success" }
 
@@ -1162,10 +1292,17 @@ STEP 7 — Farmer Confirmation (BoundaryConfirmScreen)
                .filter(ee.Filter.lt('CLOUDY_PIXEL_PERCENTAGE', 20))
                .median()
       rgb = s2.select(['B4', 'B3', 'B2'])
-      # Export as PNG with getThumbURL()
-    The backend returns the PNG URL to the app.
-    App loads PNG as background image using react-native-maps with
-    mapType="none", then draws the GeoJSON polygon overlay with <Polygon>.
+      # Generate PNG, then persist it to Supabase Storage
+    The backend may use getThumbURL() internally only as a temporary
+    generation step. It must immediately download that generated PNG,
+    upload it to a private Supabase Storage bucket, and return a signed
+    URL in satellite_thumbnail_url. This avoids expiring Google-hosted
+    thumbnail URLs and does not require Google Cloud Storage.
+    On Android, the app loads the PNG as a background image inside
+    react-native-maps using mapType="none", then draws the GeoJSON polygon
+    overlay with <Polygon>. Because MapKit does not support mapType="none",
+    iOS remains future scope until an alternative base container/provider is
+    added.
     Why: Sentinel-2 imagery is free with no per-request cost, often more
     recent than Google Maps satellite for rural India, and clearly shows
     agricultural field boundaries.
@@ -1195,26 +1332,84 @@ STEP 8 — Store Verified Boundary (Backend)
 6.4 SCREENS SUMMARY
 ---------------------
 LandListScreen
-  Shows: List of registered land parcels. Each card shows farm name,
-         area in acres, status badge (Verified/Pending/Rejected),
-         last audit date, "Start Audit" button if audit due.
-  GEE thumbnail: Each land parcel card shows a small Sentinel-2 PNG
-         thumbnail fetched from GEE backend once and cached in MMKV.
-  "+" floating button to add new land.
+  Shows: Scrollable list of all registered land parcels.
+         Each card includes:
+           - Sentinel-2 satellite thumbnail image
+           - Farm name
+           - Survey number
+           - Area in acres
+           - Status badge: Verified / Pending / Rejected
+           - Last audit year, or "No audit yet"
+           - "Start Audit" button when the parcel is verified and there is
+             no completed audit for the current audit year
+           - "Resume Audit" or "View Status" when a current-year audit is in
+             PROCESSING, CALCULATING, or READY_TO_MINT
+           - Chevron indicator to show the card body is tappable
+  GEE thumbnail: Small Sentinel-2 PNG fetched from the backend and cached in MMKV.
+  Navigation: Tapping the card body opens LandDetailScreen.
+              "+" floating button and empty-state CTA both open
+              DocumentUploadScreen.
+  Empty state: Illustration plus "Register your first land parcel" and
+               "Add Land" primary button.
+  Pagination: Infinite scroll using GET /api/v1/land/list?page=&limit=.
 
 DocumentUploadScreen
-  Take photo or upload from gallery.
-  OCR progress and extracted fields display.
-  Owner name mismatch error display.
+  Step 1 of 3 in the land-registration modal flow.
+  Farmer can take a photo with the camera or choose one from the gallery.
+  After capture, show a full preview with retake and continue options.
+  OCR state: Show Lottie loading animation with "Reading your document..."
+  OCR result: Display survey number, owner name, village, taluka, and district
+              for confirmation before boundary fetching begins.
+  Error handling: Show a clear owner-name mismatch card and a retry path.
+  Successful continue action: Auto-call GET /api/v1/land/fetch-boundary and
+                              route to BoundaryConfirmScreen or
+                              ManualUploadGuideScreen.
 
 BoundaryConfirmScreen
-  Sentinel-2 satellite background (via GEE PNG, not Google Maps tiles).
-  GeoJSON polygon overlay in green.
-  Land info bottom card with confirm/reject.
+  Step 2 of 3 in the land-registration modal flow.
+  Uses backend-generated Sentinel-2 PNG as the background.
+  GeoJSON polygon overlay shown in green with 20% fill opacity and a 2px border.
+  Bottom sheet includes survey number, area, owner name, and boundary source.
+  Confirm action calls POST /api/v1/land/register.
+  Reject path offers three actions:
+    - Try automatic boundary fetch again
+    - Switch to manual map upload
+    - Retake the original document photo
 
 ManualUploadGuideScreen (shown only when Layers 1+2 fail)
-  Step-by-step instructions to download map from government portal.
-  Upload button.
+  Alternate Step 2 of 3 when automatic boundary retrieval fails.
+  Shows four numbered instruction cards for downloading the official map from
+  the government portal, then returning to the app and uploading it.
+  Upload path must still end in BoundaryConfirmScreen for farmer confirmation.
+
+LandDetailScreen
+  Detailed parcel hub opened from HomeScreen or LandListScreen.
+  Top section: large satellite image for the parcel using the cached GEE PNG.
+  Details card: farm name, survey number, village, taluka, district,
+                area, boundary source, registration date, and status badge.
+  Per-land audit history section: year, credits earned, and latest
+                                  certificate link for each audit.
+  Primary actions vary by state:
+    - Start Audit when verified and no current-year audit exists
+    - View Audit Status when the current-year audit is still processing
+    - View Latest Certificate when the current-year audit is complete
+  Secondary actions:
+    - Edit farm name
+    - Report boundary issue and restart land verification if needed
+
+EditLandNameScreen
+  Single-field rename flow for a parcel.
+  Pre-filled text input with helper copy explaining the name is for farmer
+  reference only and does not alter legal land records.
+  Save path uses PATCH /api/v1/land/{land_id}. Only farm_name is editable.
+  On success, update local land state and return to LandDetailScreen.
+
+LandRegistrationSuccessScreen
+  Final Step 3 of 3 in the land-registration modal flow.
+  Shows success animation, large confirmation message, parcel name, parcel area,
+  and guidance that the farmer can now start the annual audit.
+  CTA returns to the My Lands tab.
+  Auto-dismiss after a short delay if the farmer does not tap manually.
 
 6.5 API ENDPOINTS FOR THIS MODULE
 -----------------------------------
@@ -1324,7 +1519,9 @@ TIER 1 — Full Depth AR (Hardware depth sensor phones)
 TIER 2 — Motion-Based AR (ARCore phones without hardware depth)
   Applicable to: Phones where ARCore is available but hardware depth
                  sensor is not. ARCore returns SUPPORTED_INSTALLED but
-                 depth mode returns SLAM_ONLY.
+                 RAW_DEPTH_ONLY is not supported. TerraTrust labels this
+                 capability tier internally as SLAM_ONLY; this is an app
+                 label, not an ARCore enum value.
   What farmer does: Phone shows animated arrow. Farmer moves phone slowly
                     left and right in a small arc for 5 seconds while
                     keeping the trunk centred on screen.
@@ -1398,7 +1595,28 @@ Approved Species and Wood Density Values (rho in g/cm³):
 
   Wood density values sourced from:
   Global Wood Density Database (Zanne et al. 2009) + regional literature.
-  Any species not in this list must be rejected at the mobile app level.
+  Canonical species keying rule:
+  Use the scientific identity as the backend/model key. The display label
+  "Indian Rosewood" in TerraTrust v3.1 refers specifically to
+  Dalbergia sissoo (also called Shisham / North Indian Rosewood), not to
+  Dalbergia latifolia. Use the scientific identity as the canonical key and
+  treat "Indian Rosewood", "Shisham", and "North Indian Rosewood" as display
+  aliases for Dalbergia sissoo only.
+  Species model acceptance rule:
+  Accept the detected species only when the top prediction is one of the
+  11 approved species and species_confidence >= 0.80. Otherwise show
+  "not approved" / "retake photo" and block scan submission.
+  TFLite model contract:
+  Input = RGB image, 224x224, normalized to [0,1]. Output = 12 labels in
+  fixed order: the 11 approved species above plus NOT_APPROVED. Store the
+  model file in src/assets/tflite/species_model.tflite and version it as a
+  separately replaceable asset.
+  Model provenance:
+  Train this classifier offline from a curated, labeled species image dataset
+  using a lightweight mobile backbone (for example MobileNetV3-class classifer),
+  export the inference artifact to TFLite, and distribute only the frozen
+  model file with the app. The mobile app and backend never train the model at
+  runtime. Any species not in this list must be rejected at the mobile app level.
 
 7.5 THE SCANNING FLOW — FARMER EXPERIENCE
 -------------------------------------------
@@ -1482,6 +1700,8 @@ SCREEN: AuditCompleteScreen
     Total trees scanned: [N]
     Zones completed: [N] of [N]
     Preliminary estimate (clearly labelled as rough, pending satellite)
+    Scrollable grouped list of trees by zone so the farmer can review what
+    was collected before submission.
   Button: "Submit for Satellite Verification"
   On submit:
     All tree data + GPS + evidence photos uploaded to backend.
@@ -1489,7 +1709,30 @@ SCREEN: AuditCompleteScreen
     Loading screen: "Calculating your carbon credits using satellite
     data... This usually takes 30-60 seconds."
     Backend runs full satellite fusion (Celery task).
-  On completion: HomeScreen with updated CTT balance.
+
+SCREEN: AuditStatusScreen
+  Purpose: Dedicated polling screen shown immediately after submit while the
+           backend remains in CALCULATING or minting-related states.
+  Shows while processing:
+    Loading animation, farmer-friendly progress copy, audit year, parcel
+    name, and step indicators:
+      - Scan data received
+      - Running satellite analysis
+      - Calculating carbon credits
+      - Minting tokens to wallet
+    Android back minimizes the app instead of interrupting polling.
+    Small "Go to Home" link is allowed; background polling continues.
+  Terminal states:
+    MINTED               → show celebration state, credits issued, transaction
+                           hash, certificate link, and CTA to HomeScreen.
+    COMPLETE_NO_CREDITS  → show success state with reason string and CTA back
+                           to HomeScreen.
+    FAILED               → show retry/support guidance, contact-support path,
+                           and CTA back to HomeScreen.
+  Polling rules:
+    Poll GET /api/v1/audit/result/{audit_id} every 5 seconds.
+    Stop immediately on terminal state.
+    Respect Retry-After on HTTP 429 and avoid aggressive retry loops.
 
 7.6 DATA PERSISTENCE — CRITICAL
 ---------------------------------
@@ -1579,9 +1822,10 @@ Production phase (June 2026+):
   No changes to mobile app or database needed. Only the GEE Python script
   is updated when NISAR data becomes primary.
 
-TIMELINE NOTE: NISAR was launched July 30, 2025. The 16-week development
-plan (~June-July 2026 launch) perfectly aligns with NISAR calibrated data
-release in May/June 2026. This is intentional.
+TIMELINE NOTE: NISAR was launched July 30, 2025. TerraTrust should validate
+NISAR during development and target production cutover around June 2026 only
+after calibrated data is confirmed in the live pipeline. If calibration timing
+slips, continue using Sentinel-1 as the production SAR source.
 
 8.3 LAYER 1 — NISAR L-BAND SAR (Primary from June 2026)
 ---------------------------------------------------------
@@ -1833,7 +2077,10 @@ Python implementation:
 
   def agb_to_density(agb_kg: float, crown_area_ha: float = 0.01) -> float:
       """Convert AGB kg to tonnes per hectare for XGBoost training.
-      crown_area_ha: approx crown area (default 0.01 ha = 100 m2 = 10x10m)"""
+      crown_area_ha: 10m x 10m satellite pixel proxy area
+      (default 0.01 ha = 100 m2)
+      Simplifying assumption: each scanned tree represents one 10m x 10m
+      satellite pixel, not its literal crown area."""
       return (agb_kg / 1000) / crown_area_ha
 
 Example calculation:
@@ -1847,7 +2094,7 @@ Example calculation:
       = 0.0673 × (4275.0)^0.976
       = 0.0673 × 3421.8
       = 230.3 kg per tree (0.2303 tonnes)
-      = 23.03 tonnes per hectare at 100 sqm crown area
+      = 23.03 tonnes per hectare using one 10m × 10m pixel as the mapping unit
 
 9.3 STEP 2 — BUILD TRAINING DATASET
 -------------------------------------
@@ -1857,31 +2104,31 @@ For each scanned tree:
   c. Calculate its biomass density using Chave equation.
   d. Create one training data point: features → biomass.
 
+Recommended training approach:
+  Do NOT call getInfo() once per tree to pull satellite bands to Python.
+  That pattern is slow and will hit Earth Engine quotas for larger audits.
+  Instead:
+  1. Calculate agb_t_per_ha in Python for each tree.
+  2. Build a lightweight ee.FeatureCollection containing only geometry +
+   agb_t_per_ha + metadata.
+  3. Use feature_stack.sampleRegions(...) once to attach all satellite bands
+   server-side in a single Earth Engine request.
+
 GEE code:
   training_points = []
   for scan in tree_scans:
-      # Get satellite feature values at this tree's GPS location
-      pixel_values = feature_stack.sample(
-          region=ee.Geometry.Point([scan['gps']['lng'], scan['gps']['lat']]),
-          scale=10
-      ).first().getInfo()['properties']
-
-      # Get height: GEDI preferred, AR fallback
-      height, height_source = get_tree_height(scan, gedi_image)
-
-      # Calculate biomass
-      agb_kg = chave_equation(
-          wood_density=SPECIES_DENSITY[scan['species']],
-          dbh_cm=scan['dbh_cm'],
-          height_m=height
-      )
-      agb_t_per_ha = agb_to_density(agb_kg)
-
-      training_points.append({
-          'features': pixel_values,
-          'biomass': agb_t_per_ha,
-          'height_source': height_source
-      })
+    height, height_source = get_tree_height(scan, gedi_image)
+    agb_kg = chave_equation(
+      wood_density=SPECIES_DENSITY[scan['species']],
+      dbh_cm=scan['dbh_cm'],
+      height_m=height
+    )
+    training_points.append({
+      'lat': scan['gps']['lat'],
+      'lng': scan['gps']['lng'],
+      'biomass': agb_to_density(agb_kg),
+      'height_source': height_source
+    })
 
 Minimum viable training set: 9 trees (3 zones × 3 trees = minimum viable)
 Ideal training set:          15+ trees for better model accuracy.
@@ -1892,15 +2139,22 @@ GEE has a built-in gradient boosted trees classifier (smileGradientTreeBoost)
 that works on GEE FeatureCollections. Use this instead of downloading data
 and running scikit-learn locally.
 
-  # Convert training points to GEE FeatureCollection
-  training_fc = ee.FeatureCollection([
+    # Convert Python labels to a lightweight GEE FeatureCollection
+    points_fc = ee.FeatureCollection([
       ee.Feature(
-          ee.Geometry.Point([pt['features']['longitude'],
-                             pt['features']['latitude']]),
-          {'biomass': pt['biomass'], **pt['features']}
+        ee.Geometry.Point([pt['lng'], pt['lat']]),
+        {'biomass': pt['biomass'], 'height_source': pt['height_source']}
       )
       for pt in training_points
   ])
+
+    # Attach all satellite feature bands in one server-side sample call
+    training_fc = feature_stack.sampleRegions(
+      collection=points_fc,
+      properties=['biomass', 'height_source'],
+      scale=10,
+      geometries=False
+    )
 
   # Train XGBoost via GEE
   xgb_model = ee.Classifier.smileGradientTreeBoost(
@@ -1946,11 +2200,24 @@ A farm with the same biomass as last year earns zero credits.
                         land_id: str,
                         audit_year: int) -> dict:
 
-      # Query last year's audit from database
-      prev_audit = get_previous_audit(land_id, audit_year - 1)
-      prev_biomass = prev_audit['total_biomass_tonnes'] if prev_audit else 0
-      # First year: no previous audit means prev_biomass = 0 (baseline year).
-      # Credits are still earned in first year if biomass > 0.
+      # Query the latest PRIOR successful audit, not simply audit_year - 1.
+      # Ignore FAILED and PROCESSING records.
+      prev_audit = get_latest_successful_audit_before(land_id, audit_year)
+
+      if not prev_audit:
+        # First successful audit establishes the baseline year.
+        # No credits are issued until a later successful audit proves growth.
+        return {
+          'prev_biomass': 0,
+          'current_biomass': total_biomass_tonnes,
+          'delta_biomass': 0,
+          'carbon_tonnes': 0,
+          'co2_equivalent': 0,
+          'credits_issued': 0,
+          'reason': 'Baseline year established; future growth earns credits'
+        }
+
+      prev_biomass = prev_audit['total_biomass_tonnes']
 
       delta_biomass = total_biomass_tonnes - prev_biomass
 
@@ -2014,8 +2281,8 @@ Token Type 2: Audit Certificate — Non-Fungible ERC-1155
               Cannot be transferred — represents a specific audit record.
               Permanently on-chain as proof of audit.
 
-10.3 IPFS EVIDENCE PACKAGE (NFT.Storage)
------------------------------------------
+10.3 IPFS EVIDENCE PACKAGE (Pinata)
+-----------------------------------
 Before minting, all evidence is packaged as JSON and uploaded to IPFS.
 The returned CID is permanently stored on the blockchain (in auditEvidence
 mapping). Anyone can verify the audit by fetching the IPFS metadata.
@@ -2052,6 +2319,7 @@ IPFS metadata package structure:
         "height_m": 15.3,
         "agb_kg": 245.6,
         "gps": {"lat": 18.546, "lng": 73.981},
+        "scan_timestamp": "2026-11-10T10:24:31Z",
         "measurement_tier": 1,
         "evidence_photo_hash": "[sha256 of photo bytes]"
       }
@@ -2061,35 +2329,42 @@ IPFS metadata package structure:
 
 IPFS upload (Python):
   def upload_to_ipfs(metadata: dict) -> str:
+    payload = {
+      'pinataOptions': {'cidVersion': 1},
+      'pinataMetadata': {
+        'name': f"audit-{metadata['land_id']}-{metadata['audit_year']}.json"
+      },
+      'pinataContent': metadata,
+    }
       response = requests.post(
-          'https://api.nft.storage/upload',
+      'https://api.pinata.cloud/pinning/pinJSONToIPFS',
           headers={
-              'Authorization': f'Bearer {os.getenv("NFT_STORAGE_API_KEY")}',
+        'Authorization': f'Bearer {os.getenv("PINATA_JWT")}',
               'Content-Type': 'application/json'
           },
-          json=metadata,
+      json=payload,
           timeout=30
       )
       response.raise_for_status()
-      cid = response.json()['value']['cid']
+    cid = response.json()['IpfsHash']
       return f'ipfs://{cid}'    # Stored on blockchain + in database
 
 10.4 THE SMART CONTRACT (TerraToken.sol)
 -----------------------------------------
-File: backend/contracts/TerraToken.sol
-Network: Polygon PoS (Amoy Testnet for development, Mainnet for production)
+File: backend/contracts/contracts/TerraToken.sol
+Network: Polygon PoS (current TerraTrust scope: Amoy Testnet only)
 
 Prerequisites for smart contract development:
   cd backend/contracts
   npm install --save-dev hardhat
   npm install --save-dev @nomicfoundation/hardhat-toolbox
   npm install @openzeppelin/contracts
-  npx hardhat init
+  npx hardhat --init
   (Select: Create a JavaScript project)
 
 Contract code:
   // SPDX-License-Identifier: MIT
-  pragma solidity ^0.8.20;
+  pragma solidity 0.8.29;
 
   import "@openzeppelin/contracts/token/ERC1155/ERC1155.sol";
   import "@openzeppelin/contracts/access/Ownable.sol";
@@ -2126,7 +2401,7 @@ Contract code:
       // ----------------------------------------------------------------
       function mintAudit(
           address farmer,         // Farmer's wallet address (0x...)
-          uint256 auditId,        // Unique audit ID (UUID converted to int)
+          uint256 auditId,        // Unique audit ID using uuid.UUID(audit_id).int
           uint256 creditAmount,   // Number of CTT to mint (e.g. 12)
                                   // CRITICAL: Send actual number, NOT *10^18
                                   // Old bug: was multiplied by 10^18 → FIXED
@@ -2185,40 +2460,44 @@ Contract code:
 File: backend/contracts/hardhat.config.js
 
   require("@nomicfoundation/hardhat-toolbox");
-  require('dotenv').config();
+  require("dotenv").config({ path: "../.env" });
 
   module.exports = {
     solidity: {
-      version: "0.8.20",
-      settings: { optimizer: { enabled: true, runs: 200 } }
+      compilers: [{
+        version: "0.8.29",
+        settings: {
+          optimizer: { enabled: true, runs: 200 },
+          evmVersion: "cancun"
+        }
+      }]
     },
+    defaultNetwork: "hardhat",
     networks: {
       polygon_amoy: {
-        url: process.env.ALCHEMY_POLYGON_AMOY_URL,
-        accounts: [process.env.ADMIN_WALLET_PRIVATE_KEY],
-        chainId: 80002,
-        gasPrice: 35000000000    // 35 gwei
-      },
-      polygon_mainnet: {
-        url: process.env.ALCHEMY_POLYGON_MAINNET_URL,
-        accounts: [process.env.ADMIN_WALLET_PRIVATE_KEY],
-        chainId: 137,
-        gasPrice: 35000000000
+        url: process.env.ALCHEMY_POLYGON_AMOY_URL || "",
+        accounts: process.env.ADMIN_WALLET_PRIVATE_KEY
+          ? [process.env.ADMIN_WALLET_PRIVATE_KEY]
+          : [],
+        chainId: 80002
       }
     },
     etherscan: {
-      apiKey: {
-        polygonAmoy: process.env.POLYGONSCAN_API_KEY,
-        polygon:     process.env.POLYGONSCAN_API_KEY
-      },
+      apiKey: process.env.POLYGONSCAN_API_KEY,
       customChains: [{
-        network: "polygonAmoy",
+        network: "polygon_amoy",
         chainId: 80002,
         urls: {
           apiURL: "https://api-amoy.polygonscan.com/api",
           browserURL: "https://amoy.polygonscan.com"
         }
       }]
+    },
+    paths: {
+      sources: "./contracts",
+      tests: "./test",
+      cache: "./cache",
+      artifacts: "./artifacts"
     }
   };
 
@@ -2270,7 +2549,7 @@ File: backend/services/minting_service.py
           'nonce':    nonce,
           'gas':      300000,
           'gasPrice': gas_price,
-          'chainId':  80002    # Use 137 for mainnet
+          'chainId':  80002    # Amoy testnet only in current TerraTrust scope
       })
 
       # Step 3: Sign and send
@@ -2291,8 +2570,9 @@ File: backend/services/minting_service.py
 
 10.7 TOKEN BALANCE IN APP (ethers.js)
 ---------------------------------------
-Dashboard reads farmer's CTT balance directly from Polygon blockchain.
-No database call — the blockchain is the source of truth for balances.
+Dashboard displays balance_ctt from GET /api/v1/credits/balance as the
+primary source shown to the farmer. Optional direct Polygon reads may run in
+the background only for validation using a dedicated frontend-safe RPC key.
 
   // services/blockchain.ts
   import { ethers } from 'ethers';
@@ -2318,22 +2598,39 @@ SECTION 10.8: DASHBOARD SCREENS
 
 SCREEN: HomeScreen
   What farmer sees:
+    HEADER / GREETING:
+      "Good morning, [Farmer First Name]"
+      Small current-date line below the greeting.
     TOP — Token Balance Card:
       Large number: "[47.3] CTT" in 48sp Bold Roboto
       Subtitle: "Carbon Ton Tokens earned"
       Explanation: "= 47.3 tonnes of CO2 stored on your land"
       "View on PolygonScan" small link for blockchain proof.
+      Header right action: bell icon opens NotificationsScreen.
+      Loading state: skeleton shimmer while balance is loading.
+      Offline state: cached value with "Last updated [time]" banner.
     MIDDLE — My Lands:
-      List of registered land parcels. Each card shows:
+      Title row: "My Lands" with "View All" action that switches to the
+      My Lands tab.
+      Preview list of registered land parcels. Each card shows:
         GEE Sentinel-2 PNG thumbnail, Farm name, Area, Status badge.
       Status colours:
-        Green = Verified and audited this year
-        Orange = Verified but audit due
+        Green = Verified and already has a completed audit for the current
+                calendar audit_year
+        Orange = Verified, no completed audit exists yet for the current
+                 calendar audit_year, and the recommended audit window is open
         Red = Overdue by more than 3 months
-      "Start Audit" button on orange/red cards.
+      Tapping the card body opens LandDetailScreen.
+      "Start Audit" button on orange/red cards only when no current-year
+      audit exists. Otherwise show "View Status" or "Resume Audit".
+      Empty state card: "You haven't registered any land yet" with
+      "Register Your First Land" CTA.
     BOTTOM — Credit History Preview:
+      Title row: "Credit History" with "View All" action that switches to
+      the History tab.
       Last 2 audit entries shown. Tapping navigates to CreditHistoryScreen.
-      "View All History →" link navigates to CreditHistoryScreen.
+      "View Certificate" opens the Pinata gateway URL in the device browser.
+      Empty state: "No credits yet. Complete your first audit to earn credits."
   API call:  GET /api/v1/credits/balance (blockchain balance + history)
   Offline:   Last known balance shown from MMKV cache with "Last updated [time]".
 
@@ -2342,14 +2639,72 @@ SCREEN: CreditHistoryScreen
     Full year-by-year list of all carbon credit audits across all land parcels.
     Each entry shows:
       Land name, Audit year, Credits issued (+12.4 CTT)
-      "View Certificate" button — opens IPFS URL in device browser.
+      "View Certificate" button — opens Pinata gateway URL in device browser.
       Transaction hash (truncated, tappable → PolygonScan).
     Bar chart: react-native-chart-kit showing credit growth year over year.
   Loading state:  Lottie spinning_leaf.json while fetching.
   Offline state:  Cached history shown with "Last updated [time]" badge.
-  API call:  GET /api/v1/credits/balance (returns balance + full history array)
-  Note:      "View Certificate" opens the IPFS-hosted audit certificate in the
-             device browser (no in-app AuditCertificateScreen exists).
+  API call:  GET /api/v1/credits/balance (returns balance + paginated history)
+  Note:      "View Certificate" opens the Pinata gateway certificate URL in
+             the device browser (no in-app AuditCertificateScreen exists).
+
+================================================================================
+SECTION 10.9: APP SHELL, PROFILE, NOTIFICATIONS, AND MAINTENANCE SCREENS
+================================================================================
+
+Navigation shell:
+  RootNavigator chooses between AuthStack, MainTabNavigator, and
+  MaintenanceScreen.
+  MainTabNavigator has four tabs: Home, My Lands, History, and Profile.
+  The tab bar hides during land registration, active audit, notifications
+  modal, wallet recovery, and maintenance mode.
+
+SCREEN: ProfileScreen
+  What farmer sees:
+    Profile card with initials avatar, full name, masked phone number, and
+    KYC verification badge.
+    Wallet card with truncated address, copy action, CTT balance, and
+    PolygonScan link.
+    List rows for Settings, Notifications, Privacy Policy, Help & Support,
+    About TerraTrust, Wallet Recovery, and Log Out.
+  Logout behaviour:
+    Firebase sign-out, Redux reset, MMKV reset except onboardingComplete,
+    then replace navigation with LoginScreen.
+
+SCREEN: SettingsScreen
+  What farmer sees:
+    Toggle for notifications.
+    Toggle for high-accuracy GPS mode.
+    Read-only explanation of which actions work offline.
+    Data section with cache-clear action for satellite PNGs.
+    App version row.
+
+SCREEN: WalletRecoveryScreen
+  What farmer sees:
+    Warning card explaining this should be used only on a new phone.
+    Three-step plain-language explanation of OTP re-verification, new wallet
+    generation, and backend recovery processing.
+    Primary action: "Start Recovery Process".
+  On submit:
+    Re-run OTP verification, create a replacement wallet locally, and call
+    POST /api/v1/auth/recover-wallet.
+
+SCREEN: NotificationsScreen
+  What farmer sees:
+    Notification list ordered newest-first with icon, title, timestamp,
+    and tappable destination.
+    Types include credits ready, audit submitted, audit failed,
+    audit due, and land registration complete.
+    Empty state: "No notifications yet".
+    Top-right action: "Mark all as read".
+
+SCREEN: MaintenanceScreen
+  What farmer sees:
+    TerraTrust logo, maintenance message, assurance that data is safe,
+    Play Store update CTA, and app version.
+  Trigger:
+    GET /api/v1/status or any farmer-facing API response indicates
+    maintenance mode.
 
 ================================================================================
 SECTION 11: DATABASE SCHEMA (SUPABASE / POSTGRESQL + POSTGIS)
@@ -2373,12 +2728,15 @@ SQL Editor. They must succeed before any INSERT can use spatial data.
 11.2 TABLE: users
 ------------------
 Purpose: Farmer identity, KYC data, blockchain wallet address.
-         Links to Supabase Auth via phone number.
+     Links to Firebase Authentication via firebase_uid + phone number.
 
   CREATE TABLE users (
       id               UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    firebase_uid     VARCHAR(128) UNIQUE NOT NULL,
+    -- Firebase Authentication stable user identifier from verified ID token
       phone_number     VARCHAR(15) UNIQUE NOT NULL,
-      full_name        VARCHAR(255) NOT NULL,
+    full_name        VARCHAR(255),
+    -- NULL until the farmer completes KYC
       aadhaar_hash     VARCHAR(64),
       -- SHA-256 hash ONLY. Never store plain text Aadhaar.
       -- Computed as: hashlib.sha256(aadhaar_number.encode()).hexdigest()
@@ -2391,10 +2749,12 @@ Purpose: Farmer identity, KYC data, blockchain wallet address.
       updated_at       TIMESTAMP WITH TIME ZONE DEFAULT NOW()
   );
 
+  CREATE INDEX idx_users_firebase_uid ON users(firebase_uid);
   CREATE INDEX idx_users_phone  ON users(phone_number);
   CREATE INDEX idx_users_wallet ON users(wallet_address);
 
 NOTE: This table differs from the old SRS v3.0 in these ways:
+  - firebase_uid field ADDED to link TerraTrust users to Firebase Auth
   - aadhaar_hash field ADDED (was missing in old SRS)
   - role field ADDED (old SRS had kyc_status instead)
   - phone_number (old SRS used 'phone') — use phone_number for clarity
@@ -2520,11 +2880,13 @@ Purpose: Individual tree measurements from AR scanning sessions.
       -- NOTE: Old SRS used TIER_A/B/C — v3.1 uses 1/2/3 as integers.
       confidence_score FLOAT,
       -- ARCore RANSAC fit confidence (0.0-1.0). NULL for Tier 3.
-      evidence_photo_url VARCHAR(500),
-      -- Supabase Storage URL of evidence photo
+      evidence_photo_path VARCHAR(500),
+      -- Supabase Storage object path. Generate signed URLs only when needed.
       evidence_photo_hash VARCHAR(64),
       -- SHA-256 hash of photo bytes computed on device before upload.
       -- Used to verify photo was not tampered with after submission.
+        scan_timestamp   TIMESTAMP WITH TIME ZONE NOT NULL,
+        -- Device capture timestamp for audit integrity and certificate traceability.
       gps_accuracy_m   FLOAT,
       -- GPS horizontal accuracy in metres. Reject if > 30m.
       created_at       TIMESTAMP WITH TIME ZONE DEFAULT NOW()
@@ -2551,7 +2913,7 @@ Purpose: One record per annual audit per land parcel.
       audit_year       INT NOT NULL,
       status           VARCHAR(20) DEFAULT 'PROCESSING',
       -- Status flow: PROCESSING → CALCULATING → READY_TO_MINT
-      --              → MINTED (success) or FAILED
+      --              → MINTED, COMPLETE_NO_CREDITS, or FAILED
 
       -- Satellite data recorded for this audit
       s1_vh_mean_db    FLOAT,     -- Sentinel-1 VH mean backscatter (dB)
@@ -2563,7 +2925,7 @@ Purpose: One record per annual audit per land parcel.
       nisar_used       BOOLEAN DEFAULT FALSE,
       -- True if NISAR data was included (only from June 2026)
       xgboost_model_version VARCHAR(20),  -- e.g., 'v3.1.0'
-      features_count   INT,       -- 9 (pre-NISAR) or 12 (post-NISAR)
+      features_count   INT,       -- Normally 9 or 12; 8 or 11 when GEDI is unavailable
 
       -- Biomass calculation results
       total_biomass_tonnes FLOAT, -- Total AGB of entire farm this year
@@ -2576,7 +2938,7 @@ Purpose: One record per annual audit per land parcel.
 
       -- Blockchain records
       ipfs_metadata_cid  VARCHAR(255),
-      -- NFT.Storage CID. Full URL = "ipfs://[cid]"
+      -- IPFS CID. Full on-chain URL = "ipfs://[cid]"
       tx_hash            VARCHAR(66),
       -- Polygon transaction hash (0x + 64 hex = 66 chars)
       token_id           BIGINT,
@@ -2594,32 +2956,25 @@ NOTE: Old SRS v3.0 named this table 'biomass_audits'. v3.1 renames to
       'carbon_audits'. The old table also lacked: nisar_used, user_id,
       features_count, xgboost_model_version, token_id, minted_at fields.
 
-11.7 ROW LEVEL SECURITY (RLS) — MANDATORY
-------------------------------------------
-Supabase uses PostgreSQL RLS to ensure each farmer can only read and
-write their own data. Run these in Supabase SQL Editor:
+11.7 DATA ACCESS POLICY (BACKEND-ONLY)
+--------------------------------------
+Because Firebase Authentication is the identity provider, the mobile app does
+NOT connect to Supabase directly in v1.
 
-  ALTER TABLE land_parcels ENABLE ROW LEVEL SECURITY;
-  CREATE POLICY "Users own their land" ON land_parcels
-      FOR ALL USING (auth.uid()::text = user_id::text);
+Authorisation rule for every protected request:
+  1. FastAPI verifies the Firebase ID token.
+  2. decoded_token['uid'] must match users.firebase_uid.
+  3. Every query filters by the TerraTrust user resolved from that uid.
 
-  ALTER TABLE ar_tree_scans ENABLE ROW LEVEL SECURITY;
-  CREATE POLICY "Users own their scans" ON ar_tree_scans
-      FOR ALL USING (land_id IN (
-          SELECT id FROM land_parcels
-          WHERE user_id::text = auth.uid()::text
-      ));
+Practical implications:
+  - SUPABASE_SERVICE_KEY stays server-side only.
+  - The mobile app never uses Supabase anon keys or direct table access.
+  - File uploads/downloads go through backend endpoints and signed URLs.
 
-  ALTER TABLE carbon_audits ENABLE ROW LEVEL SECURITY;
-  CREATE POLICY "Users own their audits" ON carbon_audits
-      FOR ALL USING (user_id::text = auth.uid()::text);
-
-  ALTER TABLE sampling_zones ENABLE ROW LEVEL SECURITY;
-  CREATE POLICY "Users own their zones" ON sampling_zones
-      FOR ALL USING (land_id IN (
-          SELECT id FROM land_parcels
-          WHERE user_id::text = auth.uid()::text
-      ));
+Future note:
+  If a later version exposes Supabase directly to clients, add custom JWT
+  mapping or third-party auth integration first. Do not reuse the old
+  auth.uid() RLS examples from Supabase Auth-based designs.
 
 11.8 IMPORTANT POSTGIS QUERIES
 --------------------------------
@@ -2665,21 +3020,24 @@ API versioning: All endpoints are prefixed with /api/v1/
 Exception: /health (no version prefix — used by keep-alive cron job)
 
 Authentication: All endpoints except /health require:
-  Header: Authorization: Bearer [supabase_jwt_token]
-  JWT is the access_token returned by Supabase after OTP verification.
-  FastAPI validates this on every request via dependency injection.
+  Header: Authorization: Bearer [firebase_id_token]
+  Token source: Firebase Authentication after successful phone OTP verification.
+  FastAPI validates this on every request via Firebase Admin SDK.
 
 FastAPI auth dependency:
+  from firebase_admin import auth as firebase_auth
+
   async def get_current_user(
       authorization: str = Header(None)
   ):
       if not authorization or not authorization.startswith("Bearer "):
           raise HTTPException(401, "Authorization header required")
-      token = authorization.split(" ")[1]
-      user = supabase.auth.get_user(token)
-      if not user.user:
+    token = authorization.split(" ", 1)[1]
+    try:
+      decoded = firebase_auth.verify_id_token(token)
+    except Exception:
           raise HTTPException(401, "Invalid or expired token")
-      return user.user
+    return decoded
 
 GET /health
   Auth:     None
@@ -2687,12 +3045,34 @@ GET /health
             and Render.com health check.
   Response: { "status": "ok", "timestamp": "2026-03-07T10:00:00Z" }
 
+GET /api/v1/status
+  Auth:     None
+  Purpose:  App bootstrap status check for maintenance-mode gating before the
+            authenticated flow starts.
+  Response: { "maintenance": false, "message": null }
+            or
+            { "maintenance": true,
+              "message": "Scheduled maintenance in progress" }
+
 ────────────────────────────────────────────────
 AUTH MODULE (/api/v1/auth)
 ────────────────────────────────────────────────
-NOTE: OTP send/verify is handled directly by Supabase client SDK in the
-mobile app. The backend does NOT handle raw OTP flows. The backend only
-handles what happens AFTER Supabase Auth is complete.
+NOTE: OTP send/verify is handled directly by Firebase Authentication in the
+mobile app. The backend never sends SMS itself. It only verifies Firebase ID
+tokens and manages the TerraTrust user profile stored in Supabase.
+
+GET /api/v1/auth/me
+  Purpose:  Bootstrap TerraTrust profile after Firebase sign-in.
+  Process:  Verify Firebase ID token → upsert minimal user row by
+            firebase_uid + phone_number if missing → return KYC/wallet state.
+  Response: {
+              "user_id": "uuid",
+              "firebase_uid": "firebase-uid",
+              "phone_number": "+91XXXXXXXXXX",
+              "full_name": "Ramesh Shankar Patil",
+              "kyc_completed": true,
+              "wallet_address": "0x..."
+            }
 
 POST /api/v1/auth/kyc
   Purpose:  Save farmer KYC data after first OTP login.
@@ -2709,8 +3089,19 @@ POST /api/v1/auth/kyc
 POST /api/v1/auth/register-wallet
   Purpose:  Store farmer's generated blockchain wallet address.
   Request:  { "wallet_address": "0x..." }
-  Process:  Update wallet_address in users table for auth user.
+  Process:  Update wallet_address in users table for user resolved from
+            verified Firebase ID token.
   Response: { "status": "success" }
+
+POST /api/v1/auth/recover-wallet
+  Purpose:  Submit an admin-assisted wallet rotation request after OTP + KYC
+            re-verification on a new device.
+  Request:  { "new_wallet_address": "0x..." }
+  Process:  Validate recovery eligibility, record a pending request, and keep
+            historical audit records bound to the superseded wallet while
+            future credit issuance moves only after approval.
+  Response: { "status": "pending",
+              "message": "Wallet recovery request submitted" }
 
 ────────────────────────────────────────────────
 LAND MODULE (/api/v1/land)
@@ -2744,7 +3135,7 @@ GET /api/v1/land/fetch-boundary
                   "type": "Polygon",
                   "coordinates": [[[73.981,18.545],[73.982,18.546],...]]
               }},
-              "satellite_thumbnail_url": "https://storage.googleapis.com/..."
+              "satellite_thumbnail_url": "https://[signed-supabase-url]/boundary-47.png"
             }
   Fallback: { "status": "manual_required" }
 
@@ -2773,10 +3164,26 @@ POST /api/v1/land/register
   Error 409: { "error": "This survey number is already registered." }
 
 GET /api/v1/land/list
-  Purpose:  All land parcels for the authenticated farmer.
-  Response: [{ "id", "farm_name", "survey_number", "area_hectares",
-               "is_verified", "boundary_source",
-               "thumbnail_url" }]
+  Purpose:  Paginated land parcels for the authenticated farmer.
+  Query:    page=1, limit=20
+  Response: {
+              "items": [{ "id", "farm_name", "survey_number",
+                           "area_hectares", "is_verified",
+                           "boundary_source", "last_audit_year",
+                           "current_audit_id", "current_audit_status",
+                           "thumbnail_url" }],
+              "page": 1,
+              "limit": 20,
+              "total": 7,
+              "has_more": false
+            }
+
+PATCH /api/v1/land/{land_id}
+  Purpose:  Rename a registered land parcel from EditLandNameScreen.
+  Request:  { "farm_name": "North Field" }
+  Process:  Validate authenticated ownership of land_id. Update farm_name only.
+  Response: { "status": "success", "land_id": "uuid",
+              "farm_name": "North Field" }
 
 ────────────────────────────────────────────────
 AUDIT MODULE (/api/v1/audit)
@@ -2800,6 +3207,9 @@ GET /api/v1/audit/zones
               "walking_path_metres": 145,
               "min_trees_required": 9
             }
+  Error 409: { "error": "An audit already exists for this land in the current audit year.",
+               "existing_audit_id": "uuid",
+               "status": "CALCULATING" }
 
 POST /api/v1/audit/submit-samples
   Purpose:  Receive all AR tree scans. Store. Trigger Celery fusion task.
@@ -2809,16 +3219,24 @@ POST /api/v1/audit/submit-samples
               "trees": [{
                 "zone_id": "uuid",
                 "species": "Teak",
+                "species_confidence": 0.91,
                 "dbh_cm": 22.4,
                 "height_m": null,
                 "gps": { "lat": 18.5461, "lng": 73.9812 },
+                "gps_accuracy_m": 4.2,
                 "ar_tier_used": 1,
                 "confidence_score": 0.87,
-                "evidence_photo_base64": "[base64]",
-                "evidence_photo_hash": "[sha256 hex]"
+                "evidence_photo_base64": "[base64 of final JPEG bytes; no data URI prefix; max 1280x960; EXIF stripped; JPEG quality 85]",
+                "evidence_photo_hash": "[sha256 hex of the exact decoded bytes in evidence_photo_base64]",
+                "scan_timestamp": "2026-11-10T10:24:31Z"
               }]
             }
-  Process:  Validate min 9 trees → store each scan → dispatch Celery task.
+  Process:  Validate min 9 trees.
+            Reject any tree with species_confidence < 0.80.
+            Reject any tree with gps_accuracy_m > 30.
+            Verify evidence_photo_hash against the decoded, EXIF-stripped,
+            final JPEG bytes provided in evidence_photo_base64.
+            Store each scan → dispatch Celery task.
   Response: { "status": "processing", "audit_id": "uuid",
               "estimated_seconds": 60 }
   Error 400: { "error": "Minimum 9 trees required across all zones." }
@@ -2827,30 +3245,47 @@ GET /api/v1/audit/result/{audit_id}
   Purpose:  Polling endpoint — returns current audit status.
   Response (processing):
             { "status": "CALCULATING" }
+  Response (complete, no credits):
+            { "status": "COMPLETE_NO_CREDITS",
+              "total_biomass_tonnes": 14.8,
+              "credits_issued": 0,
+              "audit_year": 2026,
+              "reason": "No biomass growth detected compared to the latest prior successful audit" }
   Response (complete):
             { "status": "MINTED",
               "total_biomass_tonnes": 14.8,
               "credits_issued": 2.4,
               "tx_hash": "0x1a2b3c...",
-              "ipfs_certificate_url": "https://ipfs.io/ipfs/[CID]",
+              "ipfs_certificate_url": "https://[pinata-gateway]/ipfs/[CID]",
               "audit_year": 2026 }
   Response (failed):
             { "status": "FAILED",
               "error": "Insufficient satellite data." }
 
 GET /api/v1/audit/history/{land_id}
-  Purpose:  Full audit history for a land parcel.
-  Response: [{ "audit_year", "total_biomass_tonnes", "credits_issued",
-               "tx_hash", "ipfs_certificate_url", "minted_at" }]
+  Purpose:  Full audit history for a single land parcel.
+            Used for parcel-specific drill-down.
+            HomeScreen and CreditHistoryScreen use
+            GET /api/v1/credits/balance for all-parcel history.
+  Query:    page=1, limit=20
+  Response: { "items": [{ "audit_year", "total_biomass_tonnes",
+                            "credits_issued", "tx_hash",
+                            "ipfs_certificate_url", "minted_at" }],
+              "page": 1,
+              "limit": 20,
+              "total": 4,
+              "has_more": false }
 
 ────────────────────────────────────────────────
 CREDITS MODULE (/api/v1/credits)
 ────────────────────────────────────────────────
 GET /api/v1/credits/balance
-  Query:    wallet_address=[string]
-  Purpose:  Return farmer's current CTT balance from blockchain + history.
-  Process:  contract.functions.balanceOf(wallet_address, CARBON_CREDIT).call()
-            + fetch audit history from carbon_audits table.
+  Purpose:  Return farmer's current CTT balance + paginated history.
+  Process:  Look up wallet_address for the authenticated Firebase user,
+            then call contract.functions.balanceOf(wallet_address,
+            CARBON_CREDIT).call() + fetch audit history from carbon_audits
+            table.
+  Query:    page=1, limit=20
   Response: {
               "balance_ctt": 47.3,
               "history": [{
@@ -2858,9 +3293,13 @@ GET /api/v1/credits/balance
                 "credits_issued": 12.4,
                 "land_name": "North Field",
                 "tx_hash": "0x...",
-                "ipfs_certificate_url": "https://ipfs.io/ipfs/[CID]",
+                "ipfs_certificate_url": "https://[pinata-gateway]/ipfs/[CID]",
                 "minted_at": "2025-11-15T14:23:00Z"
-              }]
+              }],
+              "page": 1,
+              "limit": 20,
+              "total": 12,
+              "has_more": false
             }
 
 
@@ -2910,6 +3349,8 @@ SECTION 13: STATE MANAGEMENT (REDUX TOOLKIT)
       scannedTrees: TreeSample[],  // CRITICAL — persisted to MMKV
       arTier: 1 | 2 | 3,          // Detected once on startup
       sessionComplete: boolean,    // Multi-day session tracking
+      lastAuditId: string | null,  // Notification and deep-link routing
+      maintenanceMode: boolean,    // Runtime-only backend maintenance flag
       uploadStatus: 'idle' | 'uploading' | 'processing' | 'success' | 'error'
     },
 
@@ -2917,6 +3358,17 @@ SECTION 13: STATE MANAGEMENT (REDUX TOOLKIT)
       balance: number,         // Current CTT token balance
       history: AuditRecord[],  // Past audits with tx hashes
       pendingMint: boolean     // True while blockchain tx is processing
+    },
+
+    notifications: {
+      notifications: NotificationEntry[],
+      unreadCount: number
+    },
+
+    profile: {
+      settingsNotificationsEnabled: boolean,
+      settingsHighAccuracyGPS: boolean,
+      onboardingComplete: boolean
     }
   }
 
@@ -2925,12 +3377,16 @@ SECTION 13: STATE MANAGEMENT (REDUX TOOLKIT)
 MMKV is used instead of AsyncStorage because:
   - 30x faster read/write
   - Synchronous API — tree data saves instantly when farmer taps "Save"
-  - Encrypted storage — audit data protected on device
+  - Optional encryption support when the key is supplied securely at runtime
+  - Intended for persisted app state, not for private keys or other secrets
+  - react-native-mmkv v4 requires React Native 0.74+ with New Architecture
 
   // store/mmkvStorage.ts
   import { MMKV } from 'react-native-mmkv';
 
-  const storage = new MMKV({ id: 'terratrust-store', encryptionKey: 'tt-key' });
+  // If storage encryption is required, load the key from Android Keystore /
+  // Keychain at runtime instead of hardcoding it in source.
+  const storage = new MMKV({ id: 'terratrust-store' });
 
   export const mmkvStorage = {
     setItem: (key: string, value: string) => storage.set(key, value),
@@ -2944,12 +3400,19 @@ MUST PERSIST (survives app restart):
   audit.activeAuditId     — Know audit is in progress.
   audit.currentZoneIndex  — Resume at correct zone.
   audit.arTier            — Avoid rechecking ARCore on every launch.
+  audit.lastAuditId       — Route audit-complete notifications correctly.
   auth.walletAddress      — Avoid re-fetching from server.
   auth.isAuthenticated    — Avoid forcing re-login.
   land.parcels            — Cached land list for offline viewing.
+  notifications.notifications — Persist notification centre items.
+  notifications.unreadCount  — Keep badge state across launches.
+  profile.settingsNotificationsEnabled — Farmer notification preference.
+  profile.settingsHighAccuracyGPS — GPS preference for navigation screens.
+  profile.onboardingComplete — Prevent onboarding from reappearing.
 
 MUST NOT PERSIST:
   audit.uploadStatus      — Reset to 'idle' on each app launch.
+  audit.maintenanceMode   — Reset when the app restarts.
   land.currentDraft       — Clear after successful registration.
 
 
@@ -3149,13 +3612,17 @@ SECTION 15: SECURITY DESIGN
 
 THREAT: Farmer scans trees outside their registered land
 PROTECTION:
-  useGeofence hook checks real-time GPS against PostGIS land boundary
-  using ST_Contains() query on every GPS update during audit.
+  useGeofence performs point-in-polygon checks locally on-device against the
+  previously downloaded and cached official GeoJSON land boundary.
+  This avoids per-second network traffic and does not require a dedicated
+  realtime "is point inside boundary" API.
   Scanning button is disabled if GPS is outside the boundary.
   Message: "You appear to be outside your registered land. Please
   return to your land to continue scanning."
   Zone arrival check: scan button locked until farmer is within 10
   metres of zone centre GPS. Prevents remote or desk-based scanning.
+  Backend revalidation: every submitted tree GPS point is still checked
+  server-side with PostGIS ST_Contains() during POST /api/v1/audit/submit-samples.
 
 THREAT: Farmer spoofs GPS location
 PROTECTION:
@@ -3172,13 +3639,19 @@ PROTECTION:
 THREAT: Evidence photo tampered with after upload
 PROTECTION:
   SHA-256 hash of each evidence photo computed on-device BEFORE upload.
-  Hash sent to backend with photo. Hash stored on IPFS metadata.
+  Hash sent to backend with photo. Hash stored in Pinata-pinned IPFS metadata.
   Hash stored in ar_tree_scans.evidence_photo_hash.
   Any post-upload modification changes the hash — mismatch = fraud.
   Code (src/common/utils/hash.ts):
-    import { createHash } from 'react-native-quick-crypto';
-    export const hashPhoto = (base64: string): string =>
-        createHash('sha256').update(base64).digest('hex');
+    import { NativeModules } from 'react-native';
+    const { HashModule } = NativeModules;
+
+    export const hashPhoto = async (base64: string): Promise<string> =>
+        HashModule.sha256(base64);
+
+  Android native implementation:
+    HashModule.kt decodes the base64 image bytes and hashes them with
+    java.security.MessageDigest.getInstance("SHA-256").
 
 THREAT: Farmer's private key exposure
 PROTECTION:
@@ -3192,8 +3665,8 @@ PROTECTION:
 
 THREAT: JWT token interception
 PROTECTION:
-  Supabase JWTs expire after 1 hour and auto-refresh.
-  Stored in MMKV (encrypted) not AsyncStorage (plain text).
+  Firebase ID tokens are short-lived and refreshed by the Firebase SDK.
+  Do not cache the raw ID token manually in MMKV or AsyncStorage.
   All API requests over HTTPS only — no HTTP in production.
 
 THREAT: App running on rooted device
@@ -3381,56 +3854,168 @@ Map Overlays:
   LandListScreen:
     Thumbnail: Static GEE Sentinel-2 PNG as <Image>. Not interactive.
 
-17.5 COMPLETE SCREEN LIST
----------------------------
-Authentication flow:
-  SplashScreen, LoginScreen, OTPScreen, KYCScreen
+17.5 NAVIGATION ARCHITECTURE AND COMPLETE SCREEN LIST
+------------------------------------------------------
+Top-level navigation uses three navigator types from React Navigation v6:
 
-Land verification flow:
-  LandListScreen, DocumentUploadScreen, BoundaryConfirmScreen,
-  ManualUploadGuideScreen
+1. RootNavigator (Native Stack)
+   - AuthStack: SplashScreen, LoginScreen, OTPScreen, KYCScreen,
+     OnboardingScreen
+   - MainAppStack: MainTabNavigator as the root after successful auth + KYC
+   - Modal stack above tabs:
+       DocumentUploadScreen, BoundaryConfirmScreen,
+       ManualUploadGuideScreen, LandRegistrationSuccessScreen,
+       AuditStartScreen, ZoneNavigationScreen, ARCameraScreen,
+       ManualMeasureScreen, TreeResultScreen, AuditCompleteScreen,
+       AuditStatusScreen, NotificationsScreen, WalletRecoveryScreen
+   - Maintenance override: MaintenanceScreen replaces all content when the
+     backend signals maintenance mode
 
-Audit flow:
-  AuditStartScreen, ZoneNavigationScreen, ARCameraScreen,
-  ManualMeasureScreen, TreeResultScreen, AuditCompleteScreen
+2. MainTabNavigator (Bottom Tabs)
+   - Home tab (HomeStack):
+       HomeScreen
+       CreditHistoryScreen pushed from HomeScreen
+       LandDetailScreen pushed from land-card tap
+       EditLandNameScreen pushed from LandDetailScreen
+   - My Lands tab (LandStack):
+       LandListScreen
+       LandDetailScreen pushed from parcel-card tap
+       EditLandNameScreen pushed from LandDetailScreen
+   - History tab (HistoryStack):
+       CreditHistoryScreen as the root screen for the tab
+   - Profile tab (ProfileStack):
+       ProfileScreen
+       SettingsScreen
+       WalletRecoveryScreen when pushed from the profile flow
 
-Dashboard:
-  HomeScreen, CreditHistoryScreen
-  Note: Audit certificates open directly in the device browser via IPFS URL.
-        There is no in-app AuditCertificateScreen.
+3. Full-screen modal flows above tabs
+   - Land registration: DocumentUploadScreen, BoundaryConfirmScreen,
+     ManualUploadGuideScreen, LandRegistrationSuccessScreen
+   - Audit flow: AuditStartScreen, ZoneNavigationScreen, ARCameraScreen,
+     ManualMeasureScreen, TreeResultScreen, AuditCompleteScreen,
+     AuditStatusScreen
+   - Utility modals: NotificationsScreen, WalletRecoveryScreen,
+     MaintenanceScreen
 
-17.6 COMPLETE NAVIGATION FLOW
---------------------------------
-New user:
-  SplashScreen → LoginScreen → OTPScreen → KYCScreen → HomeScreen
+Bottom tab visual specs:
+  Active colour: Forest Green (#2F855A)
+  Inactive colour: Disabled Grey (#A0AEC0)
+  Background: Card White (#FFFFFF)
+  Height: 56px + bottom safe-area inset
+  Icon size: 24px
+  Label font: Roboto Regular 11sp
+  Badge rules:
+    Home tab may show a red dot for unread notifications.
+    Profile tab may show a red dot while wallet recovery is pending.
 
-Returning user (session valid):
-  SplashScreen → HomeScreen
+Tab bar rules:
+  Visible on root tab screens and normal stack pushes inside a tab.
+  Hidden during land registration, active audit, notifications modal,
+  wallet recovery, and maintenance mode.
 
-Add new land:
-  HomeScreen [+ tap] → DocumentUploadScreen
-  → [OCR + LGD + WMS in background]
-  → BoundaryConfirmScreen [farmer confirms]
-  → LandListScreen [land shows as Verified]
-  If WMS fails:
-  → ManualUploadGuideScreen → [OpenCV extracts] → BoundaryConfirmScreen
+Header and back rules:
+  Default header:
+    Back arrow on the left, centred title, white background.
+  No system header:
+    SplashScreen, LoginScreen, OTPScreen, ARCameraScreen,
+    ZoneNavigationScreen, MaintenanceScreen.
+  Header with right action:
+    HomeScreen uses bell icon to open NotificationsScreen.
+  No back button:
+    HomeScreen, LandListScreen, CreditHistoryScreen when opened as the
+    History-tab root, ProfileScreen, KYCScreen, AuditCompleteScreen,
+    AuditStatusScreen while CALCULATING.
 
-Annual audit:
-  HomeScreen [Start Audit] → AuditStartScreen
-  → [Backend NDVI zone analysis]
-  → ZoneNavigationScreen [Zone A — walk]
-  → [Within 10m] → ARCameraScreen [scan 3-5 trees]
-  → ZoneNavigationScreen [Zone B] → ARCameraScreen [scan 3-5 trees]
-  → ZoneNavigationScreen [Zone C] → ARCameraScreen [scan 3-5 trees]
-  → AuditCompleteScreen [review + submit]
-  → [Celery: satellite fusion + XGBoost + Chave equation]
-  → [IPFS upload + Polygon mint]
-  → HomeScreen [new CTT balance displayed]
+Complete screen list:
+  Auth: SplashScreen, LoginScreen, OTPScreen, KYCScreen, OnboardingScreen
+  Home stack: HomeScreen, LandDetailScreen, CreditHistoryScreen
+  Land stack: LandListScreen, DocumentUploadScreen, BoundaryConfirmScreen,
+              ManualUploadGuideScreen, LandRegistrationSuccessScreen,
+              LandDetailScreen, EditLandNameScreen
+  Audit modal flow: AuditStartScreen, ZoneNavigationScreen, ARCameraScreen,
+                    ManualMeasureScreen, TreeResultScreen, AuditCompleteScreen,
+                    AuditStatusScreen
+  History tab: CreditHistoryScreen
+  Profile stack: ProfileScreen, SettingsScreen, WalletRecoveryScreen
+  Modal utilities: NotificationsScreen, MaintenanceScreen
+  Note: Audit certificates open directly in the device browser via the
+        backend-returned Pinata gateway URL. There is no in-app
+        AuditCertificateScreen.
 
-Multi-day audit (>10 acres):
-  Session 1: Zones A, B, C → AuditCompleteScreen:
-    "Session 1 saved. Come back to complete Session 2."
-  Session 2: App resumes at Zone D. Session 1 data intact.
+17.6 COMPLETE NAVIGATION FLOW AND BACK RULES
+---------------------------------------------
+First-time user:
+  SplashScreen
+  → LoginScreen
+  → OTPScreen
+  → GET /api/v1/auth/me
+  → silent wallet creation if wallet_address is missing
+  → KYCScreen
+  → OnboardingScreen
+  → MainTabNavigator with HomeScreen selected
+
+Returning user:
+  SplashScreen
+  → GET /api/v1/auth/me
+  → OnboardingScreen only if onboardingComplete is false
+  → otherwise MainTabNavigator with HomeScreen selected
+
+Land registration flow:
+  HomeScreen or LandListScreen
+  → DocumentUploadScreen
+  → BoundaryConfirmScreen
+  → LandRegistrationSuccessScreen
+  → LandListScreen
+  Alternate failure path:
+  → ManualUploadGuideScreen
+  → BoundaryConfirmScreen
+  → same completion flow
+
+Land detail flow:
+  HomeScreen land-card tap → LandDetailScreen
+  LandListScreen card tap → LandDetailScreen
+  LandDetailScreen → EditLandNameScreen → LandDetailScreen
+
+Annual audit flow:
+  HomeScreen or LandListScreen or LandDetailScreen
+  → AuditStartScreen
+  → GET /api/v1/audit/zones
+  → ZoneNavigationScreen
+  → ARCameraScreen
+  → TreeResultScreen after each saved tree
+  → ZoneNavigationScreen between zones
+  → AuditCompleteScreen
+  → POST /api/v1/audit/submit-samples
+  → AuditStatusScreen
+  → HomeScreen when terminal
+
+Profile, settings, and logout flow:
+  ProfileScreen
+  → SettingsScreen
+  → NotificationsScreen
+  → WalletRecoveryScreen
+  → Logout confirmation
+  → Firebase sign-out + MMKV clear + LoginScreen
+
+Back navigation rules:
+  Root tabs have no back button. Android back shows a "press again to exit"
+  interaction before leaving the app.
+  OnboardingScreen has no system back button; farmer may only continue or skip.
+  KYCScreen has no back path to OTP.
+  DocumentUploadScreen close cancels the full land-registration flow.
+  BoundaryConfirmScreen and ManualUploadGuideScreen back navigation return to
+  DocumentUploadScreen.
+  AuditStartScreen close and ZoneNavigationScreen back both ask for
+  confirmation before exiting the audit.
+  AuditCompleteScreen does not allow returning to camera screens once review
+  is underway.
+  AuditStatusScreen disables back navigation while CALCULATING; Android back
+  minimizes the app instead.
+
+Notification and deep-link routing:
+  terratrust://audit/{audit_id} → AuditStatusScreen
+  terratrust://land/{land_id} → LandDetailScreen
+  terratrust://history → CreditHistoryScreen via the History tab
 
 
 ================================================================================
@@ -3445,15 +4030,18 @@ TerraTrustAR/
 │   │   │   │   ├── ar/
 │   │   │   │   │   ├── ARModule.kt      ← ARCore depth + RANSAC
 │   │   │   │   │   └── ARPackage.kt     ← React Native package registration
-│   │   │   │   └── MainApplication.kt  ← Register ARPackage here
+│   │   │   │   ├── security/
+│   │   │   │   │   ├── HashModule.kt    ← SHA-256 via MessageDigest
+│   │   │   │   │   └── HashPackage.kt   ← Registers HashModule with RN
+│   │   │   │   └── MainApplication.kt  ← Register ARPackage + HashPackage here
 │   │   │   └── AndroidManifest.xml
 │   │   ├── build.gradle                ← local.properties + ARCore + TFLite
-│   │   └── google-services.json        ← From Google Cloud Console
+│   │   └── google-services.json        ← From Firebase project
 │   └── local.properties                ← GOOGLE_MAPS_API_KEY (never commit)
 │
 ├── src/
 │   ├── app/
-│   │   └── App.tsx                     ← Root component + navigation setup
+│   │   └── App.tsx                     ← Root component + root stack + tab navigation
 │   │
 │   ├── assets/
 │   │   ├── fonts/                      ← Roboto font family files
@@ -3471,15 +4059,19 @@ TerraTrustAR/
 │   │   │   │   ├── SplashScreen.tsx
 │   │   │   │   ├── LoginScreen.tsx
 │   │   │   │   ├── OTPScreen.tsx
-│   │   │   │   └── KYCScreen.tsx
+│   │   │   │   ├── KYCScreen.tsx
+│   │   │   │   └── OnboardingScreen.tsx
 │   │   │   └── store/authSlice.ts
 │   │   │
 │   │   ├── land/
 │   │   │   ├── screens/
 │   │   │   │   ├── LandListScreen.tsx
+│   │   │   │   ├── LandDetailScreen.tsx
+│   │   │   │   ├── EditLandNameScreen.tsx
 │   │   │   │   ├── DocumentUploadScreen.tsx
 │   │   │   │   ├── BoundaryConfirmScreen.tsx
-│   │   │   │   └── ManualUploadGuideScreen.tsx
+│   │   │   │   ├── ManualUploadGuideScreen.tsx
+│   │   │   │   └── LandRegistrationSuccessScreen.tsx
 │   │   │   └── store/landSlice.ts
 │   │   │
 │   │   ├── ar-audit/
@@ -3489,29 +4081,44 @@ TerraTrustAR/
 │   │   │   │   ├── ARCameraScreen.tsx
 │   │   │   │   ├── ManualMeasureScreen.tsx
 │   │   │   │   ├── TreeResultScreen.tsx
-│   │   │   │   └── AuditCompleteScreen.tsx
+│   │   │   │   ├── AuditCompleteScreen.tsx
+│   │   │   │   └── AuditStatusScreen.tsx
 │   │   │   └── store/auditSlice.ts
 │   │   │
-│   │   └── dashboard/
+│   │   ├── dashboard/
+│   │   │   ├── screens/
+│   │   │   │   ├── HomeScreen.tsx
+│   │   │   │   └── CreditHistoryScreen.tsx
+│   │   │   └── store/creditsSlice.ts
+│   │   │
+│   │   ├── profile/
+│   │   │   ├── screens/
+│   │   │   │   ├── ProfileScreen.tsx
+│   │   │   │   ├── SettingsScreen.tsx
+│   │   │   │   └── WalletRecoveryScreen.tsx
+│   │   │   └── store/profileSlice.ts
+│   │   │
+│   │   └── notifications/
 │   │       ├── screens/
-│   │       │   ├── HomeScreen.tsx
-│   │       │   └── CreditHistoryScreen.tsx
-│   │       └── store/creditsSlice.ts
+│   │       │   └── NotificationsScreen.tsx
+│   │       └── store/notificationsSlice.ts
 │   │
 │   ├── services/
-│   │   ├── api.ts              ← Axios config + JWT interceptor
+│   │   ├── api.ts              ← Axios config + Firebase ID token interceptor
 │   │   ├── ar-bridge.ts        ← TypeScript interface to ARModule.kt
+│   │   ├── firebase.ts         ← React Native Firebase helpers
 │   │   ├── wallet.ts           ← ethers.js wallet creation
-│   │   ├── blockchain.ts       ← Token balance read from Polygon
-│   │   └── supabase.ts         ← Supabase client initialisation
+│   │   └── blockchain.ts       ← Token balance read from Polygon
 │   │
 │   ├── common/
+│   │   ├── screens/
+│   │   │   └── MaintenanceScreen.tsx
 │   │   ├── components/         ← Reusable UI atoms and molecules
 │   │   ├── hooks/
 │   │   │   ├── useGeofence.ts  ← Real-time GPS vs land boundary check
 │   │   │   └── useARTier.ts    ← Detect AR capability on startup
 │   │   ├── utils/
-│   │   │   └── hash.ts         ← SHA-256 photo hashing
+│   │   │   └── hash.ts         ← TS wrapper around native HashModule
 │   │   └── constants/
 │   │       └── species.ts      ← Species names + wood density table
 │   │
@@ -3533,17 +4140,20 @@ backend/
 ├── requirements.txt                  ← Complete Python dependencies (Sec 21)
 ├── .env                              ← Environment variables (NEVER commit)
 ├── .env.example                      ← Template with all variable names
-├── .gitignore                        ← Must include: .env, *.json (GEE key)
+├── .gitignore                        ← Must include: .env, *.json keys
+├── firebase-service-account.json     ← Firebase Admin credentials (NEVER commit)
 ├── gee-service-account.json          ← GEE credentials (NEVER commit)
 │
 ├── app/
 │   ├── __init__.py
 │   ├── config.py                     ← Loads + validates all env vars on start
+│   ├── firebase_auth.py              ← Firebase Admin init + token verification
 │   ├── database.py                   ← Supabase client + SQLAlchemy async engine
 │   └── dependencies.py               ← FastAPI auth dependency injection
 │
 ├── routers/
-│   ├── auth.py                       ← POST /api/v1/auth/kyc
+│   ├── auth.py                       ← GET  /api/v1/auth/me
+│   │                                 ← POST /api/v1/auth/kyc
 │   │                                 ← POST /api/v1/auth/register-wallet
 │   ├── land.py                       ← POST /api/v1/land/verify-document
 │   │                                 ← GET  /api/v1/land/fetch-boundary
@@ -3563,7 +4173,7 @@ backend/
 │   ├── satellite_service.py          ← GEE: S1, S2, GEDI, SRTM fetch
 │   ├── nisar_service.py              ← asf_search NISAR L-band fetch
 │   ├── minting_service.py            ← IPFS upload + web3.py blockchain tx
-│   └── ipfs_service.py               ← NFT.Storage REST API calls
+│   └── ipfs_service.py               ← Pinata REST API calls
 │
 ├── models/
 │   ├── user.py                       ← Pydantic request/response models
@@ -3577,8 +4187,9 @@ backend/
 │   └── minting_task.py               ← Background blockchain minting task
 │
 └── contracts/
-    ├── TerraToken.sol                ← ERC-1155 smart contract
-    ├── hardhat.config.js             ← Hardhat Polygon Amoy + Mainnet config
+    ├── contracts/
+    │   └── TerraToken.sol            ← ERC-1155 smart contract
+    ├── hardhat.config.js             ← Hardhat Polygon Amoy test config
     ├── package.json                  ← Hardhat npm dependencies
     ├── scripts/
     │   └── deploy.js                 ← npx hardhat run scripts/deploy.js
@@ -3595,20 +4206,30 @@ SECTION 20: ENVIRONMENT VARIABLES (COMPLETE)
 
 MOBILE — .env.development (project root):
   API_BASE_URL=http://10.0.2.2:8000
-  SUPABASE_URL=https://[ref].supabase.co
-  SUPABASE_ANON_KEY=[anon-key]
   GOOGLE_MAPS_API_KEY=[maps-api-key]
+  ALCHEMY_POLYGON_AMOY_URL=https://polygon-amoy.g.alchemy.com/v2/[key]
+  CONTRACT_ADDRESS=[deployed address — required for direct dashboard balance read]
+  # Firebase Android config comes from android/app/google-services.json
 
 MOBILE — .env.production (project root):
   API_BASE_URL=https://[your-render-domain].onrender.com
-  SUPABASE_URL=https://[ref].supabase.co
-  SUPABASE_ANON_KEY=[anon-key]
   GOOGLE_MAPS_API_KEY=[maps-api-key]
+  ALCHEMY_POLYGON_AMOY_URL=https://polygon-amoy.g.alchemy.com/v2/[key]
+  CONTRACT_ADDRESS=[deployed address — required for direct dashboard balance read]
+  # Firebase Android config comes from android/app/google-services.json
+
+  NOTE: These blockchain env vars are used by the mobile dashboard balance
+  reader in Section 10.7. If the direct chain read fails, the app falls back
+  to balance_ctt from GET /api/v1/credits/balance.
 
 MOBILE — android/local.properties (never commit):
   GOOGLE_MAPS_API_KEY=AIzaSyBxxxxxxxxxxxxxxxxxx
 
 BACKEND — backend/.env (never commit):
+  # ── Firebase Authentication ──────────────────────────────────────────
+  FIREBASE_PROJECT_ID=[firebase-project-id]
+  FIREBASE_SERVICE_ACCOUNT_PATH=./firebase-service-account.json
+
   # ── Supabase ─────────────────────────────────────────────────────────
   SUPABASE_URL=https://[ref].supabase.co
   SUPABASE_SERVICE_KEY=[service_role_key]     ← NEVER use in mobile app
@@ -3616,10 +4237,12 @@ BACKEND — backend/.env (never commit):
   # ── Google Earth Engine ──────────────────────────────────────────────
   GEE_SERVICE_ACCOUNT_EMAIL=[sa]@[proj].iam.gserviceaccount.com
   GEE_SERVICE_ACCOUNT_KEY_PATH=./gee-service-account.json
+  GEE_SERVICE_ACCOUNT_JSON={...full JSON credential payload for cloud deployments...}
 
   # ── NASA NISAR (Alaska Satellite Facility) ───────────────────────────
   NASA_EARTHDATA_USERNAME=[earthdata-username]
   NASA_EARTHDATA_PASSWORD=[earthdata-password]
+  NISAR_PRODUCTION_READY=false
   # NOTE: Old SRS used ASF_USERNAME/ASF_PASSWORD — v3.1 uses NASA_EARTHDATA_*
   # The asf_search library reads from ~/.netrc. These env vars are used to
   # write that file programmatically on server startup.
@@ -3628,11 +4251,11 @@ BACKEND — backend/.env (never commit):
   ADMIN_WALLET_PRIVATE_KEY=[0x...never share or commit]
   ADMIN_WALLET_ADDRESS=[0x...public address]
   ALCHEMY_POLYGON_AMOY_URL=https://polygon-amoy.g.alchemy.com/v2/[key]
-  ALCHEMY_POLYGON_MAINNET_URL=https://polygon-mainnet.g.alchemy.com/v2/[key]
   CONTRACT_ADDRESS=[deployed address — fill after Section 10 deployment]
 
   # ── IPFS ─────────────────────────────────────────────────────────────
-  NFT_STORAGE_API_KEY=[key]
+  PINATA_JWT=[jwt]
+  PINATA_GATEWAY_URL=[your-gateway].mypinata.cloud
 
   # ── Verification ─────────────────────────────────────────────────────
   POLYGONSCAN_API_KEY=[key]
@@ -3643,11 +4266,12 @@ BACKEND — backend/.env (never commit):
   # ── App Runtime ──────────────────────────────────────────────────────
   ENVIRONMENT=development
   REDIS_URL=redis://localhost:6379/0   ← Update to cloud URL for production
-  CORS_ORIGIN=http://localhost:8081    ← React Native Metro bundler port
+  WEB_CORS_ORIGINS=https://[future-web-domain]   ← Optional. Not required for mobile-only RN clients.
 
 IMPORTANT: Add to .gitignore BEFORE first commit:
   .env
   .env.*
+  firebase-service-account.json
   gee-service-account.json
   android/local.properties
   *.keystore
@@ -3660,53 +4284,51 @@ SECTION 21: PYTHON DEPENDENCIES (requirements.txt)
 Save as backend/requirements.txt:
 
   # ── Core Web Framework ───────────────────────────────────────────────
-  fastapi==0.110.0
-  uvicorn[standard]==0.29.0
-  python-multipart==0.0.9        # File upload handling in FastAPI
-  python-dotenv==1.0.1
+  fastapi==0.135.1
+  uvicorn[standard]==0.41.0
+  python-multipart==0.0.22       # File upload handling in FastAPI
+  python-dotenv==1.2.2
 
   # ── Database ─────────────────────────────────────────────────────────
-  supabase==2.4.0                 # Supabase Python client
-  sqlalchemy[asyncio]==2.0.29
-  asyncpg==0.29.0                 # Async PostgreSQL driver
-  shapely==2.0.4                  # GeoJSON geometry validation + ops
+  firebase-admin>=6.5,<7
+  supabase==2.28.0
+  SQLAlchemy[asyncio]==2.0.48
+  asyncpg==0.31.0
+  shapely==2.1.2
 
   # ── Satellite / Geospatial ───────────────────────────────────────────
-  earthengine-api==0.1.400        # Google Earth Engine Python API
-  asf_search==7.0.5               # Alaska Satellite Facility (NISAR access)
+  earthengine-api==1.7.17
+  asf-search>=8,<9                # import name: asf_search
   numpy==1.26.4
-  scipy==1.13.0
-  gdal==3.8.4                     # Geospatial data abstraction library
+  scipy==1.13.1
 
   # ── OCR ──────────────────────────────────────────────────────────────
-  paddlepaddle==3.0.0             # CPU-only PaddlePaddle deep learning
-  paddleocr==3.0.3                # PaddleOCR with PP-OCRv5 Devanagari model
-  opencv-python-headless==4.9.0.80
-  Pillow==10.3.0
+  paddlepaddle==3.3.0
+  paddleocr==3.4.0
+  opencv-python-headless==4.10.0.84
+  Pillow==12.1.1
 
   # ── Machine Learning ─────────────────────────────────────────────────
   xgboost==2.0.3
-  scikit-learn==1.4.2             # Preprocessing utilities
+  scikit-learn==1.4.2
 
   # ── Background Tasks ─────────────────────────────────────────────────
-  celery==5.3.6
-  redis==5.0.4
+  celery==5.6.2
+  flower==2.0.1
+  redis==7.3.0
 
   # ── Blockchain ───────────────────────────────────────────────────────
-  web3==6.18.0
-  eth-account==0.11.2
-  requests==2.31.0                # NFT.Storage REST API calls
+  web3==7.14.1
+  eth-account==0.13.7
+  requests==2.32.5
 
-  # ── Validation ───────────────────────────────────────────────────────
-  pydantic==2.7.0
-  pydantic-settings==2.2.1
+  # ── Validation / Settings ────────────────────────────────────────────
+  pydantic==2.12.5
+  pydantic-settings==2.13.1
 
-  # ── Security ─────────────────────────────────────────────────────────
-  python-jose[cryptography]==3.3.0
-  passlib[bcrypt]==1.7.4
-
-  # ── Async HTTP ───────────────────────────────────────────────────────
-  httpx==0.27.0                   # Async HTTP client for external API calls
+  # ── Async HTTP / Utilities ───────────────────────────────────────────
+  httpx==0.28.1
+  playwright>=1.50,<2
 
 Install all:
   pip install -r requirements.txt
@@ -3724,8 +4346,11 @@ SECTION 22: MOBILE npm DEPENDENCIES (package.json)
 ================================================================================
 
 Install all mobile dependencies with:
-  npx react-native init TerraTrustAR --template react-native-template-typescript
+  npx @react-native-community/cli@latest init TerraTrustAR --template react-native-template-typescript
   cd TerraTrustAR
+
+  # react-native-mmkv v4 requires the New Architecture.
+  # In android/gradle.properties set: newArchEnabled=true
 
   # State management + persistence
   npm install @reduxjs/toolkit react-redux redux-persist
@@ -3747,7 +4372,7 @@ Install all mobile dependencies with:
 
   # Network
   npm install axios
-  npm install @supabase/supabase-js
+  npm install @react-native-firebase/app @react-native-firebase/auth
 
   # Blockchain
   npm install ethers
@@ -3775,7 +4400,9 @@ Install all mobile dependencies with:
   npm install --save-dev tailwindcss
 
   # Crypto (SHA-256 photo hashing)
-  npm install react-native-quick-crypto
+  # No extra JS crypto package required.
+  # Implement HashModule.kt with java.security.MessageDigest and call it
+  # from src/common/utils/hash.ts.
 
   # Forms
   npm install zod react-hook-form @hookform/resolvers
@@ -3842,6 +4469,11 @@ Response:  Celery retries with exponential backoff:
            Farmer sees: "Satellite processing delayed. Please check back
            in 1 hour. Your scan data is saved."
            Admin alert: Log audit_id for manual re-trigger.
+Quota guardrails:
+           Allow only one active audit fusion job per land parcel at a time.
+           Queue jobs FIFO at the worker. Use sampleRegions() instead of
+           per-tree getInfo() calls. Cache annual Sentinel composites by
+           land_id + audit_year so retries do not repeat full recomputation.
 
 23.5 BLOCKCHAIN TRANSACTION FAILURE
 -------------------------------------
@@ -3969,7 +4601,7 @@ Before running on real farm data:
 24.5 END-TO-END TEST (Run Before Any Real Farmer Use)
 -------------------------------------------------------
 Run complete flow with test data:
-  1. Login with test phone number (use Supabase test OTP).
+  1. Login with a Firebase Authentication test phone number.
   2. Complete KYC with dummy name + Aadhaar.
   3. Upload a sample 7/12 document photo.
   4. Verify OCR extracts all 5 fields.
@@ -4011,7 +4643,10 @@ Service 1 — FastAPI Web Service:
   2. Connect GitHub repo. Select backend branch.
   3. Build command: pip install -r requirements.txt
   4. Start command: uvicorn main:app --host 0.0.0.0 --port $PORT
-  5. Environment: Add ALL variables from Section 20 backend vars.
+    5. Environment: Add ALL variables from Section 20 backend vars.
+      On Render free tier, prefer GEE_SERVICE_ACCOUNT_JSON over
+      GEE_SERVICE_ACCOUNT_KEY_PATH because the web service and worker do not
+      share a persistent filesystem.
   6. Plan: Free (spins down after 15 min inactivity — fine for MVP).
      First request after sleep takes ~30 seconds to wake up.
 
@@ -4019,7 +4654,7 @@ Service 2 — Celery Background Worker:
   1. render.com → New → Background Worker
   2. Same GitHub repo, same branch.
   3. Build command: pip install -r requirements.txt
-  4. Start command: celery -A tasks.celery_app worker --loglevel=info
+  4. Start command: celery -A tasks.celery_app worker --loglevel=info --concurrency=1
   5. Same environment variables as Service 1.
 
 Service 3 — Redis (for Celery broker):
@@ -4033,7 +4668,7 @@ CORS Configuration (backend/main.py):
 
   app.add_middleware(
       CORSMiddleware,
-      allow_origins=[os.getenv('CORS_ORIGIN', '*')],
+      allow_origins=os.getenv('WEB_CORS_ORIGINS', '').split(','),
       allow_credentials=True,
       allow_methods=["*"],
       allow_headers=["*"]
@@ -4049,7 +4684,8 @@ Keep-alive (prevent Supabase 7-day inactivity pause):
 
 25.3 SMART CONTRACT DEPLOYMENT
 --------------------------------
-Deploy to Polygon Amoy testnet first. Verify it works. Then mainnet.
+Deploy to Polygon Amoy testnet only. Mainnet deployment is out of scope for
+v3.1 and must not be used for test or pilot farmers.
 
   # Compile contract (generates ABI in artifacts/)
   cd backend/contracts
@@ -4064,10 +4700,6 @@ Deploy to Polygon Amoy testnet first. Verify it works. Then mainnet.
 
   # Verify on PolygonScan Amoy (enables auditors to read contract source)
   npx hardhat verify --network polygon_amoy [CONTRACT_ADDRESS]
-
-  # When ready for mainnet (after full testing):
-  npx hardhat run scripts/deploy.js --network polygon_mainnet
-  # Change chainId in minting_service.py from 80002 to 137
 
 25.4 DOCKER (OPTIONAL — FOR LOCAL OR VPS)
 -------------------------------------------
@@ -4109,12 +4741,13 @@ WEEKS 1-2: FOUNDATION
 ────────────────────────────────────────────────
 Backend:
   1. Complete ALL account setups from Section 4 (GEE first — takes days).
-  2. Create Supabase project. Enable PostGIS. Run all CREATE TABLE SQL.
-  3. Set up FastAPI project using folder structure from Section 19.
-  4. Implement /health endpoint. Verify it runs locally.
-  5. Implement Supabase JWT validation middleware (dependency injection).
-  6. Implement POST /api/v1/auth/kyc endpoint.
-  7. Test: register test user via Supabase Auth dashboard, call /auth/kyc.
+  2. Create Firebase project and configure Phone Auth with testing numbers.
+  3. Create Supabase project. Enable PostGIS. Run all CREATE TABLE SQL.
+  4. Set up FastAPI project using folder structure from Section 19.
+  5. Implement /health endpoint. Verify it runs locally.
+  6. Implement Firebase ID token validation middleware (dependency injection).
+  7. Implement GET /api/v1/auth/me and POST /api/v1/auth/kyc endpoints.
+  8. Test with Firebase fictional phone numbers and backend token verification.
 
 Mobile:
   1. Init React Native project with TypeScript template.
@@ -4122,7 +4755,7 @@ Mobile:
   3. Configure react-native-config (.env files).
   4. Set up Redux store with MMKV persistence adapter.
   5. Build SplashScreen, LoginScreen, OTPScreen, KYCScreen.
-  6. Connect Supabase Auth OTP flow end-to-end.
+  6. Connect Firebase Phone Auth flow end-to-end.
   7. Implement silent wallet creation (ethers.js + Keychain).
 
 Smart Contract:
@@ -4136,7 +4769,7 @@ WEEKS 3-4: LAND VERIFICATION
 ────────────────────────────────────────────────
 Backend:
   1. Install PaddleOCR:
-       pip install paddlepaddle==3.0.0 paddleocr==3.0.3
+       pip install paddlepaddle==3.3.0 paddleocr==3.4.0
      Run test script to trigger one-time model weight download (~10MB).
      Verify Devanagari text is correctly recognised with a test 7/12 image.
   2. Implement ocr_service.py (Section 19 backend services).
@@ -4200,18 +4833,171 @@ Backend:
 WEEKS 12-14: BLOCKCHAIN + DASHBOARD
 ────────────────────────────────────────────────
 Backend:
-  1. Implement ipfs_service.py (NFT.Storage upload).
+  1. Implement ipfs_service.py (Pinata upload).
   2. Implement minting_service.py (web3.py mint transaction).
   3. Implement minting_task.py Celery task.
   4. Implement GET /api/v1/credits/balance.
   5. Full mint test on Polygon Amoy testnet.
 
 Mobile:
-  1. Build HomeScreen with CTT balance from blockchain.
+  1. Build HomeScreen with backend-provided CTT balance and optional
+    background blockchain verification.
   2. Build CreditHistoryScreen.
   3. Implement react-native-background-fetch for offline queue.
   4. Wire all Dashboard API calls.
   5. End-to-end test: complete audit → tokens in MetaMask wallet.
+
+────────────────────────────────────────────────
+APPENDIX A: ALIGNMENT CLARIFICATIONS (APRIL 2026)
+────────────────────────────────────────────────
+1. Boundary reject path
+  If the farmer rejects the displayed boundary, preserve the OCR-extracted
+  document fields and offer exactly two next actions:
+  a. "Try Automatic Fetch Again" → re-run GET /api/v1/land/fetch-boundary once.
+  b. "Use Manual Map Upload" → navigate to ManualUploadGuideScreen.
+  Do not force the farmer to retake the original document photo unless they
+  explicitly choose "Try Again" from DocumentUploadScreen.
+
+2. AuditStartScreen data sources
+  Land name, area, last_audit_year, and current verification status come from
+  the selected land card loaded via GET /api/v1/land/list.
+  walking_path_metres is not known until GET /api/v1/audit/zones completes.
+  Before that response, show estimated duration only. After the response,
+  pass walking_path_metres to ZoneNavigationScreen and display it there.
+
+3. Photo evidence contract
+  Capture the tree trunk at the moment of measurement.
+  evidence_photo_base64 must contain the final compressed JPEG bytes only,
+  with no data URI prefix. Resize to a maximum of 1280×960 pixels, strip all
+  EXIF metadata before hashing/upload, and compress at JPEG quality 85.
+  evidence_photo_hash is SHA-256 of the exact decoded bytes represented by
+  evidence_photo_base64. Any preprocessing after hashing is forbidden.
+
+4. GPS quality rules
+  Zone arrival = within 10 metres of the zone centre AND current
+  gps_accuracy_m <= 20.
+  Show a weak-signal warning when gps_accuracy_m > 20.
+  Block saving a tree scan when gps_accuracy_m > 30.
+
+5. GEDI full-coverage fallback
+  If GEDI rh98 is null/0 for the entire land parcel, mark gedi_available=false
+  for every zone, show the height-measurement control for every tree, use
+  AR-measured height only for tree-level Chave calculations, and exclude the
+  GEDI feature from the parcel model for that audit.
+  features_count must reflect the reduced stack for that audit.
+
+6. Backend rate limiting
+  Minimum production limits:
+  POST /api/v1/land/verify-document = 10 requests/hour/user
+  GET /api/v1/land/fetch-boundary = 20 requests/hour/user
+  GET /api/v1/audit/zones = 5 requests/hour/user
+  POST /api/v1/audit/submit-samples = 3 requests/hour/user
+  GET /api/v1/audit/result/{audit_id} = 60 requests/minute/user
+  GET /api/v1/credits/balance = 30 requests/minute/user
+  Return HTTP 429 with Retry-After and a farmer-friendly message.
+  Parcel-scale Earth Engine work runs inside the same Celery fusion task for
+  that audit, not a nested sub-task tree. MVP quota policy starts with
+  Celery concurrency=1 so only one parcel-scale GEE fusion job is active per
+  worker/project until quota testing proves a higher safe limit. If Earth
+  Engine returns quota or rate-limit errors, keep the audit in CALCULATING,
+  retry with backoff, and have the client continue polling the same audit_id
+  instead of resubmitting zone generation or samples.
+
+7. Wallet recovery policy
+  TerraTrust v3.1 requires an admin-assisted wallet rotation flow before
+  production launch. The recovery process is:
+  a. Farmer completes Firebase OTP and KYC re-verification on a new device.
+  b. Backend verifies recovery eligibility against the existing user record.
+  c. A replacement wallet is created on-device.
+  d. The backend executes a documented recovery workflow that reissues future
+    credits to the new wallet and records the old wallet as superseded.
+  e. Pre-launch contract scope must include a wallet-recovery mechanism for
+    balance migration and certificate continuity; without it, production
+    launch is blocked.
+
+8. Aadhaar compliance rules
+  The app may collect Aadhaar only for immediate KYC verification.
+  Plain Aadhaar must exist only in volatile memory during form submission.
+  Backend must hash it immediately, never log it, never store images/scans of
+  Aadhaar, and display only masked forms if shown back to the user.
+  Production launch requires legal review against the Digital Personal Data
+  Protection Act, 2023 (DPDPA). If legal review disallows even hashed
+  retention, the backend must switch to a non-persistent verification token.
+
+9. Mobile balance source of truth
+  The UI displays balance_ctt from GET /api/v1/credits/balance as the primary
+  balance source. Direct RPC balance reads are optional background validation
+  only and must use a dedicated frontend-safe Alchemy key, never the backend
+  server key.
+
+10. NISAR production cutover
+   Replace any calendar-year-only NISAR switch logic with
+   NISAR_PRODUCTION_READY=false by default.
+   Only when calibration is approved should production set
+   NISAR_PRODUCTION_READY=true and enable NISAR as the primary SAR source.
+
+11. Cloud GEE credentials
+   Local development may use GEE_SERVICE_ACCOUNT_KEY_PATH.
+   Cloud deployments that cannot share files across services must instead use
+   GEE_SERVICE_ACCOUNT_JSON containing the full JSON credential payload and
+   write it to a temp file at runtime.
+
+12. CORS clarification
+   React Native mobile requests do not rely on browser CORS enforcement.
+   CORS settings are optional and only required for future web dashboards.
+   For mobile-only deployments, omit CORSMiddleware or use a separate
+   WEB_CORS_ORIGINS variable when a web client is introduced.
+
+13. Versioning policy
+   Mobile app releases use semantic versioning.
+  Android versionCode/build number must increase on every release.
+  Backend defines a minimum supported app version for forced updates.
+   Breaking API response changes require a new API path version.
+  Non-breaking additions must preserve backward compatibility within the same
+  major API version.
+   Every audit record must store xgboost_model_version and document the
+  effective feature stack used for that audit (normally 9 or 12 features,
+  reduced when GEDI is unavailable).
+  Minted historical audits are immutable and are not recalculated
+  automatically when the XGBoost model changes.
+  ERC-1155 contract upgrades are handled by deploying a new contract address,
+  not by mutating historical on-chain state in place.
+
+14. Monitoring and backup policy
+  Mobile production builds must include centralized crash reporting.
+   Backend services must emit structured logs with audit_id, land_id,
+   user_id, route, latency, dependency status, and retry count.
+  Celery task failures and blockchain minting failures must trigger alerts.
+  Logs must be PII-safe: never include plain phone numbers, full names,
+  Aadhaar, private keys, or raw OCR output.
+   Supabase database backups must run daily, storage manifests weekly, and a
+   restore drill must be performed at least once per quarter.
+  Blockchain event history plus IPFS metadata are the source of truth for
+  already-issued credits if off-chain recovery is required.
+
+15. iOS future-scope blockers
+   iOS support requires an ARKit bridge, a BoundaryConfirmScreen base layer
+   that replaces Android-only mapType="none", Apple push/device attestation
+   setup for Firebase phone auth, and Keychain retrieval parity testing.
+
+16. Audit due definition
+  "Audit due" means once per calendar audit_year.
+  A farmer cannot complete two audits for the same land in the same audit_year.
+  If a duplicate start is attempted, the backend returns HTTP 409 with the
+  existing_audit_id so the app can route to status/resume instead of showing a
+  generic failure.
+
+17. Android release minification
+  Release APK/AAB builds require explicit ProGuard/R8 keep rules for ARCore,
+  TensorFlow Lite, react-native-keychain, ethers.js bridge dependencies, and
+  other native modules that rely on reflection or JNI bindings.
+  Validate at least one minified release build on a physical device before any
+  production rollout.
+
+18. Audit certificate token mapping
+  The backend derives the ERC-1155 certificate token ID from
+  uuid.UUID(audit_id).int.
+  The mobile app never computes this value locally.
 
 ────────────────────────────────────────────────
 WEEKS 15-16: TESTING, HARDENING, DEPLOYMENT
@@ -4220,7 +5006,7 @@ WEEKS 15-16: TESTING, HARDENING, DEPLOYMENT
   2. GPS zone arrival test in open field.
   3. Offline test (airplane mode full session).
   4. Mock GPS detection test.
-  5. Enable Supabase RLS on all tables.
+  5. Confirm backend-only access policy is enforced for every Firebase user.
   6. Deploy FastAPI to Render.com. Set all env vars.
   7. Deploy Celery worker to Render.com background worker.
   8. Deploy Redis on Render.com. Update REDIS_URL.
@@ -4241,7 +5027,7 @@ TOTAL ESTIMATED COST TO OPERATE AT MVP SCALE: Rs 0/month
   GEE: Free (non-commercial)
   Render.com: Free (web service + worker + Redis)
   Redis Cloud: Free (30MB)
-  NFT.Storage: Free (unlimited IPFS)
+  Pinata: Free tier available for MVP-scale IPFS metadata
   Alchemy: Free (300M compute units/month)
   PolygonScan: Free (API key)
   NISAR: Free (NASA data)
@@ -4259,7 +5045,7 @@ and confirms each is fixed in this v3.1 document.
 1. OCR ENGINE — CORRECTED
    Old SRS: Said "Tesseract + OpenCV" everywhere (Sections 3, 6.3, 14, 16.1)
    v3.1 Fix: PaddleOCR PP-OCRv5 with devanagari_PP-OCRv5_mobile_rec model.
-             Install: paddlepaddle==3.0.0, paddleocr==3.0.3.
+        Install: paddlepaddle==3.3.0, paddleocr==3.4.0.
              Deskew removed from manual preprocessing — PaddleOCR handles it.
              All Tesseract references eliminated.
 
@@ -4310,8 +5096,8 @@ and confirms each is fixed in this v3.1 document.
    v3.1 Fix: NASA_EARTHDATA_USERNAME / NASA_EARTHDATA_PASSWORD.
    Old SRS: Missing REDIS_URL from backend .env list.
    v3.1 Fix: REDIS_URL added.
-   Old SRS: Missing CORS_ORIGIN from backend .env list.
-   v3.1 Fix: CORS_ORIGIN added.
+  Old SRS: Treated mobile CORS like a browser requirement.
+  v3.1 Fix: WEB_CORS_ORIGINS documented as optional for future web clients only.
    Old SRS: Missing ADMIN_WALLET_ADDRESS.
    v3.1 Fix: ADMIN_WALLET_ADDRESS added.
 
@@ -4320,10 +5106,11 @@ and confirms each is fixed in this v3.1 document.
     v3.1 Fix: react-native-vision-camera v4. Higher quality capture needed
               for OCR accuracy on handwritten/printed 7/12 documents.
 
-11. REACT-NATIVE-QUICK-CRYPTO — ADDED
+11. ANDROID MESSAGEDIGEST HASH MODULE — ADDED
     Old SRS: No on-device photo hashing.
-    v3.1 Fix: react-native-quick-crypto for SHA-256 photo hash computation
-              on-device before upload. Hash stored on blockchain via IPFS.
+  v3.1 Fix: android java.security.MessageDigest exposed through a small
+        React Native HashModule for SHA-256 photo hashing on-device
+        before upload. Hash stored on blockchain via IPFS metadata.
 
 12. DRAW MODE / WALK MODE — EXPLICITLY REMOVED
     Old SRS: These farmer-facing polygon drawing modes were listed as features.
@@ -4339,12 +5126,19 @@ and confirms each is fixed in this v3.1 document.
     Old SRS: Said "AWS Mumbai region."
     v3.1 Fix: Supabase free tier does not offer Mumbai. Use Singapore.
 
-15. FIREBASE — COMPLETELY REMOVED
-    Old SRS: Listed Firebase as "Optional" in prerequisites.
-    v3.1 Fix: Firebase is NOT needed. Supabase Auth handles phone OTP natively.
-              Firebase removed from all sections, prerequisites, and tech stack.
+15. FIREBASE AUTH + SUPABASE SPLIT — DOCUMENTED
+  Old SRS: Used Supabase Auth for OTP.
+  v3.1 Fix: Firebase Authentication now handles phone OTP.
+        Supabase remains database + storage only. Backend verifies
+        Firebase ID tokens and mediates all Supabase access.
 
-16. IMPLEMENTATION TIMELINE — ADDED
+16. PINATA — ADOPTED FOR IPFS METADATA
+  Old SRS: Used NFT.Storage.
+  v3.1 Fix: Pinata now pins audit metadata JSON via pinJSONToIPFS.
+        On-chain format remains ipfs://CID and the app opens the
+        configured Pinata gateway URL.
+
+17. IMPLEMENTATION TIMELINE — ADDED
     Old SRS: No concrete timeline.
     v3.1 Fix: 16-week implementation plan added (Section 26).
 
@@ -4405,6 +5199,10 @@ gis_code    NIC internal plot identifier used to query BhuNaksha WMS.
 IPFS        InterPlanetary File System. Decentralised content-addressed
             storage. Files stored by hash — content cannot change.
 
+Firebase Auth Phone-based identity provider used for OTP sign-in.
+            Backend trusts verified Firebase ID tokens, not phone numbers
+            passed in request bodies.
+
 IPCC        Intergovernmental Panel on Climate Change. Standard carbon
             fraction value used: 0.47 (47% of dry biomass is carbon).
 
@@ -4417,11 +5215,13 @@ MMKV        Key-value storage library. 30x faster than AsyncStorage.
 NDVI        Normalized Difference Vegetation Index = (NIR-Red)/(NIR+Red).
             Range: -1 to 1. Dense trees: 0.6-0.9.
 
-NFT.Storage Free permanent IPFS storage service. Files backed by Filecoin.
+Pinata      IPFS pinning and gateway provider used for audit metadata JSON
+            and certificate URLs in this architecture.
 
 NISAR       NASA-ISRO Synthetic Aperture Radar. Joint US-India satellite.
             Launched July 30, 2025. L-band SAR for biomass estimation.
-            Fully calibrated data: June 2026.
+            Promote to primary production SAR only after calibrated data is
+            confirmed in the live pipeline.
 
 NIC         National Informatics Centre — maintains India's BhuNaksha
             cadastral mapping portal and LGD directory.
@@ -4429,15 +5229,16 @@ NIC         National Informatics Centre — maintains India's BhuNaksha
 OpenZeppelin Library of audited Solidity smart contract templates.
              Used for ERC-1155 and Ownable base contracts.
 
-Polygon     EVM-compatible Layer-2 blockchain. Low gas fees.
+Polygon     EVM-compatible PoS sidechain / commit chain. Low gas fees.
             Polygon PoS is used (not zkEVM).
-            Amoy testnet (chainId 80002), Mainnet (chainId 137).
+            Current TerraTrust scope uses Amoy testnet (chainId 80002) only.
 
 PostGIS     PostgreSQL extension that adds geographic objects.
             Enables spatial queries (contains, area, distance).
 
 PaddleOCR   Deep learning OCR engine by Baidu. PP-OCRv5 with Devanagari
-            model achieves F1=0.938 on Indic scripts vs Tesseract's 0.797.
+            support improves structured Indic-script OCR compared with the
+            older Tesseract-based design used in previous revisions.
 
 RANSAC      Random Sample Consensus. Algorithm for fitting a geometric
             model (cylinder) to noisy 3D point cloud data.
@@ -4445,8 +5246,9 @@ RANSAC      Random Sample Consensus. Algorithm for fitting a geometric
 rh98        GEDI metric: 98th percentile height of return waveform.
             Represents the top of tree canopy in metres.
 
-RLS         Row Level Security. PostgreSQL feature ensuring each user
-            can only access their own data in Supabase.
+RLS         Row Level Security. PostgreSQL feature available in Supabase,
+            but not the primary authorisation mechanism in this Firebase
+            backend-mediated v1 architecture.
 
 SAR         Synthetic Aperture Radar. Radar that works through clouds.
             Sentinel-1 (C-band) and NISAR (L-band) are both SAR.

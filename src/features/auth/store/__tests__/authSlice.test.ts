@@ -21,6 +21,7 @@ describe('authSlice', () => {
   it('should set user and mark isAuthenticated=true on setUser', () => {
     const user: AuthUser = {
       id: '550e8400-e29b-41d4-a716-446655440000',
+      firebaseUid: 'firebase-user-1',
       name: 'Ramesh Patil',
       phone: '+919876543210',
       aadhaar_hash:
@@ -55,6 +56,7 @@ describe('authSlice', () => {
     const loggedInState: AuthState = {
       user: {
         id: '123',
+        firebaseUid: 'firebase-user-2',
         name: 'Test',
         phone: '+919999999999',
         aadhaar_hash: 'abc123',
@@ -70,6 +72,7 @@ describe('authSlice', () => {
   it('should store aadhaar_hash in user and never receive raw Aadhaar', () => {
     const user: AuthUser = {
       id: '123',
+      firebaseUid: 'firebase-user-3',
       name: 'Test User',
       phone: '+919876543210',
       aadhaar_hash:

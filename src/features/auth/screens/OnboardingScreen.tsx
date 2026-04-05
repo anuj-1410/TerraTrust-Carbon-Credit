@@ -1,0 +1,100 @@
+import React, {useMemo, useState} from 'react';
+import {View, Text, TouchableOpacity} from 'react-native';
+import {useNavigation} from '@react-navigation/native';
+import type {NativeStackNavigationProp} from '@react-navigation/native-stack';
+
+import Card from '../../../common/components/Card';
+import Button from '../../../common/components/Button';
+import {markOnboardingComplete} from '../../../common/utils/onboarding';
+import {COLORS} from '../../../common/constants/colors';
+import type {RootStackParamList} from '../../../types/navigation';
+
+type Nav = NativeStackNavigationProp<RootStackParamList, 'OnboardingScreen'>;
+
+const ONBOARDING_CARDS = [
+  {
+    title: 'Register Your Land',
+    body: 'Upload your 7/12 document once. TerraTrust verifies the official boundary before any audit starts.',
+    accent: '🌾',
+  },
+  {
+    title: 'Scan Trees Zone by Zone',
+    body: 'Follow the guided route, scan trees inside each zone, and save progress even when the internet is weak.',
+    accent: '📷',
+  },
+  {
+    title: 'Track Credits Clearly',
+    body: 'See audit history, carbon credits earned, and certificates from one simple dashboard.',
+    accent: '📈',
+  },
+];
+
+const OnboardingScreen = () => {
+  const navigation = useNavigation<Nav>();
+  const [activeIndex, setActiveIndex] = useState(0);
+
+  const currentCard = useMemo(() => ONBOARDING_CARDS[activeIndex], [activeIndex]);
+
+  const finishOnboarding = () => {
+    markOnboardingComplete();
+    navigation.reset({index: 0, routes: [{name: 'HomeScreen'}]});
+  };
+
+  return (
+    <View className="flex-1 px-6 pt-16 pb-10" style={{backgroundColor: COLORS.OFF_WHITE}}>
+      <View className="items-end">
+        {activeIndex < ONBOARDING_CARDS.length - 1 && (
+          <TouchableOpacity
+            className="min-h-[48px] min-w-[48px] items-center justify-center"
+            onPress={finishOnboarding}
+            activeOpacity={0.7}>
+            <Text style={{color: COLORS.DISABLED_GREY}}>Skip</Text>
+          </TouchableOpacity>
+        )}
+      </View>
+
+      <View className="flex-1 justify-center">
+        <Card className="rounded-[24px] px-6 py-8">
+          <View className="h-24 w-24 items-center justify-center self-center rounded-full" style={{backgroundColor: 'rgba(47,133,90,0.12)'}}>
+            <Text className="text-5xl">{currentCard.accent}</Text>
+          </View>
+
+          <Text className="mt-8 text-center text-3xl font-bold" style={{color: COLORS.DARK_SLATE}}>
+            {currentCard.title}
+          </Text>
+          <Text className="mt-4 text-center text-base leading-7" style={{color: COLORS.DISABLED_GREY}}>
+            {currentCard.body}
+          </Text>
+        </Card>
+
+        <View className="mt-8 flex-row justify-center gap-2">
+          {ONBOARDING_CARDS.map((_, index) => (
+            <View
+              key={index}
+              className="h-2.5 rounded-full"
+              style={{
+                width: index === activeIndex ? 28 : 10,
+                backgroundColor:
+                  index === activeIndex ? COLORS.FOREST_GREEN : COLORS.DISABLED_GREY,
+              }}
+            />
+          ))}
+        </View>
+      </View>
+
+      <Button
+        label={activeIndex === ONBOARDING_CARDS.length - 1 ? 'Get Started' : 'Next'}
+        onPress={() => {
+          if (activeIndex === ONBOARDING_CARDS.length - 1) {
+            finishOnboarding();
+            return;
+          }
+
+          setActiveIndex(index => index + 1);
+        }}
+      />
+    </View>
+  );
+};
+
+export default OnboardingScreen;

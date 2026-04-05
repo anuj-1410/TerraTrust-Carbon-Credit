@@ -24,6 +24,14 @@ interface Step {
   description: string;
 }
 
+interface ManualBoundaryResponse {
+  status?: string;
+  geojson?: {geometry: GeoJSONPolygon};
+  boundary?: GeoJSONPolygon;
+  boundary_source?: string;
+  satellite_thumbnail_url?: string;
+}
+
 const STEPS: Step[] = [
   {number: 1, title: 'Open bhunaksha.mahabhumi.gov.in', description: ''},
   {number: 2, title: 'Select your District, Taluka, Village from the menus', description: ''},
@@ -65,27 +73,50 @@ const ManualUploadGuideScreen = () => {
       setIsLoading(true);
       setLoadingText('Processing your map…');
 
-      // Layer 3: Upload to process-manual-map endpoint (OpenCV extraction)
-      const formData = new FormData();
-      formData.append('map_image', {
-        uri: result.uri,
-        type: result.nativeType ?? 'image/jpeg',
-        name: result.name ?? 'map.jpg',
-      } as unknown as Blob);
+      const buildFormData = () => {
+        const formData = new FormData();
+        formData.append('map_image', {
+          uri: result.uri,
+          type: result.nativeType ?? 'image/jpeg',
+          name: result.name ?? 'map.jpg',
+        } as unknown as Blob);
 
-      const {data} = await api.post('/api/v1/land/process-manual-map', formData, {
-        headers: {'Content-Type': 'multipart/form-data'},
-      });
-
-      const responseData = data as {
-        boundary: GeoJSONPolygon;
-        boundary_source: string;
-        satellite_thumbnail_url?: string;
+        return formData;
       };
+
+      let responseData: ManualBoundaryResponse;
+
+      try {
+        const response = await api.post<ManualBoundaryResponse>(
+          '/api/v1/land/fetch-boundary',
+          buildFormData(),
+          {headers: {'Content-Type': 'multipart/form-data'}},
+        );
+        responseData = response.data;
+      } catch (error: unknown) {
+        const axiosErr = error as {response?: {status?: number}};
+
+        if (axiosErr.response?.status !== 404 && axiosErr.response?.status !== 405) {
+          throw error;
+        }
+
+        const fallbackResponse = await api.post<ManualBoundaryResponse>(
+          '/api/v1/land/process-manual-map',
+          buildFormData(),
+          {headers: {'Content-Type': 'multipart/form-data'}},
+        );
+        responseData = fallbackResponse.data;
+      }
+
+      const boundary = responseData.geojson?.geometry ?? responseData.boundary;
+
+      if (!boundary) {
+        throw new Error('BOUNDARY_EXTRACTION_FAILED');
+      }
 
       dispatch(
         setCurrentDraft({
-          boundary: responseData.boundary,
+          boundary,
           boundarySource: (responseData.boundary_source as BoundarySource) ?? 'MANUAL',
           satelliteThumbnailUrl: responseData.satellite_thumbnail_url ?? null,
           fetchStatus: 'success',

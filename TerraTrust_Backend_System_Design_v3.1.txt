@@ -3,12 +3,13 @@ BACKEND SYSTEM DESIGN DOCUMENT (BSDD)
 PROJECT: TERRATRUST-AR
 ================================================================================
 
-Version         : 3.1 (OCR Engine updated from Tesseract to PaddleOCR)
+Version         : 3.1 (Revised — Firebase Auth + Pinata alignment review)
 Role            : Central Verification Oracle, Satellite Fusion Engine,
                   Blockchain Minting Gateway
-Tech Stack      : Python (FastAPI), Supabase (PostgreSQL + PostGIS),
+Tech Stack      : Python (FastAPI), Firebase Authentication,
+                  Supabase (PostgreSQL + PostGIS + Storage),
                   Google Earth Engine, NISAR + Sentinel-1 + Sentinel-2 + GEDI
-                  + SRTM, Polygon Blockchain (Solidity), NFT.Storage (IPFS)
+                  + SRTM, Polygon Blockchain (Solidity), Pinata (IPFS)
 Last Updated    : March 2026
 
 --------------------------------------------------------------------------------
@@ -16,12 +17,12 @@ WHAT CHANGED FROM PREVIOUS VERSION (v2.0)
 --------------------------------------------------------------------------------
 
 1. Self-hosted PostgreSQL replaced by Supabase (cloud-hosted, free tier).
-   Reason: No server needed. Supabase provides PostgreSQL + PostGIS + Auth +
-   File Storage in one free platform. All PostGIS spatial queries work
-   identically.
+  Reason: No server needed. Supabase provides PostgreSQL + PostGIS + file
+  storage in one platform. All PostGIS spatial queries work identically.
 
-2. Firebase Auth removed. Supabase Auth handles phone OTP.
-   Reason: Consolidation to one platform. Same OTP logic, different library.
+2. Firebase Auth restored as the dedicated identity provider.
+  Reason: Phone OTP is handled natively in Firebase Authentication on Android,
+  while Supabase remains focused on PostgreSQL/PostGIS + Storage.
 
 3. Satellite fusion engine completely rebuilt.
    Old: Single Sentinel-1 VH band only. Single k-factor linear calibration.
@@ -41,9 +42,9 @@ WHAT CHANGED FROM PREVIOUS VERSION (v2.0)
    New: Backend runs Sentinel-2 NDVI analysis to identify distinct vegetation
    density zones. Zones placed inside high, medium, low density areas.
 
-6. Pinata replaced by NFT.Storage for IPFS.
-   Reason: NFT.Storage is completely free with no file limits. Backed by
-   Filecoin Foundation. Files permanently stored even if NFT.Storage closes.
+6. Pinata is the chosen IPFS provider.
+  Reason: The backend only needs standards-compliant IPFS pinning for audit
+  metadata plus a dedicated gateway domain for certificate URLs.
 
 7. Smart contract fixed.
    Fixed: creditAmount multiplication bug (removed * 10**18 from contract).
@@ -58,14 +59,12 @@ WHAT CHANGED FROM PREVIOUS VERSION (v2.0)
    Reason: Supabase Storage (1GB free) replaces S3 for evidence photos.
 
 10. OCR engine changed from Tesseract to PaddleOCR PP-OCRv5.
-    Reason: PaddleOCR with the dedicated Devanagari model achieves significantly
-    higher accuracy on printed Marathi text in government documents (F1-Score
-    0.938 vs Tesseract's 0.797 on Indic scripts). PaddleOCR also handles
-    complex table/form layouts better — important for 7/12 land records.
-    It requires no system-level apt-get install (pure pip), and has built-in
-    document orientation correction and page unwarping, removing the need for
-    manual deskew in OpenCV preprocessing.
-    Model used: devanagari_PP-OCRv5_mobile_rec (CPU-compatible, no GPU needed).
+  Reason: PaddleOCR handles structured Indic-script documents more reliably
+  than the older Tesseract-based design, while keeping deployment CPU-only.
+  It requires no system-level apt-get install (pure pip), and has built-in
+  document orientation correction and page unwarping, removing the need for
+  manual deskew in OpenCV preprocessing.
+  Model used: devanagari_PP-OCRv5_mobile_rec (CPU-compatible, no GPU needed).
 
 ================================================================================
 SECTION 1: PREREQUISITES AND ACCOUNTS SETUP
@@ -76,26 +75,66 @@ must be set up. This section defines every account, what it provides, and
 exactly how to set it up.
 
 --------------------------------------------------------------------------------
-1.1 SUPABASE (Database + Auth + File Storage)
+1.1 FIREBASE AUTHENTICATION (Phone OTP)
+--------------------------------------------------------------------------------
+
+What it provides:
+  - Phone number OTP authentication for the mobile app
+  - Firebase ID tokens for backend authentication
+  - Test phone numbers and fixed OTP codes for QA and emulator testing
+  - Firebase Admin SDK verification on the FastAPI backend
+
+Setup steps:
+  Step 1: Go to console.firebase.google.com. Create a project named
+          terratrust-ar. Use the same underlying Google Cloud project you plan
+          to use for Maps and Earth Engine.
+  Step 2: Add the Android app. Download google-services.json and place it in
+          android/app/ of the mobile project.
+  Step 3: Register BOTH SHA-1 and SHA-256 signing fingerprints for the app.
+          Firebase Phone Auth relies on app verification (Play Integrity when
+          available, reCAPTCHA fallback otherwise).
+  Step 4: Go to Authentication → Sign-in method. Enable the Phone provider.
+          Set the SMS region policy to allow India (+91) and any testing
+          regions you need.
+  Step 5: Add fictional phone numbers and fixed OTP codes in the Firebase
+          Console for development and QA.
+    Step 6: Enable Firebase App Check for the Android app.
+      Development builds use the Debug provider.
+      Production builds use Play Integrity.
+      Enforce App Check before production rollout to reduce OTP abuse.
+    Step 7: Generate backend service account credentials:
+          Firebase Console → Project Settings → Service Accounts
+          → Generate new private key.
+          Save the JSON file as firebase-service-account.json and never commit
+          it to git.
+
+Environment variables from this step:
+  FIREBASE_PROJECT_ID=[your-firebase-project-id]
+  FIREBASE_SERVICE_ACCOUNT_PATH=./firebase-service-account.json
+
+--------------------------------------------------------------------------------
+1.2 SUPABASE (Database + File Storage)
 --------------------------------------------------------------------------------
 
 What it provides:
   - PostgreSQL 15 with PostGIS extension (all spatial queries work identically)
-  - Phone OTP authentication (replaces Firebase)
-  - File storage for evidence photos (replaces S3)
-  - Real-time subscriptions
-  - Auto-generated REST API for simple queries
-  - Visual dashboard to inspect database
+  - File storage for land documents and evidence photos
+  - Visual dashboard to inspect tables, storage, and logs
 
-Free tier limits:
-  - 500MB database storage (enough for ~50,000 farmer records at MVP)
-  - 1GB file storage (evidence photos)
-  - Unlimited API requests
-  - Pauses after 7 days of inactivity — prevent by pinging every 5 days
+Important architecture note:
+  Supabase Auth is NOT used in this design. The mobile app does not connect to
+  Supabase directly. All database and storage access goes through FastAPI after
+  Firebase ID token verification.
+
+Free tier limits (as of March 2026):
+  - 500MB database storage
+  - 1GB file storage
+  - 5GB egress
+  - Free projects pause after 1 week of inactivity
 
 Setup steps:
   Step 1: Go to supabase.com. Click "Start your project". Sign up.
-  Step 2: Click "New Project". Name it "terratrust-ar". Choose region: 
+  Step 2: Click "New Project". Name it "terratrust-ar". Choose region:
           Southeast Asia (Singapore) — closest free region to India.
   Step 3: Set a strong database password. Save it. Click "Create new project".
   Step 4: Wait 2 minutes for project to initialise.
@@ -105,18 +144,16 @@ Setup steps:
           Click "Run". Confirm "Success".
   Step 6: Go to Settings → API. Copy and save:
             - Project URL: https://[ref].supabase.co
-            - anon/public key (for mobile app)
-            - service_role/secret key (for backend server — NEVER expose this)
-  Step 7: Go to Authentication → Settings.
-          Enable "Phone" provider.
-          For SMS: Use Twilio (free tier available) or Supabase's own SMS
-          (limited free messages for testing).
+            - service_role/secret key (backend only — never expose this)
+  Step 7: Create the private storage buckets used by the backend:
+            - land-documents
+            - evidence-photos
 
 Environment variables from this step:
   SUPABASE_URL=https://[your-ref].supabase.co
   SUPABASE_SERVICE_KEY=[service_role_key]   # Backend only, never in app
 
-Keep-alive ping to prevent 7-day pause:
+Keep-alive ping to prevent 1-week pause:
   Add a cron job at cron-job.org (free) to hit your FastAPI health endpoint
   every 5 days:
     URL: https://[your-api-domain]/health
@@ -124,7 +161,7 @@ Keep-alive ping to prevent 7-day pause:
     Schedule: Every 5 days
 
 --------------------------------------------------------------------------------
-1.2 GOOGLE EARTH ENGINE (Satellite Data)
+1.3 GOOGLE EARTH ENGINE (Satellite Data)
 --------------------------------------------------------------------------------
 
 What it provides:
@@ -156,10 +193,16 @@ Setup steps:
           Go to Keys tab → Add Key → Create new key → JSON.
           Download the JSON file. Save as: gee-service-account.json
           NEVER commit this file to git. Add to .gitignore.
-  Step 5: Register the service account with Earth Engine:
-          Go to code.earthengine.google.com.
-          Go to Assets → New → Service Account.
-          Enter the service account email from Step 3.
+    Step 5: Ensure the Cloud project itself is registered for Earth Engine:
+      Go to console.cloud.google.com/earth-engine.
+      Confirm the project is registered and the Earth Engine API is enabled.
+      IMPORTANT: Earth Engine now applies noncommercial quota tiers at the
+      project level. Select the correct tier for this project before
+      rollout. If no tier is selected by April 27, 2026, the project will
+      use the Community Tier by default.
+    Step 6: The service account does not need separate per-account registration
+      when the Cloud project is already registered. Keep the JSON key on
+      the backend only and never expose it to the mobile app.
 
 Environment variables from this step:
   GEE_SERVICE_ACCOUNT_EMAIL=[service-account-email]
@@ -167,13 +210,16 @@ Environment variables from this step:
 
 Test command (run after setup):
   import ee
-  ee.Authenticate(auth_mode='service_account', 
-                  credentials_file='./gee-service-account.json')
-  ee.Initialize()
+  service_account = '[service-account-email]'
+  credentials = ee.ServiceAccountCredentials(
+      service_account,
+      './gee-service-account.json'
+  )
+  ee.Initialize(credentials)
   print(ee.Number(42).getInfo())  # Should print 42
 
 --------------------------------------------------------------------------------
-1.3 NISAR SATELLITE DATA (Alaska Satellite Facility)
+1.4 NISAR SATELLITE DATA (Alaska Satellite Facility)
 --------------------------------------------------------------------------------
 
 What it provides:
@@ -181,14 +227,14 @@ What it provides:
   - Free global L-band radar data, 1-2 days after acquisition
   - Data hosted on AWS, accessible via asf_search Python library
   - Covers India every 6-12 days
-  - Fully calibrated data expected: June 2026
+  - Promotion to production is expected only after calibration is confirmed
 
 IMPORTANT PHASING:
   Before June 2026: Use Sentinel-1 as primary SAR. Use NISAR data for
   development and testing only (pre-calibration data available but not
   production-grade).
-  After June 2026: Switch NISAR to primary SAR source. Sentinel-1 becomes
-  supplementary.
+  After calibration is confirmed in production readiness testing: switch NISAR
+  to primary SAR source. Sentinel-1 becomes supplementary.
 
 Setup steps:
   Step 1: Go to urs.earthdata.nasa.gov. Create a free NASA Earthdata account.
@@ -205,45 +251,41 @@ Environment variables from this step:
   NASA_EARTHDATA_PASSWORD=[your password]
 
 --------------------------------------------------------------------------------
-1.4 METAMASK AND POLYGON WALLET (Blockchain)
+1.5 METAMASK AND POLYGON WALLET (Blockchain)
 --------------------------------------------------------------------------------
 
 What it provides:
   - Admin/Oracle wallet: the blockchain identity of your backend server
   - This wallet is the only one authorised to call mint() on the smart contract
-  - MATIC tokens needed for gas fees (transaction costs on Polygon)
+  - POL test tokens needed for gas fees (transaction costs on Polygon Amoy)
 
 Setup steps:
   Step 1: Install MetaMask browser extension at metamask.io.
   Step 2: Create a new wallet. Write down the 12-word seed phrase on paper.
           Store it safely offline. If lost, wallet cannot be recovered.
   Step 3: Add Polygon Amoy Testnet to MetaMask:
-          Network Name: Polygon Amoy Testnet
-          RPC URL: https://rpc-amoy.polygon.technology/
-          Chain ID: 80002
-          Currency Symbol: MATIC
-          Block Explorer: https://amoy.polygonscan.com
-  Step 4: Get free test MATIC from Polygon faucet:
-          Go to faucet.polygon.technology.
-          Connect MetaMask. Request test MATIC.
-          This is fake MATIC for testing — no real money involved.
+      Network Name: Polygon Amoy Testnet
+      RPC URL: https://rpc-amoy.polygon.technology/
+      Chain ID: 80002
+      Currency Symbol: POL
+      Block Explorer: https://amoy.polygonscan.com
+  Step 4: Get free test POL from Polygon faucet:
+      Go to faucet.polygon.technology.
+      Connect MetaMask. Request test POL.
+      This is fake POL for testing — no real money involved.
   Step 5: Export private key from MetaMask:
-          Account Details → Export Private Key → Enter password → Copy key.
-          NEVER share this key. NEVER commit to git.
-
-For Mainnet (production deployment only, not for development):
-  Add Polygon Mainnet:
-          RPC URL: https://polygon-rpc.com/
-          Chain ID: 137
-  Buy real MATIC from any exchange. ~0.1 MATIC (~Rs 5) needed per minting
-  transaction.
+      Account Details → Export Private Key → Enter password → Copy key.
+      NEVER share this key. NEVER commit to git.
+  NOTE: Polygon documentation now labels the gas token as POL. Older
+      tutorials may still say MATIC, but TerraTrust v3.1 uses the Amoy
+      values above only.
 
 Environment variables from this step:
   ADMIN_WALLET_PRIVATE_KEY=[exported private key]
   ADMIN_WALLET_ADDRESS=[your public wallet address]
 
 --------------------------------------------------------------------------------
-1.5 ALCHEMY (Blockchain RPC Provider)
+1.6 ALCHEMY (Blockchain RPC Provider)
 --------------------------------------------------------------------------------
 
 What it provides:
@@ -261,41 +303,43 @@ Setup steps:
   Step 3: Click "API Key" on your new app.
           Copy the HTTPS URL shown.
           Example: https://polygon-amoy.g.alchemy.com/v2/abc123xyz
-  Step 4: When ready for production, create another app on Polygon Mainnet.
+  Step 4: TerraTrust v3.1 uses only the Amoy app above. Do not configure a
+          mainnet app for testing or pilot use.
 
 Environment variables from this step:
   ALCHEMY_POLYGON_AMOY_URL=https://polygon-amoy.g.alchemy.com/v2/[key]
-  ALCHEMY_POLYGON_MAINNET_URL=https://polygon-mainnet.g.alchemy.com/v2/[key]
 
 --------------------------------------------------------------------------------
-1.6 NFT.STORAGE (IPFS — Permanent Evidence Storage)
+1.7 PINATA (IPFS — Metadata Pinning)
 --------------------------------------------------------------------------------
 
 What it provides:
-  - Permanent, decentralised storage for audit evidence files
-  - Free forever, no storage limits
-  - Backed by Filecoin Foundation — files survive even if NFT.Storage closes
-  - Returns a CID (Content Identifier) that is stored on blockchain
-  - Any file stored is retrievable at: https://ipfs.io/ipfs/[CID]
-
-Replaces: Pinata (which has limited free tier)
+  - IPFS pinning for audit metadata JSON
+  - JWT-based backend authentication for pinning requests
+  - Dedicated gateway domain for user-facing certificate URLs
+  - Standard IPFS CID output for on-chain storage
 
 Setup steps:
-  Step 1: Go to nft.storage. Click "Login". Sign up with GitHub or email.
-  Step 2: Go to API Keys section. Click "New Key".
-          Name: "terratrust-backend"
-          Click "Create". Copy the key.
+  Step 1: Go to app.pinata.cloud. Create an account.
+  Step 2: Open API Keys. Click "New Key".
+          Start with Admin privileges in development.
+          Copy the JWT immediately.
+  Step 3: Open Gateways. Copy your gateway domain.
+          Example: example-gateway.mypinata.cloud
+  Step 4: Backend endpoint used in this project:
+          https://api.pinata.cloud/pinning/pinJSONToIPFS
 
 Environment variables from this step:
-  NFT_STORAGE_API_KEY=[your api key]
+  PINATA_JWT=[backend jwt]
+  PINATA_GATEWAY_URL=[your-gateway].mypinata.cloud
 
 --------------------------------------------------------------------------------
-1.7 HARDHAT (Smart Contract Development Tool)
+1.8 HARDHAT (Smart Contract Development Tool)
 --------------------------------------------------------------------------------
 
 What it provides:
   - Local blockchain for testing contracts before deploying
-  - Deployment scripts for testnet and mainnet
+  - Deployment scripts for Polygon Amoy testnet
   - Contract verification on PolygonScan
   - Replaces the need for Remix IDE
 
@@ -306,13 +350,13 @@ Setup steps:
             npm install --save-dev hardhat
             npm install --save-dev @nomicfoundation/hardhat-toolbox
             npm install @openzeppelin/contracts
-            npx hardhat init
+            npx hardhat --init
           Select "Create a JavaScript project" when prompted.
   Step 3: Create hardhat.config.js with Polygon Amoy configuration
           (full config provided in Section 7 of this document).
 
 --------------------------------------------------------------------------------
-1.8 POLYGONSCAN API (Contract Verification)
+1.9 POLYGONSCAN API (Contract Verification)
 --------------------------------------------------------------------------------
 
 What it provides:
@@ -330,7 +374,7 @@ Environment variables from this step:
   POLYGONSCAN_API_KEY=[your api key]
 
 --------------------------------------------------------------------------------
-1.9 MAHARASHTRA LGD API (Land Records)
+1.10 MAHARASHTRA LGD API (Land Records)
 --------------------------------------------------------------------------------
 
 What it provides:
@@ -350,11 +394,15 @@ Key endpoints used:
   POST /GetVillagesOfDistrictAndTaluka    Input: distcode + talukacode → village codes
 
 --------------------------------------------------------------------------------
-1.10 SUMMARY OF ALL ENVIRONMENT VARIABLES
+1.11 SUMMARY OF ALL ENVIRONMENT VARIABLES
 --------------------------------------------------------------------------------
 
 Create a file named .env in your backend project root.
 NEVER commit this file to git. Add .env to .gitignore immediately.
+
+  # Firebase Authentication
+  FIREBASE_PROJECT_ID=[firebase-project-id]
+  FIREBASE_SERVICE_ACCOUNT_PATH=./firebase-service-account.json
 
   # Supabase
   SUPABASE_URL=https://[ref].supabase.co
@@ -363,29 +411,33 @@ NEVER commit this file to git. Add .env to .gitignore immediately.
   # Google Earth Engine
   GEE_SERVICE_ACCOUNT_EMAIL=[email]
   GEE_SERVICE_ACCOUNT_KEY_PATH=./gee-service-account.json
+  GEE_SERVICE_ACCOUNT_JSON={...full JSON credential payload for cloud deployments...}
 
   # NASA NISAR
   NASA_EARTHDATA_USERNAME=[username]
   NASA_EARTHDATA_PASSWORD=[password]
+  NISAR_PRODUCTION_READY=false
 
   # Blockchain
   ADMIN_WALLET_PRIVATE_KEY=[private key]
   ADMIN_WALLET_ADDRESS=[public address]
   ALCHEMY_POLYGON_AMOY_URL=https://polygon-amoy.g.alchemy.com/v2/[key]
-  ALCHEMY_POLYGON_MAINNET_URL=https://polygon-mainnet.g.alchemy.com/v2/[key]
   CONTRACT_ADDRESS=[deployed contract address — filled after Section 7]
 
   # IPFS
-  NFT_STORAGE_API_KEY=[key]
+  PINATA_JWT=[jwt]
+  PINATA_GATEWAY_URL=[your-gateway].mypinata.cloud
 
   # PolygonScan
   POLYGONSCAN_API_KEY=[key]
 
+  # Government APIs
+  LGD_API_BASE=http://115.124.105.220/API  # Maharashtra LGD API base URL
+
   # App Config
   ENVIRONMENT=development        # or production
-  CORS_ORIGIN=http://localhost:8081    # React Native Metro bundler port
-  REDIS_URL=redis://localhost:6379/0   # Update to cloud Redis URL for production
-  LGD_API_BASE=http://115.124.105.220/API   # Maharashtra LGD API base URL
+  REDIS_URL=redis://localhost:6379/0   # Update to cloud Redis URL for production 
+  WEB_CORS_ORIGINS=https://[future-web-domain]   # Optional. Not required for mobile-only RN clients.
 
 ================================================================================
 SECTION 2: ARCHITECTURE OVERVIEW
@@ -412,7 +464,7 @@ results. This prevents the API from timing out during 60-second satellite jobs.
 
 Component          | Technology              | Version | Reason
 -------------------|-------------------------|---------|---------------------------
-Runtime            | Python                  | 3.11+   | Native geospatial (GDAL),
+Runtime            | Python                  | 3.11+   | Mature geospatial,
                    |                         |         | AI (scikit-learn/XGBoost),
                    |                         |         | and async support.
 API Framework      | FastAPI                 | 0.110+  | Async I/O for high
@@ -423,6 +475,9 @@ ASGI Server        | Uvicorn                 | Latest  | Production ASGI server
 Database           | Supabase                | Managed | PostgreSQL 15 + PostGIS
                    |                         |         | 3.3 in cloud. Free tier.
                    |                         |         | No server management.
+Authentication     | Firebase Authentication | Managed | Phone OTP for the mobile app.
+                   |                         |         | Backend verifies Firebase
+                   |                         |         | ID tokens with Admin SDK.
 Database Client    | supabase-py             | Latest  | Python client for Supabase.
 ORM / Queries      | SQLAlchemy + asyncpg    | 2.0+    | Async PostgreSQL queries.
                    |                         |         | Raw SQL for PostGIS spatial
@@ -444,16 +499,17 @@ ML Model           | XGBoost                 | 2.0+    | Gradient boosted trees 
                    |                         |         | multi-feature biomass
                    |                         |         | regression. Replaces single
                    |                         |         | k-factor approach.
-OCR Engine         | PaddleOCR PP-OCRv5      | 3.0+    | OCR for 7/12 land document
+OCR Engine         | PaddleOCR PP-OCRv5      | 3.x     | OCR for 7/12 land document
                    | + OpenCV                |         | field extraction. Dedicated
                    |                         |         | Devanagari model. No system
                    |                         |         | install needed. Pure pip.
-Blockchain Client  | web3.py                 | 6.0+    | Python interface to call
+Blockchain Client  | web3.py                 | 7.x     | Python interface to call
                    |                         |         | Polygon smart contract
                    |                         |         | mint() and retire()
                    |                         |         | functions.
-IPFS Upload        | NFT.Storage API         | REST    | Permanent evidence file
-                   |                         |         | storage. Free, no limits.
+IPFS Upload        | Pinata Pinning API      | REST    | Pin audit metadata JSON to
+                   |                         |         | IPFS and expose it through
+                   |                         |         | a dedicated gateway domain.
 Validation         | Pydantic                | 2.0+    | Request/response data
                    |                         |         | validation. Built into
                    |                         |         | FastAPI.
@@ -469,7 +525,7 @@ The backend sits between the mobile app and three external systems:
 
 Mobile App
     |
-    | HTTPS + JWT (Supabase token)
+    | HTTPS + JWT (Firebase ID token)
     v
 FastAPI Backend
     |
@@ -481,7 +537,7 @@ FastAPI Backend
     |                    ----> Alaska Satellite Facility (NISAR data)
     |                    ----> Supabase (store biomass audit results)
     |
-    |--- Minting Service ----> NFT.Storage IPFS (upload evidence)
+    |--- Minting Service ----> Pinata IPFS (pin metadata)
                          ----> Polygon Blockchain via Alchemy (mint tokens)
                          ----> Supabase (store tx_hash)
 
@@ -491,25 +547,31 @@ SECTION 3: PROJECT FOLDER STRUCTURE
 
 backend/
 ├── main.py                          # FastAPI app entry point
+│                                    # Also exposes /health and /api/v1/status
 ├── requirements.txt                 # All Python dependencies
 ├── .env                             # Environment variables (never commit)
 ├── .env.example                     # Template showing all required variables
 ├── .gitignore
+├── firebase-service-account.json    # Firebase Admin credentials (NEVER commit)
 ├── gee-service-account.json         # GEE credentials (never commit)
 │
 ├── app/
 │   ├── __init__.py
 │   ├── config.py                    # Loads all env vars, validates on startup
+│   ├── firebase_auth.py             # Firebase Admin init + ID token verify
 │   ├── database.py                  # Supabase client + SQLAlchemy async engine
 │   └── dependencies.py              # FastAPI dependency injection (auth, db)
 │
 ├── routers/                         # FastAPI route definitions
-│   ├── auth.py                      # POST /api/v1/auth/kyc
+│   ├── auth.py                      # GET  /api/v1/auth/me
+│   │                                # POST /api/v1/auth/kyc
 │   │                                # POST /api/v1/auth/register-wallet
+│   │                                # POST /api/v1/auth/recover-wallet
 │   ├── land.py                      # POST /api/v1/land/verify-document
 │   │                                # GET  /api/v1/land/fetch-boundary
 │   │                                # POST /api/v1/land/register
 │   │                                # GET  /api/v1/land/list
+│   │                                # PATCH /api/v1/land/{land_id}
 │   ├── audit.py                     # GET  /api/v1/audit/zones
 │   │                                # POST /api/v1/audit/submit-samples
 │   │                                # GET  /api/v1/audit/result/{audit_id}
@@ -521,10 +583,10 @@ backend/
 │   ├── land_boundary_service.py     # LGD API + BhuNaksha WMS + state router
 │   ├── zone_generation_service.py   # Sentinel-2 NDVI zone analysis
 │   ├── fusion_engine.py             # Main biomass calculation engine
-│   ├── satellite_service.py         # GEE data fetching (S1, S2, GEDI, SRTM)
+│   ├── satellite_service.py         # GEE data fetching + Sentinel-2 PNG generation
 │   ├── nisar_service.py             # NISAR L-band data fetching via asf_search
 │   ├── minting_service.py           # IPFS upload + blockchain transaction
-│   └── ipfs_service.py              # NFT.Storage upload functions
+│   └── ipfs_service.py              # Pinata upload functions
 │
 ├── models/                          # Pydantic data models (request/response)
 │   ├── user.py
@@ -538,7 +600,8 @@ backend/
 │   └── minting_task.py              # Blockchain minting task
 │
 └── contracts/                       # Solidity smart contracts
-    ├── TerraToken.sol               # Main ERC-1155 token contract
+    ├── contracts/
+    │   └── TerraToken.sol           # Main ERC-1155 token contract
     ├── hardhat.config.js            # Hardhat deployment config
     ├── package.json                 # Hardhat npm dependencies
     ├── scripts/
@@ -570,8 +633,9 @@ Purpose: Stores farmer identity, authentication linkage, and blockchain wallet.
 
   CREATE TABLE users (
       id               UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+      firebase_uid     VARCHAR(128) UNIQUE NOT NULL,
       phone_number     VARCHAR(15) UNIQUE NOT NULL,
-      full_name        VARCHAR(255) NOT NULL,
+      full_name        VARCHAR(255),
       aadhaar_hash     VARCHAR(64),       -- SHA-256 hash, never plain text
       wallet_address   VARCHAR(42),       -- Polygon public address (0x...)
       role             VARCHAR(20) DEFAULT 'FARMER',  -- FARMER, AUDITOR, ADMIN
@@ -580,8 +644,31 @@ Purpose: Stores farmer identity, authentication linkage, and blockchain wallet.
       updated_at       TIMESTAMP WITH TIME ZONE DEFAULT NOW()
   );
 
+  CREATE INDEX idx_users_firebase_uid ON users(firebase_uid);
   CREATE INDEX idx_users_phone ON users(phone_number);
   CREATE INDEX idx_users_wallet ON users(wallet_address);
+
+4.2A TABLE: wallet_recovery_requests
+------------------------------------
+Purpose: Stores admin-assisted wallet rotation requests initiated from the
+mobile app. Historical audit evidence remains tied to the original wallet;
+approved requests affect only future credit issuance.
+
+  CREATE TABLE wallet_recovery_requests (
+      id                 UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+      user_id            UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      old_wallet_address VARCHAR(42),
+      new_wallet_address VARCHAR(42) NOT NULL,
+      status             VARCHAR(20) NOT NULL DEFAULT 'PENDING',
+                         -- 'PENDING', 'APPROVED', 'REJECTED', 'COMPLETED'
+      requested_at       TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+      reviewed_at        TIMESTAMP WITH TIME ZONE,
+      completed_at       TIMESTAMP WITH TIME ZONE,
+      reviewer_note      TEXT
+  );
+
+  CREATE INDEX idx_wallet_recovery_user ON wallet_recovery_requests(user_id);
+  CREATE INDEX idx_wallet_recovery_status ON wallet_recovery_requests(status);
 
 4.3 TABLE: land_parcels
 -----------------------
@@ -592,7 +679,7 @@ this polygon.
   CREATE TABLE land_parcels (
       id               UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
       user_id          UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-      farm_name        VARCHAR(255),      -- User-given name e.g. "North Field"
+      farm_name        VARCHAR(255),      -- User-given editable name e.g. "North Field"
       survey_number    VARCHAR(50) NOT NULL,   -- Extracted by OCR from 7/12
       district         VARCHAR(100) NOT NULL,
       taluka           VARCHAR(100) NOT NULL,
@@ -604,11 +691,12 @@ this polygon.
       boundary_source  VARCHAR(50),       -- 'WMS_AUTO', 'SCRAPE', 'MANUAL'
       ocr_owner_name   VARCHAR(255),      -- Name extracted from 7/12 document
       doc_image_url    VARCHAR(500),      -- Supabase Storage URL of 7/12 scan
-      lgd_district_code VARCHAR(10),      -- From LGD API
+      lgd_district_code VARCHAR(10),      -- From LGD API 
       lgd_taluka_code   VARCHAR(10),
       lgd_village_code  VARCHAR(10),
       gis_code         VARCHAR(50),       -- Constructed for BhuNaksha WMS
-      created_at       TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+        created_at       TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+        updated_at       TIMESTAMP WITH TIME ZONE DEFAULT NOW()
   );
 
   -- GIST spatial index — required for all PostGIS geometry queries
@@ -619,6 +707,7 @@ this polygon.
   CREATE OR REPLACE FUNCTION update_land_area()
   RETURNS TRIGGER AS $$
   BEGIN
+      NEW.updated_at := NOW();
       NEW.area_hectares := ST_Area(NEW.geom::geography) / 10000;
       RETURN NEW;
   END;
@@ -639,9 +728,9 @@ Purpose: Stores satellite-guided sampling zones generated per audit session.
       zone_label       VARCHAR(5) NOT NULL,  -- 'A', 'B', 'C', etc.
       centre_point     GEOMETRY(POINT, 4326) NOT NULL,  -- GPS to walk to
       radius_metres    FLOAT NOT NULL,    -- Scan all trees within this radius
-      zone_type        VARCHAR(20),       -- 'high_density', 'medium_density',
-                       --                    'low_density'
+      zone_type        VARCHAR(20),       -- 'high_density', 'medium_density', 'low_density'
       ndvi_mean        FLOAT,             -- Average NDVI in this zone
+      gedi_available   BOOLEAN DEFAULT FALSE,
       sequence_order   INT NOT NULL,      -- Order in walking path
       created_at       TIMESTAMP WITH TIME ZONE DEFAULT NOW()
   );
@@ -660,17 +749,20 @@ These are the ground truth data points used to train the XGBoost model.
       land_id          UUID NOT NULL REFERENCES land_parcels(id),
       zone_id          UUID REFERENCES sampling_zones(id),
       gps_location     GEOMETRY(POINT, 4326) NOT NULL,
+      gps_accuracy_m   FLOAT,             -- GPS horizontal accuracy (m)
       species          VARCHAR(100) NOT NULL,  -- TF Lite detected species
-      dbh_cm           FLOAT NOT NULL,    -- Diameter from ARCore (cm)
+      species_confidence FLOAT CHECK (species_confidence BETWEEN 0 AND 1),
+      dbh_cm           FLOAT NOT NULL CHECK (dbh_cm > 0 AND dbh_cm < 500),
       height_m         FLOAT,             -- AR-measured height (fallback only)
       gedi_height_m    FLOAT,             -- NASA GEDI rh98 height (primary)
       height_source    VARCHAR(20),       -- 'GEDI' or 'AR_FALLBACK'
       wood_density     FLOAT NOT NULL,    -- Species-specific rho value (g/cm3)
       agb_kg           FLOAT,             -- Calculated by backend via Chave eq
-      ar_tier_used     INT,               -- 1 (full depth), 2 (SLAM), 3 (manual)
-      confidence_score FLOAT,             -- ARCore RANSAC fit confidence
-      evidence_photo_url VARCHAR(500),    -- Supabase Storage URL
+      ar_tier_used     INT CHECK (ar_tier_used IN (1, 2, 3)),
+      confidence_score FLOAT CHECK (confidence_score BETWEEN 0 AND 1),
+      evidence_photo_path VARCHAR(500),   -- Supabase Storage object path
       evidence_photo_hash VARCHAR(64),    -- SHA-256 hash of photo
+      scan_timestamp   TIMESTAMP WITH TIME ZONE NOT NULL,
       created_at       TIMESTAMP WITH TIME ZONE DEFAULT NOW()
   );
 
@@ -689,8 +781,8 @@ This is the permanent ledger of all carbon credit generations.
       user_id          UUID NOT NULL REFERENCES users(id),
       audit_year       INT NOT NULL,
       status           VARCHAR(20) DEFAULT 'PROCESSING',
-                       -- PROCESSING, CALCULATING, READY_TO_MINT,
-                       -- MINTED, FAILED
+      -- Status values: PROCESSING, CALCULATING, READY_TO_MINT,
+      --                MINTED, COMPLETE_NO_CREDITS, FAILED
       -- Satellite data used
       s1_vh_mean_db    FLOAT,             -- Sentinel-1 VH mean backscatter
       s1_vv_mean_db    FLOAT,             -- Sentinel-1 VV mean backscatter
@@ -701,6 +793,7 @@ This is the permanent ledger of all carbon credit generations.
       nisar_used       BOOLEAN DEFAULT FALSE,  -- Whether NISAR data was used
       -- Model results
       xgboost_model_version VARCHAR(20),  -- Model version used
+      features_count   INT,               -- Normally 9 or 12; 8 or 11 when GEDI is unavailable
       total_biomass_tonnes FLOAT,         -- Total AGB for entire land
       -- Carbon calculation
       prev_year_biomass FLOAT,            -- From previous audit
@@ -708,6 +801,7 @@ This is the permanent ledger of all carbon credit generations.
       carbon_tonnes    FLOAT,             -- delta * 0.47
       co2_equivalent   FLOAT,             -- carbon * 3.667 (44/12 = CO2 conversion)
       credits_issued   FLOAT,             -- = co2_equivalent
+      trees_scanned_count INT,
       -- Blockchain
       ipfs_metadata_cid VARCHAR(255),     -- IPFS CID of evidence package
       tx_hash          VARCHAR(66),       -- Polygon transaction hash (0x...)
@@ -749,8 +843,9 @@ SECTION 5: API SPECIFICATION (FASTAPI)
 Base URL (development): http://localhost:8000
 Base URL (production):  https://[your-domain]
 
-All endpoints (except /health) require: Authorization: Bearer [supabase_jwt]
-JWT is the token returned by Supabase after OTP verification.
+All endpoints (except /health and /api/v1/status) require:
+Authorization: Bearer [firebase_id_token]
+The token is returned by Firebase Authentication after OTP verification.
 
 --------------------------------------------------------------------------------
 5.1 HEALTH CHECK
@@ -761,13 +856,24 @@ GET /health
   Auth:      None required
   Response:  { "status": "ok", "timestamp": "2026-03-07T10:00:00Z" }
 
+GET /api/v1/status
+  Purpose:   Farmer-facing app status check used during app bootstrap before
+             the authenticated profile flow begins.
+  Auth:      None required
+  Response:  { "maintenance": false, "message": null }
+             or
+             { "maintenance": true,
+               "message": "Scheduled maintenance in progress" }
+  Note:      When maintenance mode is active, any farmer-facing endpoint may
+             also short-circuit with HTTP 503 and the same JSON payload.
+
 --------------------------------------------------------------------------------
 5.2 AUTH MODULE (/api/v1/auth)
 --------------------------------------------------------------------------------
 
 POST /api/v1/auth/kyc
   Purpose:   Saves farmer KYC data after first OTP login.
-  Auth:      Required (Supabase JWT)
+  Auth:      Required (Firebase ID token)
   Request:   {
                "full_name": "Ramesh Patil",
                "aadhaar_number": "XXXXXXXXXXXX"   // 12 digits, will be hashed
@@ -781,12 +887,45 @@ POST /api/v1/auth/kyc
 POST /api/v1/auth/register-wallet
   Purpose:   Stores the farmer's public blockchain wallet address after the
              mobile app silently generates it on first login.
-  Auth:      Required (Supabase JWT)
+  Auth:      Required (Firebase ID token)
   Request:   { "wallet_address": "0x..." }   // Public address only
   Process:   1. Validate wallet_address format (42-char 0x hex string).
              2. Store wallet_address in users table for the authenticated user.
   Response:  { "status": "success" }
   Error 400: { "error": "Invalid wallet address format" }
+
+POST /api/v1/auth/recover-wallet
+  Purpose:   Creates an admin-assisted wallet rotation request after the
+         farmer re-verifies identity on a new device.
+  Auth:      Required (Firebase ID token)
+  Request:   { "new_wallet_address": "0x..." }
+  Process:   1. Verify the user has completed KYC and already has an
+           existing wallet on record.
+         2. Validate new_wallet_address format and ensure it differs from
+           the current wallet.
+         3. Insert a PENDING row into wallet_recovery_requests.
+         4. Return a pending response. Do not swap wallet_address yet;
+           approval is required before future issuance changes.
+  Response:  { "status": "pending",
+          "message": "Wallet recovery request submitted" }
+  Error 400: { "error": "Invalid wallet address format" }
+  Error 409: { "error": "A wallet recovery request is already pending" }
+
+GET /api/v1/auth/me
+  Purpose:   Bootstrap TerraTrust profile state after Firebase sign-in.
+  Auth:      Required (Firebase ID token)
+  Process:   1. Verify Firebase ID token.
+             2. Extract uid + phone_number.
+             3. Upsert minimal users row if missing.
+             4. Return KYC and wallet status.
+  Response:  {
+               "user_id": "uuid",
+               "firebase_uid": "firebase-uid",
+               "phone_number": "+91XXXXXXXXXX",
+               "full_name": "Ramesh Patil",
+               "kyc_completed": true,
+               "wallet_address": "0x..."
+             }
 
 --------------------------------------------------------------------------------
 5.3 LAND MODULE (/api/v1/land)
@@ -889,6 +1028,7 @@ GET /api/v1/land/fetch-boundary
   Response:  {
                "status": "success",
                "boundary_source": "WMS_AUTO",
+               "satellite_thumbnail_url": "https://[signed-supabase-url]/boundary-47.png",
                "geojson": {
                  "type": "Feature",
                  "geometry": {
@@ -934,22 +1074,47 @@ POST /api/v1/land/register
                           account." }
 
 GET /api/v1/land/list
-  Purpose:   Returns all land parcels registered by the authenticated farmer.
-             Called when LandListScreen loads.
+  Purpose:   Returns paginated land parcels registered by the authenticated farmer.
+             Called when LandListScreen loads and when HomeScreen fetches the
+             parcel preview cards.
   Auth:      Required
-  Process:   Fetch all land_parcels rows where user_id matches JWT user.
-             Include latest audit year from carbon_audits for each parcel.
-  Response:  [
-               {
-                 "id": "uuid",
-                 "farm_name": "North Field",
-                 "survey_number": "47",
-                 "area_hectares": 0.49,
-                 "is_verified": true,
-                 "last_audit_year": 2025,
-                 "thumbnail_url": "https://storage.googleapis.com/..."
-               }
-             ]
+  Query:     page=1&limit=20
+  Process:   Fetch all land_parcels rows where user_id matches the
+             authenticated backend user resolved from the verified Firebase
+             ID token.
+             Include latest audit year plus current-year audit metadata from
+             carbon_audits for each parcel so the app can decide whether to
+             show Start Audit, Resume Audit, or View Status.
+  Response:  {
+               "items": [
+                 {
+                   "id": "uuid",
+                   "farm_name": "North Field",
+                   "survey_number": "47",
+                   "area_hectares": 0.49,
+                   "is_verified": true,
+                   "last_audit_year": 2025,
+                    "current_audit_id": "uuid",
+                    "current_audit_status": "CALCULATING",
+                   "thumbnail_url": "https://[signed-supabase-url]/..."
+                 }
+               ],
+               "page": 1,
+               "limit": 20,
+               "total": 7,
+               "has_more": false
+             }
+
+PATCH /api/v1/land/{land_id}
+  Purpose:   Updates the farmer-facing parcel name from EditLandNameScreen.
+  Auth:      Required
+  Request:   { "farm_name": "North Field" }
+  Process:   1. Resolve authenticated user from the Firebase ID token.
+             2. Verify the land_id belongs to that user.
+             3. Update farm_name only. Do not allow geometry or survey edits.
+  Response:  { "status": "success", "land_id": "uuid",
+               "farm_name": "North Field" }
+  Error 404: { "error": "Land parcel not found" }
 
 --------------------------------------------------------------------------------
 5.4 AUDIT MODULE (/api/v1/audit)
@@ -1008,6 +1173,9 @@ GET /api/v1/audit/zones
                "walking_path_metres": 145,
                "min_trees_required": 9
              }
+  Error 409: { "error": "An audit already exists for this land in the current audit year.",
+               "existing_audit_id": "uuid",
+               "status": "CALCULATING" }
 
 POST /api/v1/audit/submit-samples
   Purpose:   Receives all AR tree scan data. Stores it. Triggers background
@@ -1020,23 +1188,30 @@ POST /api/v1/audit/submit-samples
                  {
                    "zone_id": "uuid",
                    "species": "Teak",
+                   "species_confidence": 0.91,
                    "dbh_cm": 22.4,
                    "height_m": null,        // null = use GEDI
                    "gps": { "lat": 18.5461, "lng": 73.9812 },
+                    "gps_accuracy_m": 4.2,  // horizontal accuracy in metres
                    "ar_tier_used": 1,
                    "confidence_score": 0.87,
-                   "evidence_photo_base64": "[base64 encoded photo]",
-                   "evidence_photo_hash": "[sha256 hex string]"
+                   "evidence_photo_base64": "[base64 of final JPEG bytes only, no data URI prefix, max 1280x960, EXIF stripped, JPEG quality 85]",
+                   "evidence_photo_hash": "[sha256 hex string of the exact decoded bytes above]",
+                   "scan_timestamp": "2026-11-10T10:24:31Z"
                  }
                ]
              }
   Process:
     1. Validate minimum tree count (must be >= 3 per zone, >= 9 total).
+       Reject any tree with species_confidence < 0.80.
+       Reject any tree with gps_accuracy_m > 30.
+       Reject any payload where evidence_photo_hash does not match the
+       SHA-256 of the decoded, EXIF-stripped, final JPEG bytes provided.
     2. For each tree:
          a. Look up wood_density from species constants table.
          b. Store photo to Supabase Storage:
-              url = supabase.storage.from_('evidence-photos')
-                    .upload(f'{audit_id}/{tree_id}.jpg', photo_bytes)
+            path = f'{audit_id}/{tree_id}.jpg'
+            supabase.storage.from_('evidence-photos').upload(path, photo_bytes)
          c. Insert into ar_tree_scans table.
     3. Update carbon_audits status to 'CALCULATING'.
     4. Dispatch Celery background task:
@@ -1056,13 +1231,21 @@ GET /api/v1/audit/result/{audit_id}
   Auth:      Required
   Response (still processing):
              { "status": "CALCULATING" }
+  Response (complete, no credits):
+             {
+               "status": "COMPLETE_NO_CREDITS",
+               "total_biomass_tonnes": 14.8,
+               "credits_issued": 0,
+               "audit_year": 2026,
+               "reason": "No biomass growth detected compared to the latest prior successful audit"
+             }
   Response (complete):
              {
                "status": "MINTED",
                "total_biomass_tonnes": 14.8,
                "credits_issued": 2.4,
                "tx_hash": "0x1a2b3c...",
-               "ipfs_certificate_url": "https://ipfs.io/ipfs/[CID]",
+               "ipfs_certificate_url": "https://[pinata-gateway]/ipfs/[CID]",
                "audit_year": 2026
              }
   Response (failed):
@@ -1071,19 +1254,28 @@ GET /api/v1/audit/result/{audit_id}
 
 GET /api/v1/audit/history/{land_id}
   Purpose:   Returns full audit history for a specific land parcel.
-             Called by CreditHistoryScreen.
+             Used for parcel-specific drill-down or operational support.
+             HomeScreen and CreditHistoryScreen use
+             GET /api/v1/credits/balance for the all-parcels history view.
   Auth:      Required
-  Process:   Fetch all carbon_audits rows for land_id, ordered by audit_year DESC.
-  Response:  [
-               {
-                 "audit_year": 2025,
-                 "total_biomass_tonnes": 14.8,
-                 "credits_issued": 2.4,
-                 "tx_hash": "0x...",
-                 "ipfs_certificate_url": "https://ipfs.io/ipfs/[CID]",
-                 "minted_at": "2025-11-15T14:23:00Z"
-               }
-             ]
+  Query:     page=1&limit=20
+  Process:   Fetch carbon_audits rows for land_id, ordered by audit_year DESC.
+  Response:  {
+               "items": [
+                 {
+                   "audit_year": 2025,
+                   "total_biomass_tonnes": 14.8,
+                   "credits_issued": 2.4,
+                   "tx_hash": "0x...",
+                   "ipfs_certificate_url": "https://[pinata-gateway]/ipfs/[CID]",
+                   "minted_at": "2025-11-15T14:23:00Z"
+                 }
+               ],
+               "page": 1,
+               "limit": 20,
+               "total": 4,
+               "has_more": false
+             }
 
 --------------------------------------------------------------------------------
 5.5 CREDITS MODULE (/api/v1/credits)
@@ -1092,11 +1284,12 @@ GET /api/v1/audit/history/{land_id}
 GET /api/v1/credits/balance
   Purpose:   Returns farmer's current token balance and audit history.
   Auth:      Required
-  Query:     wallet_address=[string]
+  Query:     page=1&limit=20
   Process:
-    1. Call Polygon blockchain via web3.py:
+    1. Look up wallet_address for the authenticated Firebase user.
+    2. Call Polygon blockchain via web3.py:
          contract.functions.balanceOf(wallet_address, CARBON_CREDIT).call()
-    2. Fetch audit history from carbon_audits table for this user.
+    3. Fetch audit history from carbon_audits table for this user.
   Response:  {
                "balance_ctt": 47.3,
                "history": [
@@ -1105,10 +1298,14 @@ GET /api/v1/credits/balance
                    "credits_issued": 12.4,
                    "land_name": "North Field",
                    "tx_hash": "0x...",
-                   "ipfs_certificate_url": "https://ipfs.io/ipfs/[CID]",
+                   "ipfs_certificate_url": "https://[pinata-gateway]/ipfs/[CID]",
                    "minted_at": "2025-11-15T14:23:00Z"
                  }
-               ]
+               ],
+               "page": 1,
+               "limit": 20,
+               "total": 12,
+               "has_more": false
              }
 
 ================================================================================
@@ -1164,6 +1361,22 @@ These values are used in Chave's allometric equation: AGB = 0.0673 *
 
 Any species not in this dictionary should be rejected at the mobile app level
 (TF Lite shows "not approved" message).
+Canonical naming rule:
+The display label "Indian Rosewood" refers specifically to Dalbergia sissoo.
+Use the scientific identity as the canonical key and treat "Indian Rosewood",
+"Shisham", and "North Indian Rosewood" as display aliases for that same
+approved species only.
+Mobile TFLite contract:
+Input = RGB image, 224x224, normalized to [0,1]. Output = a fixed-order
+probability vector of 12 labels: the 11 approved species above plus
+NOT_APPROVED. The versioned mobile artifact in
+src/assets/tflite/species_model.tflite must ship with the matching class
+mapping for that model version. The backend never trains or runs this model at
+runtime; it validates only the submitted approved label and
+species_confidence threshold.
+The mobile model is trained offline from a curated labeled species dataset and
+exported as a versioned TFLite artifact. The backend does not train this model
+at runtime; it only validates the approved label set and confidence threshold.
 
 6.4 COMPLETE FUSION ENGINE CODE
 ---------------------------------
@@ -1197,13 +1410,14 @@ Any species not in this dictionary should be rejected at the mobile app level
       # LAYER 1: NISAR L-BAND (Primary SAR — After June 2026)
       # ====================================================================
       # Before June 2026: skip NISAR, use Sentinel-1 as primary
-      nisar_available = check_nisar_availability(
+        nisar_available = check_nisar_availability(
           land_boundary_geojson, start_date, end_date
-      )
+        )
+        nisar_ready = os.getenv('NISAR_PRODUCTION_READY', 'false').lower() == 'true'
 
-      if nisar_available and audit_year >= 2026:
+        if nisar_available and nisar_ready:
           nisar_hh, nisar_hv, nisar_ratio = fetch_nisar_data(
-              land_boundary_geojson, start_date, end_date
+            land_boundary_geojson, start_date, end_date
           )
       else:
           nisar_hh = nisar_hv = nisar_ratio = None
@@ -1260,6 +1474,8 @@ Any species not in this dictionary should be rejected at the mobile app level
               .mean() \
               .rename('GEDI_HEIGHT')
 
+      gedi_has_land_coverage = image_has_valid_pixels(gedi, region)
+
       # ====================================================================
       # LAYER 5: SRTM TOPOGRAPHY (Terrain correction)
       # ====================================================================
@@ -1273,7 +1489,7 @@ Any species not in this dictionary should be rejected at the mobile app level
       # ====================================================================
       # STACK ALL FEATURES INTO ONE IMAGE
       # ====================================================================
-      if nisar_available and nisar_hh is not None:
+        if nisar_available and nisar_hh is not None and gedi_has_land_coverage:
           feature_stack = ee.Image.cat([
               nisar_hh,         # Feature 1: NISAR HH backscatter
               nisar_hv,         # Feature 2: NISAR HV backscatter
@@ -1288,13 +1504,29 @@ Any species not in this dictionary should be rejected at the mobile app level
               elevation,        # Feature 11: SRTM elevation
               slope             # Feature 12: SRTM slope
           ])
-      else:
-          # Pre-June 2026: Use Sentinel-1 as primary (9 features)
+            elif nisar_available and nisar_hh is not None and not gedi_has_land_coverage:
+              # GEDI absent across the parcel: use 11 features without GEDI
+              feature_stack = ee.Image.cat([
+                nisar_hh, nisar_hv, nisar_ratio,
+                s1_vh, s1_vv, s1_ratio,
+                ndvi, evi, red_edge,
+                elevation, slope
+              ])
+            elif gedi_has_land_coverage:
+              # Pre-NISAR or NISAR disabled: 9 features
           feature_stack = ee.Image.cat([
               s1_vh, s1_vv, s1_ratio,
               ndvi, evi, red_edge,
               gedi, elevation, slope
           ])
+            else:
+              # GEDI absent across the parcel: use 8 features and rely on
+              # AR-measured heights only for tree-level Chave calculations.
+              feature_stack = ee.Image.cat([
+                s1_vh, s1_vv, s1_ratio,
+                ndvi, evi, red_edge,
+                elevation, slope
+              ])
 
       # ====================================================================
       # GROUND TRUTH: CHAVE'S ALLOMETRIC EQUATION
@@ -1309,7 +1541,9 @@ Any species not in this dictionary should be rejected at the mobile app level
               height = scan['height_m']
               height_source = 'AR_FALLBACK'
 
-          wood_density = SPECIES_WOOD_DENSITY.get(scan['species'], 0.55)
+          if scan['species'] not in SPECIES_WOOD_DENSITY:
+              raise ValueError(f"Unsupported species: {scan['species']}")
+          wood_density = SPECIES_WOOD_DENSITY[scan['species']]
           dbh = scan['dbh_cm']
 
           # Chave's Allometric Equation (Chave et al., 2014)
@@ -1318,8 +1552,10 @@ Any species not in this dictionary should be rejected at the mobile app level
           # Output: AGB in kg
           agb_kg = 0.0673 * (wood_density * (dbh ** 2) * height) ** 0.976
 
-          # Convert to tonnes per hectare for consistency with satellite units
-          # Approximate crown area = 10m x 10m = 100 m2 = 0.01 ha
+          # Convert to tonnes per hectare using one 10m x 10m satellite pixel
+          # as the mapping unit (0.01 ha).
+          # Simplifying assumption: each scanned tree represents one pixel,
+          # not its literal canopy/crown area.
           agb_t_per_ha = (agb_kg / 1000) / 0.01
 
           training_points.append({
@@ -1335,8 +1571,25 @@ Any species not in this dictionary should be rejected at the mobile app level
       # ====================================================================
       # TRAIN XGBOOST ON AR GROUND TRUTH + SATELLITE FEATURES
       # ====================================================================
-      # Build GEE FeatureCollection with training points + satellite values
-      training_fc = build_training_fc(training_points, feature_stack)
+        # Build a lightweight label collection, then attach all satellite bands
+        # in one sampleRegions() call to avoid per-tree getInfo() requests.
+        points_fc = ee.FeatureCollection([
+          ee.Feature(
+            ee.Geometry.Point([pt['lng'], pt['lat']]),
+            {
+              'agb_t_per_ha': pt['agb_t_per_ha'],
+              'height_source': pt['height_source'],
+            }
+          )
+          for pt in training_points
+        ])
+
+        training_fc = feature_stack.sampleRegions(
+          collection=points_fc,
+          properties=['agb_t_per_ha', 'height_source'],
+          scale=10,
+          geometries=False
+        )
 
       # XGBoost Gradient Boosted Trees (replaces single k-factor approach)
       # Uses GEE's built-in smileGradientTreeBoost classifier
@@ -1381,7 +1634,9 @@ Any species not in this dictionary should be rejected at the mobile app level
   def fetch_nisar_data(geojson, start_date, end_date):
       """
       Fetch NISAR L-band data from Alaska Satellite Facility.
-      Available from October 2025. Fully calibrated from June 2026.
+      Available from October 2025.
+      Treat as development/validation input until calibrated production
+      readiness is confirmed, targeted from June 2026 onward.
       """
       import asf_search as asf
       from shapely.geometry import shape
@@ -1422,9 +1677,22 @@ Run after fusion engine returns total_biomass_tonnes:
                          land_id: str,
                          audit_year: int) -> Dict:
 
-      # Query last year's biomass from database
-      prev_audit = get_previous_audit(land_id, audit_year - 1)
-      prev_biomass = prev_audit['total_biomass_tonnes'] if prev_audit else 0
+        # Query the latest prior successful audit, not simply audit_year - 1.
+        # Ignore FAILED / PROCESSING records.
+        prev_audit = get_latest_successful_audit_before(land_id, audit_year)
+
+        if not prev_audit:
+          return {
+            'prev_biomass': 0,
+            'current_biomass': total_biomass_tonnes,
+            'delta_biomass': 0,
+            'carbon_tonnes': 0,
+            'co2_equivalent': 0,
+            'credits_issued': 0,
+            'reason': 'Baseline year established; future growth earns credits'
+          }
+
+        prev_biomass = prev_audit['total_biomass_tonnes']
 
       delta_biomass = total_biomass_tonnes - prev_biomass
 
@@ -1481,14 +1749,17 @@ Type 2 — Audit Certificate NFT (Non-Fungible, unique ID per audit)
 
 Both are minted in one transaction, saving on blockchain fees.
 
-7.3 WHAT GETS STORED ON IPFS (via NFT.Storage)
-------------------------------------------------
+7.3 WHAT GETS STORED ON IPFS (via Pinata)
+-------------------------------------------
 Before minting, the backend creates a JSON metadata package containing all
-evidence for the audit. This is uploaded to IPFS via NFT.Storage. The
-returned CID (permanent content address) is stored on blockchain.
+evidence for the audit. This is uploaded to IPFS via Pinata's
+pinJSONToIPFS endpoint. The returned CID (permanent content address) is stored
+on blockchain as ipfs://CID, while the API returns a Pinata gateway URL for
+certificate viewing inside the app.
 
 IPFS metadata package structure:
   {
+    "name": "TerraTrust Audit — Farm [land_id], Year [year]",
     "land_id": "uuid",
     "survey_number": "47",
     "district": "Pune",
@@ -1496,12 +1767,19 @@ IPFS metadata package structure:
     "audit_year": 2026,
     "measurement_date": "2026-11-10",
     "total_biomass_tonnes": 14.8,
+    "prev_biomass_tonnes": 12.4,
+    "delta_biomass": 2.4,
+    "carbon_tonnes": 1.128,
+    "co2_equivalent": 4.1,
     "credits_issued": 2.4,
     "satellite_data": {
-      "sentinel1_vh_mean": -12.4,
+      "sentinel1_vh_mean_db": -12.4,
       "sentinel2_ndvi_mean": 0.68,
       "gedi_height_mean": 14.2,
-      "nisar_used": true
+      "srtm_elevation_mean": 545.0,
+      "nisar_used": true,
+      "features_count": 12,
+      "processing_method": "NISAR_S1_S2_GEDI_SRTM_XGBoost_v3.1"
     },
     "tree_samples": [
       {
@@ -1511,18 +1789,23 @@ IPFS metadata package structure:
         "height_m": 15.3,
         "agb_kg": 245.6,
         "gps": { "lat": 18.546, "lng": 73.981 },
+        "scan_timestamp": "2026-11-10T10:24:31Z",
+        "measurement_tier": 1,
         "evidence_photo_hash": "sha256..."
       }
     ],
-    "calculation_method": "NISAR_S1_S2_GEDI_SRTM_XGBoost_v3",
-    "error_estimate_percent": 6.2
+    "boundary_verification_method": "WMS_AUTO"
   }
 
 7.4 THE COMPLETE SMART CONTRACT (TerraToken.sol)
 -------------------------------------------------
 
+UUID-to-uint256 conversion rule:
+  audit_token_id = uuid.UUID(audit_id).int
+  Use this exact conversion in the backend before calling mintAudit().
+
   // SPDX-License-Identifier: MIT
-  pragma solidity ^0.8.20;
+  pragma solidity 0.8.29;
 
   import "@openzeppelin/contracts/token/ERC1155/ERC1155.sol";
   import "@openzeppelin/contracts/access/Ownable.sol";
@@ -1559,7 +1842,7 @@ IPFS metadata package structure:
       // ================================================================
       function mintAudit(
           address farmer,        // Farmer's wallet address
-          uint256 auditId,       // Unique numeric ID for this audit
+          uint256 auditId,       // uuid.UUID(audit_id).int
           uint256 creditAmount,  // Number of credits e.g. 12 for 12 tonnes
                                  // NO multiplication — send actual number
           string memory ipfsHash, // "ipfs://CID..." — points to evidence
@@ -1618,42 +1901,44 @@ IPFS metadata package structure:
 
   // contracts/hardhat.config.js
   require("@nomicfoundation/hardhat-toolbox");
-  require('dotenv').config();
+  require("dotenv").config({ path: "../.env" });
 
   module.exports = {
     solidity: {
-      version: "0.8.20",
-      settings: {
-        optimizer: { enabled: true, runs: 200 }
-      }
+      compilers: [{
+        version: "0.8.29",
+        settings: {
+          optimizer: { enabled: true, runs: 200 },
+          evmVersion: "cancun"
+        }
+      }]
     },
+    defaultNetwork: "hardhat",
     networks: {
       polygon_amoy: {
-        url: process.env.ALCHEMY_POLYGON_AMOY_URL,
-        accounts: [process.env.ADMIN_WALLET_PRIVATE_KEY],
-        chainId: 80002,
-        gasPrice: 35000000000   // 35 gwei
-      },
-      polygon_mainnet: {
-        url: process.env.ALCHEMY_POLYGON_MAINNET_URL,
-        accounts: [process.env.ADMIN_WALLET_PRIVATE_KEY],
-        chainId: 137,
-        gasPrice: 35000000000
+        url: process.env.ALCHEMY_POLYGON_AMOY_URL || "",
+        accounts: process.env.ADMIN_WALLET_PRIVATE_KEY
+          ? [process.env.ADMIN_WALLET_PRIVATE_KEY]
+          : [],
+        chainId: 80002
       }
     },
     etherscan: {
-      apiKey: {
-        polygonAmoy: process.env.POLYGONSCAN_API_KEY,
-        polygon:     process.env.POLYGONSCAN_API_KEY
-      },
+      apiKey: process.env.POLYGONSCAN_API_KEY,
       customChains: [{
-        network: "polygonAmoy",
+        network: "polygon_amoy",
         chainId: 80002,
         urls: {
           apiURL: "https://api-amoy.polygonscan.com/api",
           browserURL: "https://amoy.polygonscan.com"
         }
       }]
+    },
+    paths: {
+      sources: "./contracts",
+      tests: "./test",
+      cache: "./cache",
+      artifacts: "./artifacts"
     }
   };
 
@@ -1661,22 +1946,41 @@ IPFS metadata package structure:
 ----------------------
 
   // contracts/scripts/deploy.js
-  const { ethers } = require("hardhat");
+  const hre = require("hardhat");
+  const fs = require("fs");
+  const path = require("path");
 
   async function main() {
-    const [deployer] = await ethers.getSigners();
-    console.log("Deploying with account:", deployer.address);
+    const [deployer] = await hre.ethers.getSigners();
+    console.log("Deploying TerraTrustToken with account:", deployer.address);
 
-    const TerraTrustToken = await ethers.getContractFactory("TerraTrustToken");
-    const token = await TerraTrustToken.deploy();
+    const balance = await hre.ethers.provider.getBalance(deployer.address);
+    console.log("Account balance:", balance.toString());
+
+    const Token = await hre.ethers.getContractFactory("TerraTrustToken");
+    const token = await Token.deploy();
     await token.waitForDeployment();
 
-    const address = await token.getAddress();
-    console.log("TerraTrustToken deployed to:", address);
-    console.log("Add this to your .env: CONTRACT_ADDRESS=" + address);
+    const contractAddress = await token.getAddress();
+
+    console.log("TerraTrustToken deployed to:", contractAddress);
+
+    const artifact = await hre.artifacts.readArtifact("TerraTrustToken");
+    const outputPaths = [
+      path.join(__dirname, "..", "artifacts", "TerraTrustToken_ABI.json"),
+      path.join(__dirname, "..", "artifacts", "TerraToken_ABI.json")
+    ];
+    outputPaths.forEach((outputPath) => {
+      fs.mkdirSync(path.dirname(outputPath), { recursive: true });
+      fs.writeFileSync(outputPath, JSON.stringify(artifact.abi, null, 2));
+      console.log("ABI exported to:", outputPath);
+    });
   }
 
-  main().catch((error) => { console.error(error); process.exit(1); });
+  main().catch((error) => {
+    console.error(error);
+    process.exitCode = 1;
+  });
 
   // Run with:
   // npx hardhat run scripts/deploy.js --network polygon_amoy
@@ -1704,18 +2008,23 @@ IPFS metadata package structure:
   )
 
   def upload_to_ipfs(metadata: dict) -> str:
-      """Upload audit evidence JSON to NFT.Storage. Returns IPFS CID URL."""
+      """Upload audit evidence JSON to Pinata. Returns IPFS URI."""
       response = requests.post(
-          'https://api.nft.storage/upload',
+        'https://api.pinata.cloud/pinning/pinJSONToIPFS',
           headers={
-              'Authorization': f'Bearer {os.getenv("NFT_STORAGE_API_KEY")}',
+          'Authorization': f'Bearer {os.getenv("PINATA_JWT")}',
               'Content-Type': 'application/json'
           },
-          json=metadata,
+        json={
+          'pinataContent': metadata,
+          'pinataMetadata': {
+            'name': f'audit-{metadata["audit_year"]}-{metadata["land_id"]}'
+          }
+        },
           timeout=30
       )
       response.raise_for_status()
-      cid = response.json()['value']['cid']
+      cid = response.json()['IpfsHash']
       return f'ipfs://{cid}'
 
   def mint_carbon_credits(farmer_address: str, audit_id_int: int,
@@ -1748,7 +2057,7 @@ IPFS metadata package structure:
           'nonce':    nonce,
           'gas':      300000,
           'gasPrice': gas_price,
-          'chainId':  80002   # Amoy testnet. Use 137 for mainnet.
+          'chainId':  80002   # Amoy testnet only in current TerraTrust scope
       })
 
       # Step 3: Sign and send
@@ -1800,6 +2109,13 @@ out). Celery runs them as background jobs. The mobile app polls for results.
       task_time_limit=300,       # Kill task if it runs more than 5 minutes
       worker_prefetch_multiplier=1
   )
+
+  Free-tier worker note:
+    Start with Celery concurrency=1 on Render free/low-memory instances.
+    Increase above 1 only after measuring memory headroom for GEE + OCR workloads.
+    task_time_limit=300 is an MVP safeguard, not a hard scientific upper bound.
+    If NISAR-enabled or quota-delayed runs approach that limit in practice,
+    increase it deliberately and document the new bound before production.
 
 Free Redis hosting options:
   - Redis Cloud free tier: 30MB, always-on, at redis.com
@@ -1860,13 +2176,12 @@ SECTION 9: OCR SERVICE — LAND DOCUMENT PROCESSING
 9.1 SETUP REQUIREMENTS
 -----------------------
 
-No system-level installation required. PaddleOCR is a pure Python package.
-PaddlePaddle (the deep learning framework) and all model weights are downloaded
-automatically on first run.
+No system-level installation required. PaddleOCR and PaddlePaddle install from
+pip. Only the OCR model weights download automatically on first run.
 
 Install on server:
-  pip install paddlepaddle==3.0.0          # CPU-only build (no GPU needed)
-  pip install paddleocr==3.0.3
+  pip install paddlepaddle==3.3.0          # CPU-only build (no GPU needed)
+  pip install paddleocr==3.4.0
   pip install opencv-python-headless Pillow
 
 First-run note:
@@ -1998,54 +2313,51 @@ SECTION 10: PYTHON DEPENDENCIES
 Save as requirements.txt in backend/ folder:
 
   # Core Framework
-  fastapi==0.110.0
-  uvicorn[standard]==0.29.0
-  python-multipart==0.0.9     # For file upload handling
-  python-dotenv==1.0.1
+  fastapi==0.135.1
+  uvicorn[standard]==0.41.0
+  python-multipart==0.0.22     # For file upload handling
+  python-dotenv==1.2.2
+  firebase-admin>=6.5,<7       # Verify Firebase ID tokens in FastAPI
 
   # Database
-  supabase==2.4.0              # Supabase Python client
-  sqlalchemy[asyncio]==2.0.29
-  asyncpg==0.29.0              # Async PostgreSQL driver
-  shapely==2.0.4               # GeoJSON geometry operations
+  supabase==2.28.0             # Supabase Python client
+  SQLAlchemy[asyncio]==2.0.48
+  asyncpg==0.31.0              # Async PostgreSQL driver
+  shapely==2.1.2               # GeoJSON geometry operations
 
   # Satellite / Geospatial
-  earthengine-api==0.1.400     # Google Earth Engine
-  asf_search==7.0.5            # NISAR data from Alaska Satellite Facility
+  earthengine-api==1.7.17      # Google Earth Engine
+  asf-search>=8,<9             # NISAR data from Alaska Satellite Facility
   numpy==1.26.4
-  scipy==1.13.0
-  gdal==3.8.4                  # Geospatial data abstraction library
+  scipy==1.13.1
 
   # OCR
-  paddlepaddle==3.0.0          # PaddlePaddle CPU-only deep learning framework
-  paddleocr==3.0.3              # PaddleOCR with PP-OCRv5 Devanagari model
-  opencv-python-headless==4.9.0.80
-  Pillow==10.3.0
+  paddlepaddle==3.3.0          # PaddlePaddle CPU-only deep learning framework
+  paddleocr==3.4.0             # PaddleOCR with PP-OCRv5 Devanagari model
+  opencv-python-headless==4.10.0.84
+  Pillow==12.1.1
 
   # Machine Learning
   xgboost==2.0.3
   scikit-learn==1.4.2          # For preprocessing / train-test split
 
   # Background Tasks
-  celery==5.3.6
-  redis==5.0.4
+  celery==5.6.2
+  flower==2.0.1
+  redis==7.3.0
 
   # Blockchain
-  web3==6.18.0
-  eth-account==0.11.2
-  requests==2.31.0
+  web3==7.14.1
+  eth-account==0.13.7
+  requests==2.32.5            # Pinata upload + external REST calls
 
   # Validation
-  pydantic==2.7.0
-  pydantic-settings==2.2.1
-
-  # Security
-  python-jose[cryptography]==3.3.0
-  passlib[bcrypt]==1.7.4
+  pydantic==2.12.5
+  pydantic-settings==2.13.1
 
   # Utilities
-  httpx==0.27.0                # Async HTTP client for external API calls
-  python-multipart==0.0.9
+  httpx==0.28.1                # Async HTTP client for external API calls
+  playwright>=1.50,<2
 
 Install all:
   pip install -r requirements.txt
@@ -2063,7 +2375,7 @@ SECTION 11: DEPLOYMENT
 
   # Terminal 2: Start Celery worker
   cd backend
-  celery -A tasks.celery_app worker --loglevel=info --concurrency=2
+  celery -A tasks.celery_app worker --loglevel=info --concurrency=1
 
   # Terminal 3: Redis (if running locally)
   redis-server
@@ -2114,19 +2426,23 @@ Render.com (Recommended for free hosting):
     3. New Web Service → Connect GitHub repo → Set build command:
        pip install -r requirements.txt
        Set start command: uvicorn main:app --host 0.0.0.0 --port $PORT
-    4. Add all environment variables from Section 1.10
+     4. Add all environment variables from Section 1.11.
+       For Render free-tier multi-service deployments, prefer
+       GEE_SERVICE_ACCOUNT_JSON over GEE_SERVICE_ACCOUNT_KEY_PATH because the
+       web service and Celery worker do not share a persistent filesystem.
     5. Create a separate Background Worker for Celery:
-       Start command: celery -A tasks.celery_app worker --loglevel=info
+       Start command: celery -A tasks.celery_app worker --loglevel=info --concurrency=1
 
 11.4 CORS CONFIGURATION
 ------------------------
-Add to main.py to allow requests from the React Native app:
+React Native mobile clients do not require browser CORS. Add this middleware
+only if a web dashboard is introduced later:
 
   from fastapi.middleware.cors import CORSMiddleware
 
   app.add_middleware(
       CORSMiddleware,
-      allow_origins=[os.getenv('CORS_ORIGIN', '*')],
+      allow_origins=os.getenv('WEB_CORS_ORIGINS', '').split(','),
       allow_credentials=True,
       allow_methods=["*"],
       allow_headers=["*"],
@@ -2141,29 +2457,26 @@ Private Key Storage:
   Never in code files. Never in git. Use Render.com environment variables
   section or a secrets manager in production.
 
-Supabase Row Level Security (RLS):
-  Enable RLS on all tables. Each farmer can only read/write their own records.
-  Run in Supabase SQL Editor:
-    ALTER TABLE land_parcels ENABLE ROW LEVEL SECURITY;
-    CREATE POLICY "Users own their land" ON land_parcels
-        FOR ALL USING (auth.uid()::text = user_id::text);
+Backend Data Access Policy:
+  Mobile app never talks to Supabase directly and never receives
+  SUPABASE_SERVICE_KEY. All database and storage access runs through FastAPI.
+  Authorization is enforced in backend code after resolving users.firebase_uid
+  from a verified Firebase ID token. Supabase RLS can remain enabled as a
+  defense-in-depth control, but it is not the primary authorization boundary
+  in this architecture.
 
-    ALTER TABLE ar_tree_scans ENABLE ROW LEVEL SECURITY;
-    CREATE POLICY "Users own their scans" ON ar_tree_scans
-        FOR ALL USING (land_id IN (
-            SELECT id FROM land_parcels WHERE user_id::text = auth.uid()::text
-        ));
+Firebase ID Token Validation:
+  All protected endpoints validate Firebase ID tokens via the Authorization
+  header. FastAPI dependency checks the token on every protected request:
+    from firebase_admin import auth as firebase_auth
 
-    ALTER TABLE carbon_audits ENABLE ROW LEVEL SECURITY;
-    CREATE POLICY "Users own their audits" ON carbon_audits
-        FOR ALL USING (user_id::text = auth.uid()::text);
-
-JWT Validation:
-  All endpoints validate Supabase JWT tokens via the Authorization header.
-  FastAPI dependency checks token on every protected request:
     async def get_current_user(token: str = Depends(oauth2_scheme)):
-        user = supabase.auth.get_user(token)
-        if not user: raise HTTPException(401, "Invalid token")
+        decoded = firebase_auth.verify_id_token(token)
+        firebase_uid = decoded['uid']
+        phone_number = decoded.get('phone_number')
+        user = get_user_by_firebase_uid(firebase_uid, phone_number)
+        if not user:
+            raise HTTPException(401, "Authenticated user not provisioned")
         return user
 
 GEE Credentials:
@@ -2221,72 +2534,146 @@ SECTION 13: TESTING
 SECTION 14: IMPLEMENTATION SEQUENCE
 ================================================================================
 
-Follow this order to build the backend. Each phase builds on the previous.
-Do not skip phases or build out of order.
+Follow this order to build the backend. This backend schedule aligns to the
+16-week implementation sequence in the SRS.
 
-PHASE 1 — FOUNDATION (Week 1-2)
-  1. Set up all accounts from Section 1 (Supabase, GEE, Alchemy, etc.)
-  2. Create Supabase project. Enable PostGIS. Run all CREATE TABLE statements.
-  3. Set up FastAPI project with folder structure from Section 3.
-  4. Implement /health endpoint. Verify it runs.
-  5. Implement Supabase JWT validation middleware.
-  6. Implement POST /api/v1/auth/kyc endpoint.
-  7. Implement POST /api/v1/auth/register-wallet endpoint.
-  8. Test: register a test user via Supabase Auth dashboard, call /auth/kyc.
+WEEKS 1-2 — FOUNDATION
+  1. Set up all accounts from Section 1.
+  2. Create Supabase project, enable PostGIS, and run all CREATE TABLE statements.
+  3. Set up the FastAPI project structure from Section 3.
+  4. Implement /health, Firebase token validation, /auth/me, /auth/kyc,
+    and /auth/register-wallet.
+  5. Test OTP bootstrap and KYC persistence with Firebase test numbers.
 
-PHASE 2 — LAND REGISTRATION (Week 2-3)
-  1. Install PaddleOCR: pip install paddlepaddle==3.0.0 paddleocr==3.0.3.
-     Run a test script calling ocr_engine.predict() on a sample image to
-     trigger the one-time model weight download. Verify Devanagari text
-     is correctly recognised.
-  2. Implement OCR service (Section 9). Test with sample 7/12 image.
-  3. Implement LGD API calls (Maharashtra location code fetching).
-  4. Implement BhuNaksha WMS GetFeatureInfo call.
-  5. Implement POST /api/v1/land/verify-document endpoint.
-  6. Implement GET /api/v1/land/fetch-boundary endpoint.
-  7. Implement POST /api/v1/land/register endpoint with PostGIS storage.
-  8. Implement GET /api/v1/land/list endpoint.
-  9. Test full flow: upload 7/12 photo → OCR → WMS boundary → save to Supabase.
+WEEKS 3-4 — LAND REGISTRATION
+  1. Install and validate PaddleOCR with sample 7/12 images.
+  2. Implement OCR extraction, LGD API integration, and BhuNaksha WMS lookup.
+  3. Implement /land/verify-document, /land/fetch-boundary, /land/register,
+    and paginated /land/list.
+  4. Test the full OCR → boundary → registration flow, including manual fallback.
 
-PHASE 3 — SATELLITE ENGINE (Week 3-5)
-  1. Set up GEE service account authentication. Test with simple ee.Number.
-  2. Implement zone_generation_service.py. Test NDVI zone analysis on a test farm.
-  3. Implement GET /api/v1/audit/zones endpoint. Verify zones returned make sense.
-  4. Implement Chave equation calculation.
-  5. Implement full fusion_engine.py with Sentinel-1 + Sentinel-2 + GEDI + SRTM.
-  6. Train and test XGBoost model with sample data.
-  7. Set up Celery + Redis. Implement fusion background task.
-  8. Implement POST /api/v1/audit/submit-samples → triggers Celery task.
-  9. Implement GET /api/v1/audit/result polling endpoint.
-  10. Implement GET /api/v1/audit/history/{land_id} endpoint.
-  11. End-to-end test: submit fake tree scans → verify biomass calculated.
+WEEKS 5-7 — AUDIT BACKEND INTERFACES
+  1. Implement /audit/zones with NDVI-based zone generation and GEDI availability.
+  2. Implement /audit/submit-samples with server-side geofence validation,
+    photo hash validation contract, and Celery dispatch.
+  3. Set up Celery + Redis, background job retries, and COMPLETE_NO_CREDITS flow.
 
-PHASE 4 — BLOCKCHAIN (Week 5-6)
-  1. Write and test TerraToken.sol using Hardhat local network.
-  2. Run Hardhat tests (all should pass).
-  3. Deploy to Polygon Amoy testnet. Save CONTRACT_ADDRESS to .env.
-  4. Verify contract on PolygonScan Amoy.
-  5. Implement minting_service.py. Test IPFS upload.
-  6. Test full mint transaction on Amoy testnet.
-  7. Implement GET /credits/balance using web3.py.
+WEEKS 8-11 — SATELLITE ENGINE
+  1. Set up GEE service account auth and caching strategy.
+  2. Implement S1 + S2 + GEDI + SRTM fusion, Chave equation, and
+    sampleRegions-based training.
+  3. Implement latest-successful-audit baseline logic for credit calculation.
+  4. Implement /audit/result and paginated /audit/history/{land_id}.
 
-PHASE 5 — INTEGRATION AND NISAR (Week 6-7)
-  1. Set up NASA Earthdata account. Test asf_search library.
-  2. Implement nisar_service.py. Download sample NISAR data.
-  3. Add NISAR layer to fusion engine (phased — development mode only until
-     June 2026 calibrated data release).
-  4. Full end-to-end test: farmer registration → land verification →
-     zone generation → tree scan submission → biomass calculation →
-     credit minting → balance check.
+WEEKS 12-14 — BLOCKCHAIN + DASHBOARD SUPPORT
+  1. Finalize TerraToken.sol, Hardhat tests, and Polygon Amoy deployment.
+  2. Implement canonical IPFS metadata generation and minting service.
+  3. Implement paginated /credits/balance and optional backend-side balance check.
+  4. Validate end-to-end minting and certificate URLs.
 
-PHASE 6 — SECURITY AND DEPLOYMENT (Week 7-8)
-  1. Enable Supabase Row Level Security on all tables.
-  2. Deploy FastAPI to Render.com.
-  3. Deploy Celery worker to Render.com background worker.
-  4. Set up Redis Cloud free tier. Update REDIS_URL.
-  5. Set up cron-job.org keep-alive ping to Supabase.
-  6. Update mobile app API base URL to production domain.
-  7. Final end-to-end test on production environment.
+WEEKS 15-16 — TESTING, HARDENING, DEPLOYMENT
+  1. Enable production rate limiting, structured logging, and backup routines.
+  2. Run AR accuracy field tests and GPS zone-arrival validation with the
+     mobile team before production sign-off.
+  3. Run mock-GPS and backend-only-access-policy validation.
+  4. Deploy FastAPI and Celery to Render with Redis.
+  5. Configure GEE_SERVICE_ACCOUNT_JSON for cloud workers.
+  6. Configure cron-job.org keep-alive/health monitoring.
+  7. Run full end-to-end tests, including no-credit completion and recovery paths.
+
+================================================================================
+APPENDIX A: ALIGNMENT CLARIFICATIONS (APRIL 2026)
+================================================================================
+
+1. Realtime geofencing boundary check
+  The mobile app performs local point-in-polygon checks against cached
+  official GeoJSON. The backend does not expose a per-GPS realtime endpoint.
+  Server-side ST_Contains() remains mandatory during sample submission.
+
+2. Boundary rejection handling
+  When the farmer rejects a fetched boundary, the mobile app must preserve
+  the OCR-extracted document fields and either retry /land/fetch-boundary
+  once or switch to the manual-upload path. The backend should treat both
+  paths as the same registration flow and not require a fresh OCR run unless
+  the image itself changed.
+
+3. Photo evidence contract
+  evidence_photo_base64 must represent the final JPEG bytes only, with no
+  data URI prefix. Resize to a maximum of 1280×960 pixels, strip EXIF metadata,
+  and compress at JPEG quality 85 before hashing/upload.
+  evidence_photo_hash is SHA-256 of those exact decoded bytes. Backend must
+  reject mismatches.
+
+4. Species acceptance contract
+  The backend accepts only the 11 approved species and requires
+  species_confidence >= 0.80 from the mobile client. Any unknown species or
+  lower-confidence classification must be rejected upstream.
+
+5. GPS quality contract
+  Zone arrival requires distance <= 10m and gps_accuracy_m <= 20.
+  Backend should reject saved scans with gps_accuracy_m > 30.
+
+6. Rate limiting
+  Minimum production limits:
+  POST /api/v1/land/verify-document = 10/hour/user
+  GET /api/v1/land/fetch-boundary = 20/hour/user
+  GET /api/v1/audit/zones = 5/hour/user
+  POST /api/v1/audit/submit-samples = 3/hour/user
+  GET /api/v1/audit/result/{audit_id} = 60/minute/user
+  GET /api/v1/credits/balance = 30/minute/user
+  Return HTTP 429 with Retry-After.
+  Parcel-scale Earth Engine work runs inside the single fusion Celery task for
+  that audit, not separate nested Celery subtasks. MVP quota policy starts
+  with Celery concurrency=1 so only one parcel-scale GEE fusion job is active
+  per worker/project until quota testing proves a higher safe limit. If Earth
+  Engine returns quota or rate-limit errors, keep the audit status at
+  CALCULATING, back off, and retry within Celery rather than requiring the
+  mobile client to resubmit.
+
+7. Monitoring and backup
+  Production services must emit structured JSON logs with audit_id, land_id,
+  user_id, route, dependency name, retry count, and latency.
+  Celery task failures and blockchain minting failures must trigger alerts.
+  Logs must be PII-safe and must not contain plain phone numbers, names,
+  Aadhaar, private keys, or raw OCR output.
+  Run daily database backups, weekly storage manifest exports, and quarterly
+  restore drills.
+  Blockchain event history plus IPFS metadata are the source of truth for
+  already-issued credits if off-chain recovery is required.
+
+8. Wallet recovery requirement
+  Production launch requires an admin-assisted wallet rotation capability.
+  The backend must support identity-verified replacement of the farmer wallet
+  while preserving future credit issuance and certificate continuity.
+
+9. Aadhaar handling
+  Plain Aadhaar must be processed only in volatile memory, hashed
+  immediately, excluded from logs, and never stored as an image or plaintext.
+  Production launch requires legal review against India's Digital Personal
+  Data Protection Act, 2023 (DPDPA).
+
+10. Mobile/frontend-safe RPC key separation
+  If the mobile app performs optional direct chain validation, it must use a
+  different frontend-safe Alchemy key from the backend server key.
+
+11. iOS future scope
+  iOS support requires a separate ARKit bridge, non-Android-specific boundary
+  map rendering, Apple device attestation/App Check support, and Keychain
+  parity testing before it can enter scope.
+
+12. Versioning and contract upgrade policy
+  Mobile releases use semantic versioning plus platform build numbers.
+  Breaking API changes require a new API path version and a minimum supported
+  app version gate.
+  Minted audits remain historically immutable when xgboost_model_version changes.
+  ERC-1155 contract changes are handled via new contract deployment rather than
+  in-place mutation of historical token records.
+
+13. Audit due definition
+  "Audit due" means once per calendar audit_year.
+  If a parcel already has a current-year audit, /audit/zones should return
+  HTTP 409 with existing_audit_id and current status so the mobile UI can
+  route to resume/status instead of attempting a duplicate audit.
 
 ================================================================================
 END OF DOCUMENT

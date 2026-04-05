@@ -9,12 +9,18 @@ import {
 } from 'react-native';
 import type {NativeStackScreenProps} from '@react-navigation/native-stack';
 import type {RootStackParamList} from '../../../types/navigation';
-import {supabase} from '../../../services/supabase';
-import {createFarmerWallet} from '../../../services/wallet';
+import {createFarmerWallet, getWalletAddress} from '../../../services/wallet';
 import api from '../../../services/api';
-import {useAppDispatch} from '../../../store/hooks';
+import {
+  confirmPhoneOtp,
+  getFreshFirebaseIdToken,
+  sendPhoneOtp,
+  type AuthBootstrapResponse,
+} from '../../../services/firebase';
+import {useAppDispatch, useAppSelector} from '../../../store/hooks';
 import {setUser, setWalletAddress, setKycCompleted} from '../store/authSlice';
 import Loader from '../../../common/components/Loader';
+import {getAuthenticatedEntryRoute} from '../../../common/utils/onboarding';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'OTPScreen'>;
 
@@ -24,6 +30,9 @@ const COUNTDOWN_SECONDS = 28;
 const OTPScreen = ({route, navigation}: Props) => {
   const {phone} = route.params;
   const dispatch = useAppDispatch();
+  const existingAadhaarHash = useAppSelector(
+    state => state.auth.user?.aadhaar_hash ?? '',
+  );
 
   const [digits, setDigits] = useState<string[]>(Array(OTP_LENGTH).fill(''));
   const [isLoading, setIsLoading] = useState(false);
@@ -66,99 +75,121 @@ const OTPScreen = ({route, navigation}: Props) => {
     /(\+91)(\d{6})(\d{4})/,
     '$1 XXXXXX$3',
   );
+  const otpValue = digits.join('');
+  const isOtpComplete = otpValue.length === OTP_LENGTH;
 
-  // Auto-verify when all 6 digits entered
+  const resetOtpInputs = useCallback(() => {
+    setDigits(Array(OTP_LENGTH).fill(''));
+    inputRefs.current[0]?.focus();
+  }, []);
+
+  const applyProfile = useCallback(
+    (profile: AuthBootstrapResponse) => {
+      dispatch(
+        setUser({
+          id: profile.user_id,
+          firebaseUid: profile.firebase_uid,
+          name: profile.full_name ?? '',
+          phone: profile.phone_number,
+          aadhaar_hash: existingAadhaarHash,
+        }),
+      );
+      dispatch(setWalletAddress(profile.wallet_address));
+      dispatch(setKycCompleted(profile.kyc_completed));
+    },
+    [dispatch, existingAadhaarHash],
+  );
+
+  const bootstrapProfile = useCallback(async () => {
+    await getFreshFirebaseIdToken(true);
+
+    let {data: profile} = await api.get<AuthBootstrapResponse>('/api/v1/auth/me');
+
+    if (!profile.wallet_address) {
+      const walletAddress =
+        (await getWalletAddress()) ?? (await createFarmerWallet());
+
+      await api.post('/api/v1/auth/register-wallet', {
+        wallet_address: walletAddress,
+      });
+
+      await getFreshFirebaseIdToken(true);
+      const refreshedProfile = await api.get<AuthBootstrapResponse>(
+        '/api/v1/auth/me',
+      );
+      profile = refreshedProfile.data.wallet_address
+        ? refreshedProfile.data
+        : {...refreshedProfile.data, wallet_address: walletAddress};
+    }
+
+    applyProfile(profile);
+
+    const nextRoute = getAuthenticatedEntryRoute(profile.kyc_completed);
+
+    if (nextRoute !== 'KYCScreen') {
+      navigation.reset({index: 0, routes: [{name: nextRoute}]});
+      return;
+    }
+
+    navigation.replace(nextRoute);
+  }, [applyProfile, navigation]);
+
   const handleVerifyOtp = useCallback(
-    async (otpValue: string) => {
+    async () => {
       if (isLoading) {
         return;
       }
+
+      if (!isOtpComplete) {
+        setError('Enter the full 6-digit OTP to continue.');
+        return;
+      }
+
       setIsLoading(true);
       setError(null);
 
       try {
-        const {data, error: verifyError} = await supabase.auth.verifyOtp({
-          phone,
-          token: otpValue,
-          type: 'sms',
-        });
-
-        if (verifyError) {
+        await confirmPhoneOtp(otpValue);
+        await bootstrapProfile();
+      } catch (caughtError) {
+        const firebaseErr = caughtError as {code?: string; message?: string};
+        if (
+          firebaseErr.message === 'OTP_SESSION_MISSING' ||
+          firebaseErr.code === 'auth/session-expired'
+        ) {
+          setError('OTP session expired. Please resend the code.');
+        } else if (firebaseErr.code === 'auth/invalid-verification-code') {
           setError('Incorrect code. Please try again.');
-          setDigits(Array(OTP_LENGTH).fill(''));
-          inputRefs.current[0]?.focus();
-          setIsLoading(false);
-          return;
+        } else {
+          setError('Something went wrong. Please try again.');
         }
-
-        // OTP success — fetch user profile from Supabase
-        if (data.user) {
-          const {data: profile} = await supabase
-            .from('users')
-            .select('name, phone, aadhaar_hash, wallet_address, kyc_completed')
-            .eq('id', data.user.id)
-            .single();
-
-          if (profile) {
-            dispatch(
-              setUser({
-                id: data.user.id,
-                name: profile.name ?? '',
-                phone: profile.phone ?? data.user.phone ?? phone,
-                aadhaar_hash: profile.aadhaar_hash ?? '',
-              }),
-            );
-            if (profile.wallet_address) {
-              dispatch(setWalletAddress(profile.wallet_address));
-            }
-            if (profile.kyc_completed) {
-              dispatch(setKycCompleted(true));
-            }
-          }
-
-          // Wallet creation if needed
-          const hasWallet = profile?.wallet_address;
-          if (!hasWallet) {
-            try {
-              const address = await createFarmerWallet();
-              dispatch(setWalletAddress(address));
-              await api.post('/api/v1/auth/register-wallet', {
-                wallet_address: address,
-              });
-            } catch {
-              // Non-blocking per D-005 — wallet in Redux for retry
-            }
-          }
-
-          // Route based on KYC status
-          if (profile?.kyc_completed) {
-            navigation.reset({index: 0, routes: [{name: 'HomeScreen'}]});
-          } else {
-            navigation.replace('KYCScreen');
-          }
-        }
-      } catch {
-        setError('Incorrect code. Please try again.');
-        setDigits(Array(OTP_LENGTH).fill(''));
-        inputRefs.current[0]?.focus();
+        resetOtpInputs();
       } finally {
         setIsLoading(false);
       }
     },
-    [isLoading, phone, navigation, dispatch],
+    [bootstrapProfile, isLoading, isOtpComplete, otpValue, resetOtpInputs],
   );
 
-  useEffect(() => {
-    const otpValue = digits.join('');
-    if (otpValue.length === OTP_LENGTH && !isLoading) {
-      handleVerifyOtp(otpValue);
-    }
-  }, [digits, isLoading, handleVerifyOtp]);
-
   const handleDigitChange = (text: string, index: number) => {
-    // Only allow single digit
-    const digit = text.replace(/[^0-9]/g, '').slice(-1);
+    const sanitized = text.replace(/[^0-9]/g, '');
     const newDigits = [...digits];
+
+    if (sanitized.length > 1) {
+      sanitized
+        .slice(0, OTP_LENGTH - index)
+        .split('')
+        .forEach((digit, offset) => {
+          newDigits[index + offset] = digit;
+        });
+      setDigits(newDigits);
+      const nextIndex = Math.min(index + sanitized.length, OTP_LENGTH - 1);
+      inputRefs.current[nextIndex]?.focus();
+      setError(null);
+      return;
+    }
+
+    const digit = sanitized.slice(-1);
     newDigits[index] = digit;
     setDigits(newDigits);
     setError(null);
@@ -183,11 +214,10 @@ const OTPScreen = ({route, navigation}: Props) => {
 
   const handleResend = async () => {
     try {
-      await supabase.auth.signInWithOtp({phone});
-      setDigits(Array(OTP_LENGTH).fill(''));
+      await sendPhoneOtp(phone);
+      resetOtpInputs();
       setError(null);
       startTimer();
-      inputRefs.current[0]?.focus();
     } catch {
       setError('Failed to resend OTP. Try again.');
     }
@@ -198,7 +228,13 @@ const OTPScreen = ({route, navigation}: Props) => {
       className="flex-1 bg-white"
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
       <View className="flex-1 px-6 pt-16">
-        {/* Header */}
+        <TouchableOpacity
+          className="min-h-[48px] min-w-[48px] items-center justify-center self-start"
+          onPress={() => navigation.replace('LoginScreen')}
+          activeOpacity={0.7}>
+          <Text className="text-2xl text-[#2F855A]">←</Text>
+        </TouchableOpacity>
+
         <Text className="text-base text-gray-700">
           Enter the 6-digit code sent to
         </Text>
@@ -226,6 +262,8 @@ const OTPScreen = ({route, navigation}: Props) => {
               onKeyPress={e => handleKeyPress(e, index)}
               editable={!isLoading}
               selectTextOnFocus
+              textContentType={index === 0 ? 'oneTimeCode' : 'none'}
+              autoComplete={index === 0 ? 'sms-otp' : 'off'}
             />
           ))}
         </View>
@@ -237,12 +275,21 @@ const OTPScreen = ({route, navigation}: Props) => {
           </Text>
         )}
 
-        {/* Loading */}
-        {isLoading && (
-          <View className="mt-4 items-center">
+        <TouchableOpacity
+          className={`mt-8 min-h-[48px] items-center justify-center rounded-xl ${
+            isLoading || !isOtpComplete ? 'bg-[#9CA3AF]' : 'bg-[#2F855A]'
+          }`}
+          onPress={() => {
+            void handleVerifyOtp();
+          }}
+          disabled={isLoading || !isOtpComplete}
+          activeOpacity={0.8}>
+          {isLoading ? (
             <Loader />
-          </View>
-        )}
+          ) : (
+            <Text className="text-base font-bold text-white">Verify OTP</Text>
+          )}
+        </TouchableOpacity>
 
         {/* Countdown / Resend */}
         <View className="mt-6 items-center">

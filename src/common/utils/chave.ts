@@ -10,7 +10,7 @@ export function calculateChaveAGB(
     return 0;
   }
 
-  return 0.0509 * Math.pow(woodDensity * dbhCm * dbhCm * heightM, 0.999);
+  return 0.0673 * Math.pow(woodDensity * dbhCm * dbhCm * heightM, 0.976);
 }
 
 export function estimateTco2eFromTrees(scannedTrees: TreeSample[]): number {
