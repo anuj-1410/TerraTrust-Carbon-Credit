@@ -1,10 +1,10 @@
-import axios from 'axios';
+import axios, {AxiosHeaders, type InternalAxiosRequestConfig} from 'axios';
 import Config from 'react-native-config';
-import {supabase} from './supabase';
+import {getFreshFirebaseIdToken, signOutFirebase} from './firebase';
 import {navigationRef} from './navigationRef';
 import {store} from '../store';
 import {logout} from '../features/auth/store/authSlice';
-import {showBanner} from '../store/uiSlice';
+import {setMaintenance, showBanner} from '../store/uiSlice';
 import {mmkv} from '../store/mmkvStorage';
 
 const api = axios.create({
@@ -24,33 +24,79 @@ export async function retryPendingAuditUpload(): Promise<boolean> {
   try {
     const payload = JSON.parse(raw);
     await api.post('/api/v1/audit/submit-samples', payload);
-    mmkv.remove('pending_upload');
+    mmkv.delete('pending_upload');
     return true;
   } catch (error) {
     const axiosErr = error as {response?: {status?: number}};
     if (axiosErr.response?.status === 401 || error instanceof SyntaxError) {
-      mmkv.remove('pending_upload');
+      mmkv.delete('pending_upload');
     }
     return false;
   }
 }
 
-// Request interceptor: attach Supabase JWT
-api.interceptors.request.use(async config => {
-  const {data} = await supabase.auth.getSession();
-  const token = data.session?.access_token;
-  if (token) {
-    config.headers.Authorization = `Bearer ${token}`;
+function withAuthorizationHeader(
+  config: InternalAxiosRequestConfig,
+  token: string,
+): InternalAxiosRequestConfig {
+  const headers =
+    config.headers instanceof AxiosHeaders
+      ? config.headers
+      : new AxiosHeaders(config.headers);
+
+  headers.set('Authorization', `Bearer ${token}`);
+  config.headers = headers;
+
+  return config;
+}
+
+function enterMaintenanceMode(payload: unknown): boolean {
+  if (!payload || typeof payload !== 'object' || !('maintenance' in payload)) {
+    return false;
   }
+
+  const maintenancePayload = payload as {
+    maintenance?: boolean;
+    message?: string;
+  };
+
+  if (maintenancePayload.maintenance !== true) {
+    return false;
+  }
+
+  store.dispatch(
+    setMaintenance({
+      message: maintenancePayload.message,
+    }),
+  );
+
+  return true;
+}
+
+// Request interceptor: attach Firebase ID token
+api.interceptors.request.use(async config => {
+  const token = await getFreshFirebaseIdToken();
+  if (token) {
+    return withAuthorizationHeader(config, token);
+  }
+
   return config;
 });
 
 // Response interceptor: 401 → login, 500 → banner, offline → queue audit only
 api.interceptors.response.use(
-  response => response,
+  response => {
+    enterMaintenanceMode(response.data);
+    return response;
+  },
   async error => {
+    if (enterMaintenanceMode(error.response?.data)) {
+      return Promise.reject(error);
+    }
+
     // 401: session expired → force re-login
     if (error.response?.status === 401) {
+      await signOutFirebase();
       store.dispatch(logout());
       if (navigationRef.isReady()) {
         navigationRef.reset({index: 0, routes: [{name: 'LoginScreen'}]});

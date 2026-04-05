@@ -1,9 +1,10 @@
 import React, {useCallback, useMemo, useState} from 'react';
-import {View, Text, Image, TouchableOpacity, TextInput, StyleSheet} from 'react-native';
+import {View, Text, Image, TouchableOpacity, StyleSheet} from 'react-native';
 import {useNavigation} from '@react-navigation/native';
 import type {NativeStackNavigationProp} from '@react-navigation/native-stack';
 import MapView, {Polygon} from 'react-native-maps';
 import NetInfo from '@react-native-community/netinfo';
+import Geolocation from 'react-native-geolocation-service';
 import LottieView from 'lottie-react-native';
 
 import type {RootStackParamList} from '../../../types/navigation';
@@ -11,12 +12,27 @@ import {useAppDispatch, useAppSelector} from '../../../store/hooks';
 import {
   addParcel,
   clearCurrentDraft,
+  setCurrentDraft,
   type LandParcel,
 } from '../store/landSlice';
 import api from '../../../services/api';
 import {COLORS} from '../../../common/constants/colors';
+import BottomSheet from '../../../common/components/BottomSheet';
 
 type Nav = NativeStackNavigationProp<RootStackParamList>;
+
+const getGPS = (): Promise<{lat: number; lng: number} | null> =>
+  new Promise(resolve => {
+    Geolocation.getCurrentPosition(
+      position =>
+        resolve({
+          lat: position.coords.latitude,
+          lng: position.coords.longitude,
+        }),
+      () => resolve(null),
+      {timeout: 5000, enableHighAccuracy: false},
+    );
+  });
 
 const BoundaryConfirmScreen = () => {
   const navigation = useNavigation<Nav>();
@@ -25,12 +41,14 @@ const BoundaryConfirmScreen = () => {
 
   const boundary = currentDraft.boundary;
   const ocrResult = currentDraft.ocrResult;
+  const defaultFarmName = ocrResult?.survey_number?.trim() || 'My Land';
 
-  const [farmName, setFarmName] = useState(ocrResult?.survey_number ?? '');
   const [isLoading, setIsLoading] = useState(false);
   const [registerError, setRegisterError] = useState<string | null>(null);
   const [isOffline, setIsOffline] = useState(false);
   const [imageLoadFailed, setImageLoadFailed] = useState(false);
+  const [showRetryOptions, setShowRetryOptions] = useState(false);
+  const [loadingText, setLoadingText] = useState('Registering your land…');
 
   // Compute region from GeoJSON coordinates
   const {region, polygonCoords} = useMemo(() => {
@@ -66,10 +84,6 @@ const BoundaryConfirmScreen = () => {
   // Confirm → register
   const onConfirm = useCallback(async () => {
     if (!ocrResult || !boundary) return;
-    if (!farmName.trim()) {
-      setRegisterError('Please give your land a name.');
-      return;
-    }
 
     const netInfo = await NetInfo.fetch();
     if (!netInfo.isConnected) {
@@ -83,7 +97,7 @@ const BoundaryConfirmScreen = () => {
 
     try {
       const payload = {
-        farm_name: farmName.trim(),
+        farm_name: defaultFarmName,
         survey_number: ocrResult.survey_number,
         district: ocrResult.district,
         taluka: ocrResult.taluka,
@@ -106,7 +120,7 @@ const BoundaryConfirmScreen = () => {
 
       const newParcel: LandParcel = {
         id: registerData.land_id,
-        farm_name: farmName.trim(),
+        farm_name: defaultFarmName,
         survey_number: ocrResult.survey_number,
         district: ocrResult.district,
         taluka: ocrResult.taluka,
@@ -124,7 +138,9 @@ const BoundaryConfirmScreen = () => {
 
       dispatch(addParcel(newParcel));
       dispatch(clearCurrentDraft());
-      navigation.navigate('LandListScreen');
+      navigation.replace('LandRegistrationSuccessScreen', {
+        landId: newParcel.id,
+      });
     } catch (err: unknown) {
       const axiosErr = err as {response?: {status?: number; data?: {error?: string}}};
       if (!axiosErr.response) {
@@ -145,10 +161,85 @@ const BoundaryConfirmScreen = () => {
     } finally {
       setIsLoading(false);
     }
-  }, [ocrResult, boundary, currentDraft, farmName, dispatch, navigation]);
+  }, [ocrResult, boundary, currentDraft, defaultFarmName, dispatch, navigation]);
 
-  // Try Again → back to document upload
-  const onTryAgain = useCallback(() => {
+  const onRetryAutomaticFetch = useCallback(async () => {
+    if (!ocrResult) {
+      return;
+    }
+
+    const netInfo = await NetInfo.fetch();
+    if (!netInfo.isConnected) {
+      setIsOffline(true);
+      setShowRetryOptions(false);
+      return;
+    }
+
+    setShowRetryOptions(false);
+    setIsLoading(true);
+    setLoadingText('Trying to find your land boundary again…');
+    setRegisterError(null);
+
+    const gps = await getGPS();
+
+    try {
+      dispatch(setCurrentDraft({fetchStatus: 'fetching'}));
+
+      const params: Record<string, string | number> = {
+        survey_number: ocrResult.survey_number,
+        district: ocrResult.district,
+        taluka: ocrResult.taluka,
+        village: ocrResult.village,
+        state: ocrResult.state,
+      };
+
+      if (gps) {
+        params.user_lat = gps.lat;
+        params.user_lng = gps.lng;
+      }
+
+      const {data} = await api.get('/api/v1/land/fetch-boundary', {params});
+
+      if ((data as {status: string}).status === 'success') {
+        const successData = data as {
+          status: 'success';
+          boundary_source: string;
+          geojson: {geometry: object};
+          satellite_thumbnail_url: string;
+        };
+
+        dispatch(
+          setCurrentDraft({
+            boundary: successData.geojson
+              .geometry as import('../store/landSlice').GeoJSONPolygon,
+            boundarySource: successData.boundary_source as import('../store/landSlice').BoundarySource,
+            satelliteThumbnailUrl: successData.satellite_thumbnail_url,
+            fetchStatus: 'success',
+          }),
+        );
+        return;
+      }
+
+      dispatch(setCurrentDraft({fetchStatus: 'manual_required'}));
+      navigation.navigate('ManualUploadGuideScreen');
+    } catch (err: unknown) {
+      const axiosErr = err as {response?: unknown};
+      dispatch(setCurrentDraft({fetchStatus: 'error'}));
+
+      if (!axiosErr.response) {
+        setIsOffline(true);
+      }
+
+      setRegisterError(
+        'We still could not verify this boundary automatically. Upload the boundary map manually or retake the document.',
+      );
+    } finally {
+      setLoadingText('Registering your land…');
+      setIsLoading(false);
+    }
+  }, [dispatch, navigation, ocrResult]);
+
+  const onRetakeDocument = useCallback(() => {
     dispatch(clearCurrentDraft());
     navigation.navigate('DocumentUploadScreen');
   }, [dispatch, navigation]);
@@ -230,19 +321,16 @@ const BoundaryConfirmScreen = () => {
           </Text>
         </View>
 
-        {/* Farm Name Input (Flaw #68) */}
         <View className="mb-6">
-          <Text className="text-white/50 text-xs uppercase tracking-widest mb-1">
-            Give this land a name
+          <Text className="text-white/50 text-xs uppercase tracking-widest">
+            Land Name
           </Text>
-          <TextInput
-            className="bg-white/10 rounded-lg px-4 h-12 text-white text-base"
-            value={farmName}
-            onChangeText={setFarmName}
-            placeholder="e.g. North Field"
-            placeholderTextColor="rgba(255,255,255,0.3)"
-            maxLength={100}
-          />
+          <Text className="text-white text-base font-medium mt-0.5">
+            {defaultFarmName}
+          </Text>
+          <Text className="text-white/50 text-sm mt-2 leading-5">
+            You can rename this parcel later from the land details screen.
+          </Text>
         </View>
 
         {/* Error message */}
@@ -268,10 +356,10 @@ const BoundaryConfirmScreen = () => {
         {/* Try Again */}
         <TouchableOpacity
           className="mt-3 h-12 items-center justify-center min-h-[48px]"
-          onPress={onTryAgain}
+          onPress={() => setShowRetryOptions(true)}
           activeOpacity={0.7}>
           <Text style={{color: COLORS.ERROR_RED}} className="text-sm font-medium">
-            This boundary is wrong — Report and Try Again
+            This boundary is wrong
           </Text>
         </TouchableOpacity>
       </View>
@@ -286,10 +374,53 @@ const BoundaryConfirmScreen = () => {
             style={{width: 120, height: 120}}
           />
           <Text className="text-white text-lg mt-4 font-medium">
-            Registering your land…
+            {loadingText}
           </Text>
         </View>
       )}
+
+      <BottomSheet visible={showRetryOptions} onClose={() => setShowRetryOptions(false)}>
+        <Text className="text-lg font-bold" style={{color: COLORS.DARK_SLATE}}>
+          Boundary needs correction
+        </Text>
+        <Text className="mt-3 leading-6" style={{color: COLORS.DISABLED_GREY}}>
+          Choose the next step TerraTrust should take for this land parcel.
+        </Text>
+
+        <TouchableOpacity
+          className="mt-6 min-h-[48px] justify-center rounded-xl px-4 py-3"
+          style={{backgroundColor: COLORS.FOREST_GREEN}}
+          onPress={() => {
+            void onRetryAutomaticFetch();
+          }}
+          activeOpacity={0.75}>
+          <Text className="text-white text-base font-semibold">
+            Retry automatic boundary fetch
+          </Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          className="mt-3 min-h-[48px] justify-center rounded-xl border px-4 py-3"
+          style={{borderColor: COLORS.FOREST_GREEN}}
+          onPress={() => {
+            setShowRetryOptions(false);
+            navigation.navigate('ManualUploadGuideScreen');
+          }}
+          activeOpacity={0.75}>
+          <Text className="text-base font-semibold" style={{color: COLORS.FOREST_GREEN}}>
+            Upload boundary map manually
+          </Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          className="mt-3 min-h-[48px] justify-center rounded-xl px-4 py-3"
+          onPress={onRetakeDocument}
+          activeOpacity={0.75}>
+          <Text className="text-base font-semibold" style={{color: COLORS.ERROR_RED}}>
+            Retake land document
+          </Text>
+        </TouchableOpacity>
+      </BottomSheet>
     </View>
   );
 };

@@ -2,6 +2,7 @@ import {createSlice, type PayloadAction} from '@reduxjs/toolkit';
 
 export interface AuthUser {
   id: string;
+  firebaseUid: string;
   name: string;
   phone: string;
   aadhaar_hash: string;
@@ -29,7 +30,7 @@ const authSlice = createSlice({
       state.user = action.payload;
       state.isAuthenticated = true;
     },
-    setWalletAddress(state, action: PayloadAction<string>) {
+    setWalletAddress(state, action: PayloadAction<string | null>) {
       state.walletAddress = action.payload;
     },
     setKycCompleted(state, action: PayloadAction<boolean>) {

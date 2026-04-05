@@ -15,20 +15,46 @@ interface BadgeProps {
   variant: BadgeVariant;
 }
 
-const variantClasses: Record<BadgeVariant, {container: string; text: string}> = {
-  verified: {container: `bg-[${COLORS.FOREST_GREEN}]/15`, text: `text-[${COLORS.FOREST_GREEN}]`},
-  pending: {container: `bg-[${COLORS.WARNING_ORANGE}]/15`, text: `text-[${COLORS.WARNING_ORANGE}]`},
-  rejected: {container: `bg-[${COLORS.ERROR_RED}]/15`, text: `text-[${COLORS.ERROR_RED}]`},
-  'high-precision': {container: `bg-[${COLORS.TEAL}]/15`, text: `text-[${COLORS.TEAL}]`},
-  'standard-precision': {container: `bg-[${COLORS.WARNING_ORANGE}]/15`, text: `text-[${COLORS.WARNING_ORANGE}]`},
-  manual: {container: `bg-[${COLORS.WARNING_ORANGE}]/15`, text: `text-[${COLORS.WARNING_ORANGE}]`},
+const variantStyles: Record<
+  BadgeVariant,
+  {
+    container: {backgroundColor: string};
+    text: {color: string};
+  }
+> = {
+  verified: {
+    container: {backgroundColor: 'rgba(47, 133, 90, 0.15)'},
+    text: {color: COLORS.FOREST_GREEN},
+  },
+  pending: {
+    container: {backgroundColor: 'rgba(221, 107, 32, 0.15)'},
+    text: {color: COLORS.WARNING_ORANGE},
+  },
+  rejected: {
+    container: {backgroundColor: 'rgba(229, 62, 62, 0.15)'},
+    text: {color: COLORS.ERROR_RED},
+  },
+  'high-precision': {
+    container: {backgroundColor: 'rgba(56, 178, 172, 0.15)'},
+    text: {color: COLORS.TEAL},
+  },
+  'standard-precision': {
+    container: {backgroundColor: 'rgba(221, 107, 32, 0.15)'},
+    text: {color: COLORS.WARNING_ORANGE},
+  },
+  manual: {
+    container: {backgroundColor: 'rgba(221, 107, 32, 0.15)'},
+    text: {color: COLORS.WARNING_ORANGE},
+  },
 };
 
 const Badge = ({label, variant}: BadgeProps) => {
-  const styles = variantClasses[variant];
+  const styles = variantStyles[variant];
   return (
-    <View className={`px-3 py-1 rounded-full ${styles.container}`}>
-      <Text className={`text-xs font-medium ${styles.text}`}>{label}</Text>
+    <View className="rounded-full px-3 py-1" style={styles.container}>
+      <Text className="text-xs font-medium" style={styles.text}>
+        {label}
+      </Text>
     </View>
   );
 };

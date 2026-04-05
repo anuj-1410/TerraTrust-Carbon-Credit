@@ -4,6 +4,13 @@ apply plugin: "com.facebook.react"
 
 apply from: project(':react-native-config').projectDir.getPath() + "/dotenv.gradle"
 
+def googleServicesConfig = file("google-services.json")
+if (googleServicesConfig.exists()) {
+    apply plugin: "com.google.gms.google-services"
+} else {
+    logger.warn("google-services.json not found in android/app. Firebase Authentication will not initialize until the file is added.")
+}
+
 /**
  * This is the configuration block to customize your React Native Android app.
  * By default you don't need to apply any configuration, just uncomment the lines you need.
@@ -56,10 +63,15 @@ react {
     autolinkLibrariesWithApp()
 }
 
+def enableSeparateBuildPerCPUArchitecture = gradle.startParameter.taskNames.any { taskName ->
+    def normalizedTaskName = taskName.toLowerCase()
+    normalizedTaskName.contains("release") || normalizedTaskName.contains("bundle")
+}
+
 /**
  * Set this to true to Run Proguard on Release builds to minify the Java bytecode.
  */
-def enableProguardInReleaseBuilds = false
+def enableProguardInReleaseBuilds = true
 
 /**
  * The preferred build flavor of JavaScriptCore (JSC)
@@ -98,6 +110,14 @@ android {
         versionName "1.0"
         manifestPlaceholders = [GOOGLE_MAPS_API_KEY: project.env.get("GOOGLE_MAPS_API_KEY") ?: localProperties.getProperty('GOOGLE_MAPS_API_KEY', '')]
     }
+    splits {
+        abi {
+            reset()
+            enable enableSeparateBuildPerCPUArchitecture
+            universalApk false
+            include "arm64-v8a"
+        }
+    }
     signingConfigs {
         debug {
             storeFile file('debug.keystore')
@@ -115,6 +135,7 @@ android {
             // see https://reactnative.dev/docs/signed-apk-android.
             signingConfig signingConfigs.debug
             minifyEnabled enableProguardInReleaseBuilds
+            shrinkResources enableProguardInReleaseBuilds
             proguardFiles getDefaultProguardFile("proguard-android.txt"), "proguard-rules.pro"
         }
     }

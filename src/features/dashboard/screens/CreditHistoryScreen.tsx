@@ -36,19 +36,18 @@ const truncateHash = (hash: string) =>
 const CreditHistoryScreen = () => {
   const navigation = useNavigation();
   const dispatch = useAppDispatch();
+  const canGoBack = navigation.canGoBack();
 
-  const walletAddress = useAppSelector(s => s.auth.walletAddress);
+  const isAuthenticated = useAppSelector(s => s.auth.isAuthenticated);
   const {history, lastFetchedAt} = useAppSelector(s => s.credits);
   const [isLoading, setIsLoading] = useState(false);
 
   useEffect(() => {
-    if (walletAddress) {
+    if (isAuthenticated) {
       setIsLoading(true);
-      dispatch(fetchCreditsThunk(walletAddress)).finally(() =>
-        setIsLoading(false),
-      );
+      dispatch(fetchCreditsThunk()).finally(() => setIsLoading(false));
     }
-  }, [walletAddress, dispatch]);
+  }, [dispatch, isAuthenticated]);
 
   // Bar chart data
   const chartData = useMemo(() => {
@@ -77,7 +76,9 @@ const CreditHistoryScreen = () => {
   // Loading state
   if (isLoading && history.length === 0) {
     return (
-      <View className={`flex-1 bg-[${COLORS.OFF_WHITE}] items-center justify-center`}>
+      <View
+        className="flex-1 items-center justify-center"
+        style={{backgroundColor: COLORS.OFF_WHITE}}>
         <LottieView
           source={require('../../../assets/lottie/spinning_leaf.json')}
           autoPlay
@@ -91,19 +92,27 @@ const CreditHistoryScreen = () => {
   // Empty state
   if (!isLoading && history.length === 0) {
     return (
-      <View className={`flex-1 bg-[${COLORS.OFF_WHITE}]`}>
+      <View className="flex-1" style={{backgroundColor: COLORS.OFF_WHITE}}>
         <View className="flex-row items-center px-4 pt-12 pb-4">
-          <TouchableOpacity
-            className="min-h-[48px] min-w-[48px] items-center justify-center"
-            onPress={() => navigation.goBack()}>
-            <Text className={`text-[${COLORS.DARK_SLATE}] text-2xl`}>←</Text>
-          </TouchableOpacity>
-          <Text className={`text-[${COLORS.DARK_SLATE}] text-xl font-bold ml-3 font-[Roboto]`}>
+          {canGoBack ? (
+            <TouchableOpacity
+              className="min-h-[48px] min-w-[48px] items-center justify-center"
+              onPress={() => navigation.goBack()}>
+              <Text className="text-2xl" style={{color: COLORS.DARK_SLATE}}>
+                ←
+              </Text>
+            </TouchableOpacity>
+          ) : null}
+          <Text
+            className={`${canGoBack ? 'ml-3 ' : ''}text-xl font-bold font-[Roboto]`}
+            style={{color: COLORS.DARK_SLATE}}>
             Credit History
           </Text>
         </View>
         <View className="flex-1 items-center justify-center px-8">
-          <Text className={`text-[${COLORS.DISABLED_GREY}] text-base text-center font-[Roboto]`}>
+          <Text
+            className="text-center text-base font-[Roboto]"
+            style={{color: COLORS.DISABLED_GREY}}>
             No audits yet. Complete your first audit to see your history.
           </Text>
         </View>
@@ -112,23 +121,31 @@ const CreditHistoryScreen = () => {
   }
 
   return (
-    <View className={`flex-1 bg-[${COLORS.OFF_WHITE}]`}>
+    <View className="flex-1" style={{backgroundColor: COLORS.OFF_WHITE}}>
       <ScrollView className="flex-1 px-4 pt-12 pb-6">
         {/* Header */}
         <View className="flex-row items-center mb-2">
-          <TouchableOpacity
-            className="min-h-[48px] min-w-[48px] items-center justify-center"
-            onPress={() => navigation.goBack()}>
-            <Text className={`text-[${COLORS.DARK_SLATE}] text-2xl`}>←</Text>
-          </TouchableOpacity>
-          <Text className={`text-[${COLORS.DARK_SLATE}] text-xl font-bold ml-3 font-[Roboto]`}>
+          {canGoBack ? (
+            <TouchableOpacity
+              className="min-h-[48px] min-w-[48px] items-center justify-center"
+              onPress={() => navigation.goBack()}>
+              <Text className="text-2xl" style={{color: COLORS.DARK_SLATE}}>
+                ←
+              </Text>
+            </TouchableOpacity>
+          ) : null}
+          <Text
+            className={`${canGoBack ? 'ml-3 ' : ''}text-xl font-bold font-[Roboto]`}
+            style={{color: COLORS.DARK_SLATE}}>
             Credit History
           </Text>
         </View>
 
         {/* Last Updated Badge */}
         {lastFetchedAt && !isLoading && (
-          <Text className={`text-[${COLORS.DISABLED_GREY}] text-xs mb-4 font-[Roboto]`}>
+          <Text
+            className="mb-4 text-xs font-[Roboto]"
+            style={{color: COLORS.DISABLED_GREY}}>
             Last updated{' '}
             {new Date(lastFetchedAt).toLocaleDateString('en-GB', {
               day: 'numeric',
@@ -144,8 +161,12 @@ const CreditHistoryScreen = () => {
 
         {/* Bar Chart */}
         {chartData && (
-          <View className={`bg-[${COLORS.CARD_WHITE}] rounded-xl p-4 mb-6 shadow-sm`}>
-            <Text className={`text-[${COLORS.DISABLED_GREY}] text-sm mb-3 font-[Roboto]`}>
+          <View
+            className="mb-6 rounded-xl p-4 shadow-sm"
+            style={{backgroundColor: COLORS.CARD_WHITE}}>
+            <Text
+              className="mb-3 text-sm font-[Roboto]"
+              style={{color: COLORS.DISABLED_GREY}}>
               Year-over-Year Growth
             </Text>
             <BarChart
@@ -163,27 +184,38 @@ const CreditHistoryScreen = () => {
         )}
 
         {/* Audit History List */}
-        <Text className={`text-[${COLORS.DARK_SLATE}] text-lg font-bold mb-3 font-[Roboto]`}>
+        <Text
+          className="mb-3 text-lg font-bold font-[Roboto]"
+          style={{color: COLORS.DARK_SLATE}}>
           Audit History
         </Text>
         {sortedHistory.map((record: AuditRecord, index: number) => (
           <View
             key={`${record.audit_year}-${record.minted_at ?? index}`}
-            className={`bg-[${COLORS.CARD_WHITE}] rounded-xl p-4 mb-3 shadow-sm`}>
+            className="mb-3 rounded-xl p-4 shadow-sm"
+            style={{backgroundColor: COLORS.CARD_WHITE}}>
             {/* Top row: land name + year */}
             <View className="flex-row items-center justify-between mb-2">
-              <Text className={`text-[${COLORS.DARK_SLATE}] text-base font-bold font-[Roboto]`}>
+              <Text
+                className="text-base font-bold font-[Roboto]"
+                style={{color: COLORS.DARK_SLATE}}>
                 {record.land_name}
               </Text>
-              <View className={`bg-[${COLORS.OFF_WHITE}] rounded-full px-3 py-1`}>
-                <Text className={`text-[${COLORS.DISABLED_GREY}] text-xs font-[RobotoMono-Regular]`}>
+              <View
+                className="rounded-full px-3 py-1"
+                style={{backgroundColor: COLORS.OFF_WHITE}}>
+                <Text
+                  className="text-xs font-[RobotoMono-Regular]"
+                  style={{color: COLORS.DISABLED_GREY}}>
                   {record.audit_year}
                 </Text>
               </View>
             </View>
 
             {/* Credits */}
-            <Text className={`text-[${COLORS.FOREST_GREEN}] text-xl font-bold font-[RobotoMono-Bold] mb-3`}>
+            <Text
+              className="mb-3 text-xl font-bold font-[RobotoMono-Bold]"
+              style={{color: COLORS.FOREST_GREEN}}>
               +{record.credits_issued} CTT
             </Text>
 
@@ -193,9 +225,11 @@ const CreditHistoryScreen = () => {
                 <TouchableOpacity
                   className="min-h-[48px] min-w-[48px] items-center justify-center mr-4"
                   onPress={() =>
-                    Linking.openURL(record.ipfs_certificate_url)
+                    void Linking.openURL(record.ipfs_certificate_url)
                   }>
-                  <Text className={`text-[${COLORS.TEAL}] text-sm font-[Roboto]`}>
+                  <Text
+                    className="text-sm font-[Roboto]"
+                    style={{color: COLORS.TEAL}}>
                     View Certificate
                   </Text>
                 </TouchableOpacity>
@@ -204,11 +238,13 @@ const CreditHistoryScreen = () => {
                 <TouchableOpacity
                   className="min-h-[48px] min-w-[48px] items-center justify-center"
                   onPress={() =>
-                    Linking.openURL(
-                      `https://polygonscan.com/tx/${record.tx_hash}`,
+                    void Linking.openURL(
+                      `https://amoy.polygonscan.com/tx/${record.tx_hash}`,
                     )
                   }>
-                  <Text className={`text-[${COLORS.DISABLED_GREY}] text-xs font-[RobotoMono-Regular]`}>
+                  <Text
+                    className="text-xs font-[RobotoMono-Regular]"
+                    style={{color: COLORS.DISABLED_GREY}}>
                     {truncateHash(record.tx_hash)}
                   </Text>
                 </TouchableOpacity>

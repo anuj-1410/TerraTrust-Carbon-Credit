@@ -18,31 +18,34 @@ import {getLandStatusMeta} from '../../../common/utils/getLandStatus';
 import {COLORS} from '../../../common/constants/colors';
 import type {LandParcel} from '../../land/store/landSlice';
 import type {RootStackParamList} from '../../../types/navigation';
+import Badge from '../../../common/components/Badge';
+import {hectaresToAcres} from '../../../common/utils/units';
 
 type Nav = NativeStackNavigationProp<RootStackParamList>;
-
-const statusConfig = {
-  green: {bg: `bg-[${COLORS.FOREST_GREEN}]`, text: 'text-white'},
-  orange: {bg: `bg-[${COLORS.WARNING_ORANGE}]`, text: 'text-white'},
-  red: {bg: `bg-[${COLORS.ERROR_RED}]`, text: 'text-white'},
-};
 
 const HomeScreen = () => {
   const navigation = useNavigation<Nav>();
   const dispatch = useAppDispatch();
 
   const walletAddress = useAppSelector(s => s.auth.walletAddress);
+  const firstName = useAppSelector(
+    s => s.auth.user?.name?.trim().split(/\s+/)[0] ?? 'Farmer',
+  );
+  const isAuthenticated = useAppSelector(s => s.auth.isAuthenticated);
   const {balance, history, pendingMint, lastFetchedAt} = useAppSelector(
     s => s.credits,
   );
   const parcels = useAppSelector(s => s.land.parcels);
+  const unreadNotifications = useAppSelector(
+    s => s.notifications.items.filter(item => !item.read).length,
+  );
 
   // Fetch on mount
   useEffect(() => {
-    if (walletAddress) {
-      dispatch(fetchCreditsThunk(walletAddress));
+    if (isAuthenticated) {
+      dispatch(fetchCreditsThunk());
     }
-  }, [walletAddress, dispatch]);
+  }, [dispatch, isAuthenticated]);
 
   // Credit earned celebration logic
   const prevPendingMint = useRef(pendingMint);
@@ -61,46 +64,133 @@ const HomeScreen = () => {
     prevBalance.current = balance;
   }, [pendingMint, balance]);
 
-  // History preview — last 3 entries desc
+  const todayLabel = useMemo(
+    () =>
+      new Date().toLocaleDateString('en-GB', {
+        weekday: 'long',
+        day: 'numeric',
+        month: 'long',
+      }),
+    [],
+  );
+
+  // History preview — last 2 entries desc
   const previewHistory = useMemo(
     () =>
       [...history]
         .sort((a, b) => b.audit_year - a.audit_year)
-        .slice(0, 3),
+        .slice(0, 2),
     [history],
   );
 
+  const previewParcels = useMemo(() => parcels.slice(0, 3), [parcels]);
+
+  const getBadgeVariant = (status: 'green' | 'orange' | 'red') => {
+    if (status === 'green') {
+      return 'verified' as const;
+    }
+
+    if (status === 'orange') {
+      return 'pending' as const;
+    }
+
+    return 'rejected' as const;
+  };
+
+  const openLandDetail = (parcelId: string) => {
+    navigation.navigate('LandDetailScreen', {landId: parcelId});
+  };
+
+  const handleParcelAction = (parcel: LandParcel) => {
+    const meta = getLandStatusMeta(parcel);
+
+    if (meta.primaryAction === 'view_status' && parcel.current_audit_id) {
+      navigation.navigate('AuditStatusScreen', {auditId: parcel.current_audit_id});
+      return;
+    }
+
+    if (meta.primaryAction === 'start_audit') {
+      navigation.navigate('AuditStartScreen', {
+        landId: parcel.id,
+        landName: parcel.farm_name,
+      });
+      return;
+    }
+
+    openLandDetail(parcel.id);
+  };
+
   return (
-    <View className={`flex-1 bg-[${COLORS.OFF_WHITE}]`}>
+    <View className="flex-1" style={{backgroundColor: COLORS.OFF_WHITE}}>
       <ScrollView className="flex-1 px-4 pt-12 pb-6">
         {/* Header */}
         <View className="flex-row items-center justify-between mb-6">
-          <Text className={`text-[${COLORS.DARK_SLATE}] text-2xl font-bold font-[Roboto]`}>
-            TerraTrust
-          </Text>
+          <View>
+            <Text
+              className="text-2xl font-bold font-[Roboto]"
+              style={{color: COLORS.DARK_SLATE}}>
+              Hello, {firstName}
+            </Text>
+            <Text className="mt-1 text-sm" style={{color: COLORS.DISABLED_GREY}}>
+              {todayLabel}
+            </Text>
+          </View>
+          <TouchableOpacity
+            className="min-h-[48px] min-w-[48px] items-center justify-center rounded-full px-3"
+            onPress={() => navigation.navigate('NotificationsScreen')}
+            activeOpacity={0.7}>
+            <View>
+              <Text className="text-xl" style={{color: COLORS.DARK_SLATE}}>
+                🔔
+              </Text>
+              {unreadNotifications > 0 ? (
+                <View
+                  className="absolute -right-2 -top-1 min-h-[20px] min-w-[20px] items-center justify-center rounded-full px-1"
+                  style={{backgroundColor: COLORS.ERROR_RED}}>
+                  <Text className="text-xs font-bold text-white">
+                    {unreadNotifications > 9 ? '9+' : unreadNotifications}
+                  </Text>
+                </View>
+              ) : null}
+            </View>
+          </TouchableOpacity>
         </View>
 
         {/* CTT Balance Card */}
-        <View className={`bg-[${COLORS.CARD_WHITE}] rounded-xl p-5 mb-2 shadow-sm`}>
+        <View
+          className="mb-2 rounded-xl p-5 shadow-sm"
+          style={{backgroundColor: COLORS.CARD_WHITE}}>
           <View className="flex-row items-baseline">
-            <Text className={`text-[${COLORS.DARK_SLATE}] text-4xl font-bold font-[RobotoMono-Bold]`}>
+            <Text
+              className="text-4xl font-bold font-[RobotoMono-Bold]"
+              style={{color: COLORS.DARK_SLATE}}>
               {balance.toFixed(1)}
             </Text>
-            <Text className={`text-[${COLORS.FOREST_GREEN}] text-lg ml-2 font-[RobotoMono-Regular]`}>
+            <Text
+              className="ml-2 text-lg font-[RobotoMono-Regular]"
+              style={{color: COLORS.FOREST_GREEN}}>
               CTT
             </Text>
           </View>
-          <Text className={`text-[${COLORS.DISABLED_GREY}] text-sm mt-1 font-[Roboto]`}>
+          <Text
+            className="mt-1 text-sm font-[Roboto]"
+            style={{color: COLORS.DISABLED_GREY}}>
             Carbon Ton Tokens earned
           </Text>
-          <Text className={`text-[${COLORS.FOREST_GREEN}] text-xs mt-1 font-[Roboto]`}>
+          <Text
+            className="mt-1 text-xs font-[Roboto]"
+            style={{color: COLORS.FOREST_GREEN}}>
             = {balance.toFixed(1)} tonnes of CO₂ stored on your land
           </Text>
 
           {/* Pending Mint Banner */}
           {pendingMint && (
-            <View className={`bg-[${COLORS.WARNING_ORANGE}]/10 rounded-lg px-3 py-2 mt-3`}>
-              <Text className={`text-[${COLORS.WARNING_ORANGE}] text-sm font-[Roboto]`}>
+            <View
+              className="mt-3 rounded-lg px-3 py-2"
+              style={{backgroundColor: 'rgba(221, 107, 32, 0.1)'}}>
+              <Text
+                className="text-sm font-[Roboto]"
+                style={{color: COLORS.WARNING_ORANGE}}>
                 ⏳ Minting in progress…
               </Text>
             </View>
@@ -111,12 +201,14 @@ const HomeScreen = () => {
             className="flex-row items-center mt-4 min-h-[48px] min-w-[48px]"
             onPress={() => {
               if (walletAddress) {
-                Linking.openURL(
-                  `https://polygonscan.com/address/${walletAddress}`,
+                void Linking.openURL(
+                  `https://amoy.polygonscan.com/address/${walletAddress}`,
                 );
               }
             }}>
-            <Text className={`text-[${COLORS.TEAL}] text-sm font-[Roboto]`}>
+            <Text
+              className="text-sm font-[Roboto]"
+              style={{color: COLORS.TEAL}}>
               View on PolygonScan ↗
             </Text>
           </TouchableOpacity>
@@ -124,7 +216,9 @@ const HomeScreen = () => {
 
         {/* Last Updated Badge */}
         {lastFetchedAt && (
-          <Text className={`text-[${COLORS.DISABLED_GREY}] text-xs mb-6 font-[Roboto]`}>
+          <Text
+            className="mb-6 text-xs font-[Roboto]"
+            style={{color: COLORS.DISABLED_GREY}}>
             Last updated{' '}
             {new Date(lastFetchedAt).toLocaleDateString('en-GB', {
               day: 'numeric',
@@ -140,75 +234,121 @@ const HomeScreen = () => {
 
         {/* Land Parcels Section */}
         <View className="mb-6">
-          <Text className={`text-[${COLORS.DARK_SLATE}] text-lg font-bold mb-3 font-[Roboto]`}>
-            My Lands
-          </Text>
-          {parcels.map((parcel: LandParcel) => {
+          <View className="mb-3 flex-row items-center justify-between">
+            <Text
+              className="text-lg font-bold font-[Roboto]"
+              style={{color: COLORS.DARK_SLATE}}>
+              My Lands
+            </Text>
+            <TouchableOpacity
+              className="min-h-[48px] min-w-[48px] items-center justify-center"
+              onPress={() =>
+                navigation.navigate('HomeScreen', {
+                  screen: 'LandTab',
+                  params: {screen: 'LandListScreen'},
+                })
+              }>
+              <Text className="font-[Roboto]" style={{color: COLORS.TEAL}}>
+                View All
+              </Text>
+            </TouchableOpacity>
+          </View>
+          {previewParcels.map((parcel: LandParcel) => {
             const meta = getLandStatusMeta(parcel);
-            const cfg = statusConfig[meta.status];
             return (
-              <View
+              <TouchableOpacity
                 key={parcel.id}
-                className={`bg-[${COLORS.CARD_WHITE}] rounded-xl p-3 mb-3 flex-row items-center shadow-sm`}>
+                className="mb-3 flex-row items-center rounded-xl p-3 shadow-sm"
+                style={{backgroundColor: COLORS.CARD_WHITE}}
+                activeOpacity={0.82}
+                onPress={() => openLandDetail(parcel.id)}>
                 {parcel.thumbnail_url ? (
                   <Image
                     source={{uri: parcel.thumbnail_url}}
                     className="w-16 h-16 rounded-lg"
                   />
                 ) : (
-                  <View className={`w-16 h-16 rounded-lg bg-[${COLORS.OFF_WHITE}]`} />
+                  <View
+                    className="h-16 w-16 rounded-lg"
+                    style={{backgroundColor: COLORS.OFF_WHITE}}
+                  />
                 )}
                 <View className="flex-1 ml-3">
-                  <Text className={`text-[${COLORS.DARK_SLATE}] text-base font-bold font-[Roboto]`}>
+                  <Text
+                    className="text-base font-bold font-[Roboto]"
+                    style={{color: COLORS.DARK_SLATE}}>
                     {parcel.farm_name}
                   </Text>
-                  <Text className={`text-[${COLORS.DISABLED_GREY}] text-sm font-[Roboto]`}>
-                    {parcel.area_hectares} ha
+                  <Text
+                    className="text-sm font-[Roboto]"
+                    style={{color: COLORS.DISABLED_GREY}}>
+                    {hectaresToAcres(parcel.area_hectares).toFixed(2)} acres
                   </Text>
+                  {meta.secondaryLabel ? (
+                    <Text
+                      className="mt-1 text-xs font-[Roboto]"
+                      style={{color: COLORS.DISABLED_GREY}}>
+                      {meta.secondaryLabel}
+                    </Text>
+                  ) : null}
                 </View>
                 <View className="items-end">
-                  <View className={`${cfg.bg} rounded-full px-3 py-1`}>
-                    <Text className={`${cfg.text} text-xs font-[Roboto]`}>
-                      {meta.label}
-                    </Text>
-                  </View>
-                  {meta.showAudit && (
+                  <Badge
+                    label={meta.label}
+                    variant={getBadgeVariant(meta.status)}
+                  />
+                  {meta.primaryActionLabel ? (
                     <TouchableOpacity
-                      className={`bg-[${COLORS.FOREST_GREEN}] rounded-full px-3 py-2 mt-2 min-h-[48px] min-w-[48px] items-center justify-center`}
-                      onPress={() =>
-                        navigation.navigate('AuditStartScreen', {
-                          landId: parcel.id,
-                          landName: parcel.farm_name,
-                        })
-                      }>
+                      className="mt-2 min-h-[48px] min-w-[48px] items-center justify-center rounded-full px-3 py-2"
+                      style={{backgroundColor: COLORS.FOREST_GREEN}}
+                      onPress={() => handleParcelAction(parcel)}>
                       <Text className="text-white text-xs font-bold font-[Roboto]">
-                        Start Audit
+                        {meta.primaryActionLabel}
                       </Text>
                     </TouchableOpacity>
-                  )}
+                  ) : null}
                 </View>
-              </View>
+              </TouchableOpacity>
             );
           })}
+          {previewParcels.length === 0 ? (
+            <TouchableOpacity
+              className="items-center rounded-xl px-5 py-6"
+              style={{backgroundColor: COLORS.CARD_WHITE}}
+              onPress={() => navigation.navigate('DocumentUploadScreen')}
+              activeOpacity={0.82}>
+              <Text className="text-lg font-semibold" style={{color: COLORS.DARK_SLATE}}>
+                Add your first land parcel
+              </Text>
+              <Text className="mt-2 text-center" style={{color: COLORS.DISABLED_GREY}}>
+                Upload your land document once to start audits and track credits.
+              </Text>
+            </TouchableOpacity>
+          ) : null}
         </View>
 
         {/* Credit History Preview */}
         <View className="mb-8">
-          <Text className={`text-[${COLORS.DARK_SLATE}] text-lg font-bold mb-3 font-[Roboto]`}>
+          <Text
+            className="mb-3 text-lg font-bold font-[Roboto]"
+            style={{color: COLORS.DARK_SLATE}}>
             Credit History
           </Text>
           {previewHistory.map((record: AuditRecord, index: number) => (
             <TouchableOpacity
               key={`${record.audit_year}-${record.minted_at ?? index}`}
-              className={`bg-[${COLORS.CARD_WHITE}] rounded-xl p-4 mb-3 shadow-sm`}
+              className="mb-3 rounded-xl p-4 shadow-sm"
+              style={{backgroundColor: COLORS.CARD_WHITE}}
               onPress={() => {
                 if (record.ipfs_certificate_url) {
                   Linking.openURL(record.ipfs_certificate_url);
                 }
               }}>
-              <Text className={`text-[${COLORS.DARK_SLATE}] text-sm font-[Roboto]`}>
+              <Text
+                className="text-sm font-[Roboto]"
+                style={{color: COLORS.DARK_SLATE}}>
                 {record.audit_year}: +{record.credits_issued} CTT{' '}
-                <Text className={`text-[${COLORS.TEAL}]`}>| View Certificate</Text>
+                <Text style={{color: COLORS.TEAL}}>| View Certificate</Text>
               </Text>
             </TouchableOpacity>
           ))}
@@ -216,9 +356,11 @@ const HomeScreen = () => {
             <TouchableOpacity
               className="min-h-[48px] min-w-[48px] items-center justify-center mt-1"
               onPress={() =>
-                navigation.getParent()?.navigate('DashboardHistoryTab' as never)
+                navigation.navigate('CreditHistoryScreen', {source: 'home'})
               }>
-              <Text className={`text-[${COLORS.TEAL}] text-sm font-bold font-[Roboto]`}>
+              <Text
+                className="text-sm font-bold font-[Roboto]"
+                style={{color: COLORS.TEAL}}>
                 View All History →
               </Text>
             </TouchableOpacity>

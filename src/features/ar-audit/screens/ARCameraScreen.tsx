@@ -22,7 +22,7 @@ import ReactNativeHapticFeedback from 'react-native-haptic-feedback';
 import LottieView from 'lottie-react-native';
 
 import type {RootStackParamList} from '../../../types/navigation';
-import {useAppDispatch, useAppSelector} from '../../../store/hooks';
+import {useAppSelector} from '../../../store/hooks';
 import type {AuditState, TreeSample} from '../store/auditSlice';
 import {
   measureTreeDiameter,
@@ -31,7 +31,7 @@ import {
   captureHeightPoint,
   cancelHeightMeasurement,
 } from '../../../services/ar-bridge';
-import {hashPhoto} from '../../../common/utils/hash';
+import {hashPhoto, readFileAsBase64} from '../../../common/utils/hash';
 import {
   APPROVED_SPECIES,
   APPROVED_SPECIES_NAMES,
@@ -57,13 +57,13 @@ const ARCameraScreen = () => {
   const navigation = useNavigation<NavProp>();
   const route = useRoute<RouteType>();
   const {zoneId, zoneIndex} = route.params;
-  const dispatch = useAppDispatch();
   const cameraRef = useRef<Camera>(null);
   const device = useCameraDevice('back');
 
   const audit = useAppSelector(state => state.audit as unknown as AuditState);
   const {zones, scannedTrees, arTier, minTreesRequired} = audit;
   const currentZone = zones[zoneIndex] ?? null;
+  const returnedDiameter = route.params.returnDiameter;
 
   // State
   const [phase, setPhase] = useState<MeasurePhase>('idle');
@@ -127,16 +127,15 @@ const ARCameraScreen = () => {
 
   // Wire returnDiameter from ManualMeasureScreen (T031)
   useEffect(() => {
-    const returnDiameter = (route.params as any)?.returnDiameter;
-    if (returnDiameter != null) {
-      setDiameterCm(returnDiameter);
+    if (returnedDiameter != null) {
+      setDiameterCm(returnedDiameter);
       setTierUsed(3);
       setMeasureConfidence(1.0);
-      setSpeciesConfidence(speciesConfidence || 1.0);
+      setSpeciesConfidence(currentConfidence => currentConfidence || 1.0);
       setPhase('result');
       setStatusText('Manual measurement received');
     }
-  }, [(route.params as any)?.returnDiameter]);
+  }, [returnedDiameter]);
 
   // GPS location for tree capture
   useEffect(() => {
@@ -153,7 +152,6 @@ const ARCameraScreen = () => {
     return () => Geolocation.clearWatch(watchId);
   }, []);
 
-  const treesInZone = scannedTrees.filter(t => t.zone_id === zoneId).length;
   const totalScanned = scannedTrees.length;
   const totalRequired = minTreesRequired;
   const needsArHeight = Boolean(currentZone && !currentZone.gedi_available);
@@ -173,10 +171,7 @@ const ARCameraScreen = () => {
       setPhase('identifying');
       setStatusText('Identifying species...');
       const snapshot = await cameraRef.current.takeSnapshot({quality: 80});
-      const base64 = snapshot.path; // path to file
-      // Read file to base64 — we use the path
-      const RNFS = require('react-native-fs');
-      const imgBase64: string = await RNFS.readFile(snapshot.path, 'base64');
+      const imgBase64 = await readFileAsBase64(snapshot.path);
 
       const result = await identifySpecies(imgBase64);
 
@@ -289,10 +284,9 @@ const ARCameraScreen = () => {
       // Evidence photo + hash
       if (cameraRef.current) {
         const snap = await cameraRef.current.takeSnapshot({quality: 80});
-        const RNFS = require('react-native-fs');
-        const b64: string = await RNFS.readFile(snap.path, 'base64');
+        const b64 = await readFileAsBase64(snap.path);
         setEvidenceBase64(b64);
-        setEvidenceHash(hashPhoto(b64));
+        setEvidenceHash(await hashPhoto(b64));
       }
 
       ReactNativeHapticFeedback.trigger('impactMedium');
@@ -430,7 +424,6 @@ const ARCameraScreen = () => {
     evidenceBase64,
     evidenceHash,
     zoneId,
-    dispatch,
     navigation,
   ]);
 

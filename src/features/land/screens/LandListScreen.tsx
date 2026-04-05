@@ -6,6 +6,7 @@ import {
   Image,
   TouchableOpacity,
   RefreshControl,
+  ActivityIndicator,
 } from 'react-native';
 import {useNavigation} from '@react-navigation/native';
 import type {NativeStackNavigationProp} from '@react-navigation/native-stack';
@@ -24,6 +25,16 @@ import {getLandStatusMeta} from '../../../common/utils/getLandStatus';
 
 type Nav = NativeStackNavigationProp<RootStackParamList>;
 
+interface LandListResponse {
+  items: Array<Record<string, unknown>>;
+  page: number;
+  limit: number;
+  total: number;
+  has_more: boolean;
+}
+
+const PAGE_SIZE = 10;
+
 const LandListScreen = () => {
   const navigation = useNavigation<Nav>();
   const dispatch = useAppDispatch();
@@ -31,44 +42,107 @@ const LandListScreen = () => {
 
   const [isOffline, setIsOffline] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
+  const [currentPage, setCurrentPage] = useState(1);
+  const [hasMore, setHasMore] = useState(true);
+  const [isLoadingMore, setIsLoadingMore] = useState(false);
 
-  const fetchParcels = useCallback(async () => {
-    try {
-      const {data} = await api.get('/api/v1/land/list');
-      const merged = (data as Array<Record<string, unknown>>).map(item => {
-        const cached = parcels.find((p: LandParcel) => p.id === (item as {id: string}).id);
+  const enrichParcels = useCallback(
+    (
+      records: Array<Record<string, unknown>>,
+      existingParcels: LandParcel[],
+    ) =>
+      records.map(item => {
+        const parcelId = String(item.id ?? '');
+        const cached = existingParcels.find(parcel => parcel.id === parcelId);
+
         return {
           ...(cached ?? {}),
           ...item,
+          id: parcelId,
           boundary_geojson: cached?.boundary_geojson ?? null,
-          district: cached?.district ?? '',
-          taluka: cached?.taluka ?? '',
-          village: cached?.village ?? '',
-          state: cached?.state ?? '',
-          created_at: cached?.created_at ?? '',
+          district: String(item.district ?? cached?.district ?? ''),
+          taluka: String(item.taluka ?? cached?.taluka ?? ''),
+          village: String(item.village ?? cached?.village ?? ''),
+          state: String(item.state ?? cached?.state ?? ''),
+          created_at: String(item.created_at ?? cached?.created_at ?? ''),
         } as LandParcel;
+      }),
+    [],
+  );
+
+  const mergePagedParcels = useCallback(
+    (existingParcels: LandParcel[], incomingParcels: LandParcel[]) => {
+      const incomingById = new Map(
+        incomingParcels.map(parcel => [parcel.id, parcel]),
+      );
+
+      const updatedExisting = existingParcels.map(
+        parcel => incomingById.get(parcel.id) ?? parcel,
+      );
+      const newParcels = incomingParcels.filter(
+        parcel => !existingParcels.some(existing => existing.id === parcel.id),
+      );
+
+      return [...updatedExisting, ...newParcels];
+    },
+    [],
+  );
+
+  const fetchParcels = useCallback(async (pageToLoad = 1) => {
+    const isLoadMore = pageToLoad > 1;
+
+    if (isLoadMore) {
+      setIsLoadingMore(true);
+    }
+
+    try {
+      const {data} = await api.get<
+        LandListResponse | Array<Record<string, unknown>>
+      >('/api/v1/land/list', {
+        params: {page: pageToLoad, limit: PAGE_SIZE},
       });
-      dispatch(setParcels(merged));
+
+      const items = Array.isArray(data) ? data : data.items ?? [];
+      const incomingParcels = enrichParcels(items, parcels);
+      const nextParcels = isLoadMore
+        ? mergePagedParcels(parcels, incomingParcels)
+        : incomingParcels;
+
+      dispatch(setParcels(nextParcels));
       dispatch(setLastSynced(new Date().toISOString()));
+      setCurrentPage(pageToLoad);
+      setHasMore(Array.isArray(data) ? false : Boolean(data.has_more));
       setIsOffline(false);
     } catch (err: unknown) {
       const axiosErr = err as {response?: unknown};
       if (!axiosErr.response) {
         setIsOffline(true);
       }
+    } finally {
+      if (isLoadMore) {
+        setIsLoadingMore(false);
+      }
     }
-  }, [dispatch, parcels]);
+  }, [dispatch, enrichParcels, mergePagedParcels, parcels]);
 
   useEffect(() => {
-    fetchParcels();
+    void fetchParcels(1);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
-    await fetchParcels();
+    await fetchParcels(1);
     setRefreshing(false);
   }, [fetchParcels]);
+
+  const onLoadMore = useCallback(() => {
+    if (refreshing || isLoadingMore || !hasMore) {
+      return;
+    }
+
+    void fetchParcels(currentPage + 1);
+  }, [currentPage, fetchParcels, hasMore, isLoadingMore, refreshing]);
 
   const renderParcelCard = ({item}: {item: LandParcel}) => {
     const cardState = getLandStatusMeta(item);
@@ -79,8 +153,24 @@ const LandListScreen = () => {
           ? 'pending'
           : 'rejected';
 
+    const handlePrimaryAction = () => {
+      if (cardState.primaryAction === 'view_status' && item.current_audit_id) {
+        navigation.navigate('AuditStatusScreen', {auditId: item.current_audit_id});
+        return;
+      }
+
+      navigation.navigate('AuditStartScreen', {
+        landId: item.id,
+        landName: item.farm_name,
+      });
+    };
+
     return (
-      <View className="mx-4 mb-3 rounded-xl bg-white p-4 flex-row" style={{elevation: 2}}>
+      <TouchableOpacity
+        className="mx-4 mb-3 rounded-xl bg-white p-4 flex-row"
+        style={{elevation: 2}}
+        activeOpacity={0.82}
+        onPress={() => navigation.navigate('LandDetailScreen', {landId: item.id})}>
         {/* Satellite thumbnail */}
         <Image
           source={item.thumbnail_url ? {uri: item.thumbnail_url} : undefined}
@@ -101,21 +191,24 @@ const LandListScreen = () => {
           <View className="flex-row items-center mt-1.5 gap-2">
             <Badge label={cardState.label} variant={badgeVariant} />
           </View>
-          {cardState.showAudit && (
+          {cardState.secondaryLabel ? (
+            <Text className="mt-2 text-sm" style={{color: COLORS.DISABLED_GREY}}>
+              {cardState.secondaryLabel}
+            </Text>
+          ) : null}
+          {cardState.primaryActionLabel ? (
             <TouchableOpacity
               className="mt-2 self-start rounded-lg px-4 py-2 min-h-[48px] justify-center"
               style={{borderWidth: 1, borderColor: COLORS.FOREST_GREEN}}
-              onPress={() =>
-                navigation.navigate('AuditStartScreen', {landId: item.id, landName: item.farm_name})
-              }
+              onPress={handlePrimaryAction}
               activeOpacity={0.7}>
               <Text className="text-sm font-semibold" style={{color: COLORS.FOREST_GREEN}}>
-                Start Audit
+                {cardState.primaryActionLabel}
               </Text>
             </TouchableOpacity>
-          )}
+          ) : null}
         </View>
-      </View>
+      </TouchableOpacity>
     );
   };
 
@@ -167,6 +260,15 @@ const LandListScreen = () => {
         renderItem={renderParcelCard}
         contentContainerStyle={parcels.length === 0 ? {flex: 1} : {paddingBottom: 80}}
         ListEmptyComponent={renderEmptyState}
+        onEndReached={onLoadMore}
+        onEndReachedThreshold={0.35}
+        ListFooterComponent={
+          isLoadingMore ? (
+            <View className="py-4">
+              <ActivityIndicator color={COLORS.FOREST_GREEN} />
+            </View>
+          ) : null
+        }
         refreshControl={
           <RefreshControl
             refreshing={refreshing}

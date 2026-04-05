@@ -9,23 +9,30 @@ interface ButtonProps extends TouchableOpacityProps {
 
 const Button = ({label, variant = 'primary', className, ...props}: ButtonProps) => {
   const baseClasses = 'h-[52px] px-6 rounded-[12px] items-center justify-center';
-  const variantClasses = {
-    primary: `bg-[${COLORS.FOREST_GREEN}]`,
-    secondary: `border border-[${COLORS.FOREST_GREEN}] bg-transparent`,
-    destructive: `bg-[${COLORS.ERROR_RED}]`,
+  const variantStyles = {
+    primary: {backgroundColor: COLORS.FOREST_GREEN},
+    secondary: {
+      backgroundColor: 'transparent',
+      borderWidth: 1,
+      borderColor: COLORS.FOREST_GREEN,
+    },
+    destructive: {backgroundColor: COLORS.ERROR_RED},
   };
-  const textClasses = {
-    primary: 'text-white font-semibold text-base',
-    secondary: `text-[${COLORS.FOREST_GREEN}] font-semibold text-base`,
-    destructive: 'text-white font-semibold text-base',
+  const textStyles = {
+    primary: {color: COLORS.CARD_WHITE},
+    secondary: {color: COLORS.FOREST_GREEN},
+    destructive: {color: COLORS.CARD_WHITE},
   };
 
   return (
     <TouchableOpacity
-      className={`${baseClasses} ${variantClasses[variant]} ${className ?? ''}`}
+      className={`${baseClasses} ${className ?? ''}`}
+      style={variantStyles[variant]}
       activeOpacity={0.7}
       {...props}>
-      <Text className={textClasses[variant]}>{label}</Text>
+      <Text className="text-base font-semibold" style={textStyles[variant]}>
+        {label}
+      </Text>
     </TouchableOpacity>
   );
 };

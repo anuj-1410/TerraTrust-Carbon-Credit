@@ -1,77 +1,83 @@
-This is a new [**React Native**](https://reactnative.dev) project, bootstrapped using [`@react-native-community/cli`](https://github.com/react-native-community/cli).
+# TerraTrust-AR
 
-# Getting Started
+TerraTrust-AR is the Android React Native client for the TerraTrust tree-audit and carbon-credit workflow. The app handles farmer auth, land registration, AR-assisted tree measurement, offline audit retry, and dashboard credit visibility while relying on Supabase, backend APIs, MMKV persistence, and native Android AR/TFLite integrations.
 
-> **Note**: Make sure you have completed the [Set Up Your Environment](https://reactnative.dev/docs/set-up-your-environment) guide before proceeding.
+## Stack
 
-## Step 1: Start Metro
+- React Native CLI 0.84.x with TypeScript
+- NativeWind 4
+- Redux Toolkit + redux-persist + MMKV
+- React Navigation 7
+- react-native-vision-camera
+- react-native-background-fetch
+- react-native-quick-crypto
+- react-native-keychain
+- ethers v6
+- Supabase JS
 
-First, you will need to run **Metro**, the JavaScript build tool for React Native.
+## Prerequisites
 
-To start the Metro dev server, run the following command from the root of your React Native project:
+- Node.js 22.11+
+- npm 10+
+- JDK 17
+- Android Studio with Android SDK
+- Android NDK matching the project Gradle config
+- A running Android emulator or USB-connected Android device
 
-```sh
-# Using npm
+## Environment Setup
+
+1. Copy the example file values into your local environment file strategy.
+2. Fill the required keys in `.env.development` for local builds.
+3. Fill `.env.production` for release builds.
+
+Required variables:
+
+```env
+API_BASE_URL=
+SUPABASE_URL=
+SUPABASE_ANON_KEY=
+GOOGLE_MAPS_API_KEY=
+ALCHEMY_POLYGON_AMOY_URL=
+CONTRACT_ADDRESS=
+```
+
+Notes:
+
+- `API_BASE_URL` must be the server root only, for example `http://10.0.2.2:8000`.
+- `CONTRACT_ADDRESS` is still a deployment-time input and must not remain the zero address.
+- `GOOGLE_MAPS_API_KEY` must be configured for Android Maps usage.
+
+## Install
+
+```powershell
+npm install
+```
+
+## Run on Android
+
+Start Metro:
+
+```powershell
 npm start
-
-# OR using Yarn
-yarn start
 ```
 
-## Step 2: Build and run your app
+In a second terminal, build and launch the app:
 
-With Metro running, open a new terminal window/pane from the root of your React Native project, and use one of the following commands to build and run your Android or iOS app:
-
-### Android
-
-```sh
-# Using npm
+```powershell
 npm run android
-
-# OR using Yarn
-yarn android
 ```
 
-### iOS
+## Tests
 
-For iOS, remember to install CocoaPods dependencies (this only needs to be run on first clone or after updating native deps).
-
-The first time you create a new project, run the Ruby bundler to install CocoaPods itself:
-
-```sh
-bundle install
+```powershell
+npm test
 ```
 
-Then, and every time you update your native dependencies, run:
+## Important Assets
 
-```sh
-bundle exec pod install
-```
-
-For more information, please visit [CocoaPods Getting Started guide](https://guides.cocoapods.org/using/getting-started.html).
-
-```sh
-# Using npm
-npm run ios
-
-# OR using Yarn
-yarn ios
-```
-
-If everything is set up correctly, you should see your new app running in the Android Emulator, iOS Simulator, or your connected device.
-
-This is one way to run your app — you can also build it directly from Android Studio or Xcode.
-
-## Step 3: Modify your app
-
-Now that you have successfully run the app, let's make changes!
-
-Open `App.tsx` in your text editor of choice and make some changes. When you save, your app will automatically update and reflect these changes — this is powered by [Fast Refresh](https://reactnative.dev/docs/fast-refresh).
-
-When you want to forcefully reload, for example to reset the state of your app, you can perform a full reload:
-
-- **Android**: Press the <kbd>R</kbd> key twice or select **"Reload"** from the **Dev Menu**, accessed via <kbd>Ctrl</kbd> + <kbd>M</kbd> (Windows/Linux) or <kbd>Cmd ⌘</kbd> + <kbd>M</kbd> (macOS).
-- **iOS**: Press <kbd>R</kbd> in iOS Simulator.
+- `src/assets/tflite/species_model.tflite` is required by the native species inference bridge.
+- The file currently exists as a placeholder in the repository and must be replaced with the real trained model before production use.
+- Lottie assets are expected in `src/assets/lottie/`.
 
 ## Congratulations! :tada:
 

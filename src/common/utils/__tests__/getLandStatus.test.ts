@@ -88,6 +88,13 @@ describe('getLandStatus', () => {
       getLandStatusMeta(
         makeParcel(null, {status: 'pending', is_verified: false}),
       ),
-    ).toEqual({status: 'orange', label: '⏳ Pending', showAudit: false});
+    ).toEqual({
+      status: 'orange',
+      label: '⏳ Pending',
+      showAudit: false,
+      primaryAction: null,
+      primaryActionLabel: null,
+      secondaryLabel: 'Verification in progress.',
+    });
   });
 });

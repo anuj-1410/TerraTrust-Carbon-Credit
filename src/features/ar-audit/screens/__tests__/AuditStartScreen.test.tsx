@@ -1,7 +1,4 @@
 // Integration test for AuditStartScreen — T018 test requirement
-import React from 'react';
-import {Alert} from 'react-native';
-
 // Mock modules before imports
 jest.mock('react-native-config', () => ({
   __esModule: true,
@@ -10,17 +7,11 @@ jest.mock('react-native-config', () => ({
 }));
 
 jest.mock('react-native-mmkv', () => ({
-  createMMKV: jest.fn(() => ({
+  MMKV: jest.fn(() => ({
+    getBoolean: jest.fn(),
     getString: jest.fn(),
     set: jest.fn(),
-    remove: jest.fn(),
-  })),
-}));
-
-jest.mock('react-native-quick-crypto', () => ({
-  createHash: jest.fn(() => ({
-    update: jest.fn(),
-    digest: jest.fn(() => 'mock-hash'),
+    delete: jest.fn(),
   })),
 }));
 

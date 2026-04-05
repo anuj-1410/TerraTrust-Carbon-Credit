@@ -17,7 +17,7 @@ import NetInfo from '@react-native-community/netinfo';
 import LottieView from 'lottie-react-native';
 
 import type {RootStackParamList} from '../../../types/navigation';
-import {useAppDispatch} from '../../../store/hooks';
+import {useAppDispatch, useAppSelector} from '../../../store/hooks';
 import {setCurrentDraft, clearCurrentDraft, type OCRResult} from '../store/landSlice';
 import api from '../../../services/api';
 
@@ -25,6 +25,12 @@ type Nav = NativeStackNavigationProp<RootStackParamList>;
 type ScreenState = 'capture' | 'camera' | 'preview' | 'loading' | 'ocr_result' | 'error';
 
 const MAX_FILE_SIZE = 10 * 1024 * 1024;
+
+const normalizeName = (value: string) =>
+  value
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, ' ');
 
 const getGPS = (): Promise<{lat: number; lng: number} | null> =>
   new Promise(resolve => {
@@ -38,6 +44,9 @@ const getGPS = (): Promise<{lat: number; lng: number} | null> =>
 const DocumentUploadScreen = () => {
   const navigation = useNavigation<Nav>();
   const dispatch = useAppDispatch();
+  const registeredOwnerName = useAppSelector(
+    state => state.auth.user?.name ?? '',
+  );
   const cameraRef = useRef<Camera>(null);
   const device = useCameraDevice('back');
 
@@ -47,6 +56,13 @@ const DocumentUploadScreen = () => {
   const [ocrResult, setOcrResult] = useState<OCRResult | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [isOffline, setIsOffline] = useState(false);
+  const [loadingMessage, setLoadingMessage] = useState('Reading your document…');
+
+  const ownerNameMismatch = Boolean(
+    ocrResult?.owner_name &&
+      registeredOwnerName &&
+      normalizeName(ocrResult.owner_name) !== normalizeName(registeredOwnerName),
+  );
 
   // ---- Capture handlers ----
 
@@ -114,6 +130,7 @@ const DocumentUploadScreen = () => {
       return;
     }
 
+    setLoadingMessage('Reading your document…');
     setScreenState('loading');
     setIsOffline(false);
 
@@ -156,7 +173,7 @@ const DocumentUploadScreen = () => {
   // ---- Continue → boundary fetch ----
 
   const onContinue = useCallback(async () => {
-    if (!ocrResult) return;
+    if (!ocrResult || ownerNameMismatch) return;
 
     const netInfo = await NetInfo.fetch();
     if (!netInfo.isConnected) {
@@ -165,6 +182,7 @@ const DocumentUploadScreen = () => {
     }
 
     dispatch(setCurrentDraft({fetchStatus: 'fetching'}));
+    setLoadingMessage('Finding your land boundary…');
     setScreenState('loading');
 
     const gps = await getGPS();
@@ -191,7 +209,6 @@ const DocumentUploadScreen = () => {
           geojson: {geometry: object; properties: object};
           satellite_thumbnail_url: string;
         };
-        const props = successData.geojson.properties as {area_sqm?: number};
         dispatch(
           setCurrentDraft({
             boundary: successData.geojson.geometry as import('../store/landSlice').GeoJSONPolygon,
@@ -213,7 +230,7 @@ const DocumentUploadScreen = () => {
       }
       setScreenState('ocr_result');
     }
-  }, [ocrResult, dispatch, navigation]);
+  }, [ocrResult, ownerNameMismatch, dispatch, navigation]);
 
   // ---- Try Again ----
 
@@ -274,7 +291,7 @@ const DocumentUploadScreen = () => {
           style={{width: 120, height: 120}}
         />
         <Text className="text-white text-lg mt-6 font-medium">
-          Reading your document…
+          {loadingMessage}
         </Text>
       </View>
     );
@@ -368,7 +385,7 @@ const DocumentUploadScreen = () => {
               onPress={onConfirmAndProcess}
               activeOpacity={0.7}>
               <Text className="text-white font-semibold text-base">
-                Confirm and Process
+                Use This Photo
               </Text>
             </TouchableOpacity>
             <TouchableOpacity
@@ -407,13 +424,27 @@ const DocumentUploadScreen = () => {
             ))}
           </View>
 
+          {ownerNameMismatch ? (
+            <View className="mt-4 rounded-xl bg-[#FEF3C7] p-4">
+              <Text className="text-sm font-semibold text-[#92400E]">
+                Owner name mismatch detected.
+              </Text>
+              <Text className="mt-2 text-sm leading-6 text-[#92400E]">
+                This document lists {ocrResult.owner_name}, but your verified TerraTrust profile is {registeredOwnerName}. Please retake the document with the correct owner name before continuing.
+              </Text>
+            </View>
+          ) : null}
+
           <View className="mt-6 gap-3 pb-6">
             <TouchableOpacity
-              className="bg-[#EC5B13] rounded-xl h-12 items-center justify-center flex-row min-h-[48px]"
+              className={`rounded-xl h-12 items-center justify-center flex-row min-h-[48px] ${
+                ownerNameMismatch ? 'bg-[#9CA3AF]' : 'bg-[#EC5B13]'
+              }`}
               onPress={onContinue}
+              disabled={ownerNameMismatch}
               activeOpacity={0.7}>
               <Text className="text-white font-semibold text-base">
-                This is correct — Continue
+                This looks correct — Continue
               </Text>
               <Text className="text-white ml-2">→</Text>
             </TouchableOpacity>
@@ -422,7 +453,7 @@ const DocumentUploadScreen = () => {
               onPress={onTryAgain}
               activeOpacity={0.7}>
               <Text className="text-white/80 font-semibold text-base">
-                Try Again
+                Retake Document
               </Text>
             </TouchableOpacity>
           </View>

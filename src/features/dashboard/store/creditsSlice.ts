@@ -28,13 +28,19 @@ export const creditsInitialState: CreditsState = {
 
 export const fetchCreditsThunk = createAsyncThunk<
   void,
-  string,
+  void,
   {state: RootState}
->('credits/fetchCredits', async (walletAddress, {dispatch}) => {
-  const response = await api.get(
-    `/api/v1/credits/balance?wallet_address=${encodeURIComponent(walletAddress)}`,
-  );
+>('credits/fetchCredits', async (_, {dispatch, getState}) => {
+  const response = await api.get('/api/v1/credits/balance');
+  const walletAddress = getState().auth.walletAddress;
+
   dispatch(setHistory(response.data.history));
+
+  if (!walletAddress) {
+    dispatch(setBalance(response.data.balance_ctt));
+    dispatch(setLastFetchedAt(new Date().toISOString()));
+    return;
+  }
 
   try {
     const blockchainBalance = await getCTTBalance(walletAddress);

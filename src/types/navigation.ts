@@ -1,33 +1,78 @@
-export type AuditStackParamList = {
-  AuditStart: {landId: string; landName: string};
-  ZoneNavigation: {auditId: string; landId: string};
-  ARCamera: {zoneId: string; zoneIndex: number; returnDiameter?: number};
-  ManualMeasure: {returnDiameter?: number};
-  TreeResult: {pendingTree: import('../features/ar-audit/store/auditSlice').TreeSample};
-  AuditComplete: undefined;
+import type {NavigatorScreenParams} from '@react-navigation/native';
+
+import type {TreeSample} from '../features/ar-audit/store/auditSlice';
+
+export type CreditHistoryParams = {
+  source?: 'home' | 'history';
+};
+
+export type HomeStackParamList = {
+  DashboardHomeScreen: undefined;
+  CreditHistoryScreen: CreditHistoryParams | undefined;
+  LandDetailScreen: {landId: string};
+  EditLandNameScreen: {landId: string};
+};
+
+export type LandStackParamList = {
+  LandListScreen: undefined;
+  LandDetailScreen: {landId: string};
+  EditLandNameScreen: {landId: string};
+};
+
+export type HistoryStackParamList = {
+  CreditHistoryScreen: CreditHistoryParams | undefined;
+};
+
+export type ProfileStackParamList = {
+  ProfileScreen: undefined;
+  SettingsScreen: undefined;
+  WalletRecoveryScreen: undefined;
+};
+
+export type MainTabParamList = {
+  HomeTab: NavigatorScreenParams<HomeStackParamList> | undefined;
+  LandTab: NavigatorScreenParams<LandStackParamList> | undefined;
+  HistoryTab: NavigatorScreenParams<HistoryStackParamList> | undefined;
+  ProfileTab: NavigatorScreenParams<ProfileStackParamList> | undefined;
 };
 
 export type RootStackParamList = {
-  // Auth
   SplashScreen: undefined;
   LoginScreen: undefined;
   OTPScreen: {phone: string};
   KYCScreen: undefined;
-  // Land
+  OnboardingScreen: undefined;
+
+  HomeScreen: NavigatorScreenParams<MainTabParamList> | undefined;
+
+  DashboardHomeScreen: undefined;
   LandListScreen: undefined;
+  CreditHistoryScreen: CreditHistoryParams | undefined;
+  LandDetailScreen: {landId: string};
+  EditLandNameScreen: {landId: string};
+  ProfileScreen: undefined;
+  SettingsScreen: undefined;
+  WalletRecoveryScreen: undefined;
+
   DocumentUploadScreen: undefined;
   BoundaryConfirmScreen: undefined;
   ManualUploadGuideScreen: undefined;
-  // AR Audit
+  LandRegistrationSuccessScreen: {landId: string};
+
   AuditStartScreen: {landId: string; landName: string};
   ZoneNavigationScreen: {auditId: string; landId: string};
-  ARCameraScreen: {zoneId: string; zoneIndex: number; returnDiameter?: number};
-  ManualMeasureScreen: {returnDiameter?: number};
-  TreeResultScreen: {pendingTree: import('../features/ar-audit/store/auditSlice').TreeSample};
+  ARCameraScreen: {
+    zoneId: string;
+    zoneIndex: number;
+    returnDiameter?: number;
+  };
+  ManualMeasureScreen: {returnDiameter?: number} | undefined;
+  TreeResultScreen: {pendingTree: TreeSample};
   AuditCompleteScreen: undefined;
-  // Dashboard
-  HomeScreen: undefined;
-  CreditHistoryScreen: undefined;
+  AuditStatusScreen: {auditId: string};
+
+  NotificationsScreen: undefined;
+  MaintenanceScreen: {message?: string} | undefined;
 };
 
 declare global {
