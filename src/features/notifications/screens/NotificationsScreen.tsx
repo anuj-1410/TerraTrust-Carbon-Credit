@@ -2,6 +2,7 @@ import React from 'react';
 import {ScrollView, Text, TouchableOpacity, View} from 'react-native';
 import {useNavigation} from '@react-navigation/native';
 import type {NativeStackNavigationProp} from '@react-navigation/native-stack';
+import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
 
 import Card from '../../../common/components/Card';
 import {COLORS} from '../../../common/constants/colors';
@@ -60,7 +61,11 @@ const NotificationsScreen = () => {
         <TouchableOpacity
           className="min-h-[48px] min-w-[48px] items-center justify-center"
           onPress={() => navigation.goBack()}>
-          <Text className="text-2xl" style={{color: COLORS.DARK_SLATE}}>✕</Text>
+          <MaterialCommunityIcons
+            color={COLORS.DARK_SLATE}
+            name="close"
+            size={24}
+          />
         </TouchableOpacity>
         <Text className="text-2xl font-bold" style={{color: COLORS.DARK_SLATE}}>
           Notifications

@@ -1,12 +1,21 @@
 import React, {useEffect, useRef} from 'react';
-import {Text, TouchableOpacity} from 'react-native';
+import {
+  BackHandler,
+  Platform,
+  Text,
+  ToastAndroid,
+  TouchableOpacity,
+  View,
+} from 'react-native';
 import {Provider} from 'react-redux';
 import {PersistGate} from 'redux-persist/integration/react';
 import {NavigationContainer} from '@react-navigation/native';
 import {createNativeStackNavigator} from '@react-navigation/native-stack';
 import {createBottomTabNavigator} from '@react-navigation/bottom-tabs';
+import {useSafeAreaInsets} from 'react-native-safe-area-context';
 import BackgroundFetch from 'react-native-background-fetch';
 import NetInfo from '@react-native-community/netinfo';
+import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
 
 import {store, persistor} from '../store';
 import type {
@@ -23,6 +32,7 @@ import {hideBanner, setMaintenance, showBanner} from '../store/uiSlice';
 import Loader from '../common/components/Loader';
 import api, {retryPendingAuditUpload} from '../services/api';
 import {COLORS} from '../common/constants/colors';
+import {useARTier} from '../common/hooks/useARTier';
 
 // Auth screens
 import SplashScreen from '../features/auth/screens/SplashScreen';
@@ -66,6 +76,80 @@ const HomeStack = createNativeStackNavigator<HomeStackParamList>();
 const LandStack = createNativeStackNavigator<LandStackParamList>();
 const HistoryStack = createNativeStackNavigator<HistoryStackParamList>();
 const ProfileStack = createNativeStackNavigator<ProfileStackParamList>();
+
+type NavigationBranch = {
+  index: number;
+  routes: Array<{
+    name: string;
+    state?: NavigationBranch;
+  }>;
+};
+
+function getNavigationBranch(value: unknown): NavigationBranch | null {
+  if (!value || typeof value !== 'object') {
+    return null;
+  }
+
+  const branch = value as {
+    index?: unknown;
+    routes?: unknown;
+  };
+
+  if (typeof branch.index !== 'number' || !Array.isArray(branch.routes)) {
+    return null;
+  }
+
+  return branch as NavigationBranch;
+}
+
+function isAtMainTabRoot(): boolean {
+  const rootState = getNavigationBranch(navigationRef.getRootState());
+  if (!rootState) {
+    return false;
+  }
+
+  const rootRoute = rootState.routes[rootState.index];
+  if (!rootRoute || rootRoute.name !== 'HomeScreen') {
+    return false;
+  }
+
+  const tabState = getNavigationBranch(rootRoute.state);
+  if (!tabState) {
+    return true;
+  }
+
+  const activeTab = tabState.routes[tabState.index];
+  if (!activeTab) {
+    return false;
+  }
+
+  const nestedStackState = getNavigationBranch(activeTab.state);
+  return !nestedStackState || nestedStackState.index === 0;
+}
+
+function TabIcon({
+  name,
+  color,
+  size,
+  showDot = false,
+}: {
+  name: React.ComponentProps<typeof MaterialCommunityIcons>['name'];
+  color: string;
+  size: number;
+  showDot?: boolean;
+}) {
+  return (
+    <View>
+      <MaterialCommunityIcons color={color} name={name} size={size} />
+      {showDot ? (
+        <View
+          className="absolute -right-1 top-0 h-2.5 w-2.5 rounded-full"
+          style={{backgroundColor: COLORS.ERROR_RED}}
+        />
+      ) : null}
+    </View>
+  );
+}
 
 function HomeStackNavigator() {
   return (
@@ -123,45 +207,89 @@ function ProfileStackNavigator() {
 }
 
 function MainTabs() {
+  const insets = useSafeAreaInsets();
+  const unreadNotifications = useAppSelector(
+    state => state.notifications.items.filter(item => !item.read).length,
+  );
+  const walletRecoveryPending = useAppSelector(
+    state => state.profile.walletRecoveryPending,
+  );
+
   return (
     <Tab.Navigator
+      id="MainTabs"
       initialRouteName="HomeTab"
       screenOptions={{
         headerShown: false,
         tabBarActiveTintColor: COLORS.FOREST_GREEN,
         tabBarInactiveTintColor: COLORS.DISABLED_GREY,
         tabBarHideOnKeyboard: true,
+        tabBarLabelPosition: 'below-icon',
         tabBarLabelStyle: {
-          fontSize: 12,
-          fontWeight: '600',
+          fontSize: 11,
+          fontFamily: 'Roboto-Regular',
+        },
+        tabBarIconStyle: {
+          marginTop: 2,
         },
         tabBarStyle: {
           backgroundColor: COLORS.CARD_WHITE,
-          borderTopColor: COLORS.OFF_WHITE,
-          height: 64,
-          paddingBottom: 8,
-          paddingTop: 8,
+          borderTopColor: '#E2E8F0',
+          borderTopWidth: 1,
+          height: 56 + insets.bottom,
+          paddingBottom: Math.max(insets.bottom, 8),
+          paddingTop: 6,
         },
       }}>
       <Tab.Screen
         name="HomeTab"
         component={HomeStackNavigator}
-        options={{title: 'Home'}}
+        options={{
+          title: 'Home',
+          tabBarIcon: ({color, size}) => (
+            <TabIcon
+              color={color}
+              name="home-outline"
+              showDot={unreadNotifications > 0}
+              size={size}
+            />
+          ),
+        }}
       />
       <Tab.Screen
         name="LandTab"
         component={LandStackNavigator}
-        options={{title: 'My Lands'}}
+        options={{
+          title: 'My Lands',
+          tabBarIcon: ({color, size}) => (
+            <TabIcon color={color} name="sprout-outline" size={size} />
+          ),
+        }}
       />
       <Tab.Screen
         name="HistoryTab"
         component={HistoryStackNavigator}
-        options={{title: 'History'}}
+        options={{
+          title: 'History',
+          tabBarIcon: ({color, size}) => (
+            <TabIcon color={color} name="chart-timeline-variant" size={size} />
+          ),
+        }}
       />
       <Tab.Screen
         name="ProfileTab"
         component={ProfileStackNavigator}
-        options={{title: 'Profile'}}
+        options={{
+          title: 'Profile',
+          tabBarIcon: ({color, size}) => (
+            <TabIcon
+              color={color}
+              name="account-outline"
+              showDot={walletRecoveryPending}
+              size={size}
+            />
+          ),
+        }}
       />
     </Tab.Navigator>
   );
@@ -187,6 +315,8 @@ async function configureBackgroundFetch() {
 }
 
 function AppLifecycleEffects() {
+  useARTier();
+
   const dispatch = useAppDispatch();
   const bannerType = useAppSelector(state => state.ui.bannerType);
   const maintenanceMode = useAppSelector(state => state.ui.maintenanceMode);
@@ -194,6 +324,7 @@ function AppLifecycleEffects() {
     state => state.ui.maintenanceMessage,
   );
   const wasOfflineRef = useRef(false);
+  const lastBackPressRef = useRef(0);
 
   useEffect(() => {
     let isMounted = true;
@@ -267,6 +398,33 @@ function AppLifecycleEffects() {
       maintenanceMessage ? {message: maintenanceMessage} : undefined,
     );
   }, [maintenanceMessage, maintenanceMode]);
+
+  useEffect(() => {
+    if (Platform.OS !== 'android') {
+      return;
+    }
+
+    const subscription = BackHandler.addEventListener(
+      'hardwareBackPress',
+      () => {
+        if (!navigationRef.isReady() || !isAtMainTabRoot()) {
+          return false;
+        }
+
+        const now = Date.now();
+        if (now - lastBackPressRef.current < 2000) {
+          BackHandler.exitApp();
+          return true;
+        }
+
+        lastBackPressRef.current = now;
+        ToastAndroid.show('Press back again to exit', ToastAndroid.SHORT);
+        return true;
+      },
+    );
+
+    return () => subscription.remove();
+  }, []);
 
   return null;
 }
@@ -346,47 +504,59 @@ const App = () => {
             <RootStack.Screen
               name="DocumentUploadScreen"
               component={DocumentUploadScreen}
+              options={{presentation: 'fullScreenModal'}}
             />
             <RootStack.Screen
               name="BoundaryConfirmScreen"
               component={BoundaryConfirmScreen}
+              options={{presentation: 'fullScreenModal'}}
             />
             <RootStack.Screen
               name="ManualUploadGuideScreen"
               component={ManualUploadGuideScreen}
+              options={{presentation: 'fullScreenModal'}}
             />
             <RootStack.Screen
               name="LandRegistrationSuccessScreen"
               component={LandRegistrationSuccessScreen}
-              options={{gestureEnabled: false}}
+              options={{gestureEnabled: false, presentation: 'fullScreenModal'}}
             />
 
             {/* AR-Audit */}
             <RootStack.Screen
               name="AuditStartScreen"
               component={AuditStartScreen}
+              options={{presentation: 'fullScreenModal'}}
             />
             <RootStack.Screen
               name="ZoneNavigationScreen"
               component={ZoneNavigationScreen}
+              options={{presentation: 'fullScreenModal'}}
             />
-            <RootStack.Screen name="ARCameraScreen" component={ARCameraScreen} />
+            <RootStack.Screen
+              name="ARCameraScreen"
+              component={ARCameraScreen}
+              options={{presentation: 'fullScreenModal'}}
+            />
             <RootStack.Screen
               name="ManualMeasureScreen"
               component={ManualMeasureScreen}
+              options={{presentation: 'fullScreenModal'}}
             />
             <RootStack.Screen
               name="TreeResultScreen"
               component={TreeResultScreen}
+              options={{presentation: 'fullScreenModal'}}
             />
             <RootStack.Screen
               name="AuditCompleteScreen"
               component={AuditCompleteScreen}
+              options={{gestureEnabled: false, presentation: 'fullScreenModal'}}
             />
             <RootStack.Screen
               name="AuditStatusScreen"
               component={AuditStatusScreen}
-              options={{gestureEnabled: false}}
+              options={{gestureEnabled: false, presentation: 'fullScreenModal'}}
             />
 
             {/* Utility */}

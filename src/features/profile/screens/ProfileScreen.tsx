@@ -94,7 +94,7 @@ const ProfileScreen = () => {
             {maskedPhone}
           </Text>
           <View className="mt-3 self-start">
-            <Badge label="✓ Verified" variant="verified" />
+            <Badge label="Verified" variant="verified" />
           </View>
         </View>
       </Card>

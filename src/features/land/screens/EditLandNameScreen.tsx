@@ -3,6 +3,7 @@ import {View, Text, TextInput, TouchableOpacity} from 'react-native';
 import {useNavigation, useRoute} from '@react-navigation/native';
 import type {RouteProp} from '@react-navigation/native';
 import type {NativeStackNavigationProp} from '@react-navigation/native-stack';
+import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
 
 import Button from '../../../common/components/Button';
 import {COLORS} from '../../../common/constants/colors';
@@ -71,7 +72,11 @@ const EditLandNameScreen = () => {
         <TouchableOpacity
           className="min-h-[48px] min-w-[48px] items-center justify-center"
           onPress={() => navigation.goBack()}>
-          <Text className="text-2xl" style={{color: COLORS.DARK_SLATE}}>←</Text>
+          <MaterialCommunityIcons
+            color={COLORS.DARK_SLATE}
+            name="arrow-left"
+            size={24}
+          />
         </TouchableOpacity>
         <Text className="text-xl font-bold" style={{color: COLORS.DARK_SLATE}}>
           Edit Farm Name

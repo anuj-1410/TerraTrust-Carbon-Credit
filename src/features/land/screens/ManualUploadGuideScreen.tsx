@@ -5,9 +5,10 @@ import type {NativeStackNavigationProp} from '@react-navigation/native-stack';
 import {pick, types, isErrorWithCode, errorCodes} from '@react-native-documents/picker';
 import NetInfo from '@react-native-community/netinfo';
 import LottieView from 'lottie-react-native';
+import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
 
 import type {RootStackParamList} from '../../../types/navigation';
-import {useAppDispatch} from '../../../store/hooks';
+import {useAppDispatch, useAppSelector} from '../../../store/hooks';
 import {setCurrentDraft, type BoundarySource, type GeoJSONPolygon} from '../store/landSlice';
 import api from '../../../services/api';
 import {COLORS} from '../../../common/constants/colors';
@@ -42,6 +43,9 @@ const STEPS: Step[] = [
 const ManualUploadGuideScreen = () => {
   const navigation = useNavigation<Nav>();
   const dispatch = useAppDispatch();
+  const surveyNumber = useAppSelector(
+    state => state.land.currentDraft.ocrResult?.survey_number ?? '',
+  );
 
   const [isLoading, setIsLoading] = useState(false);
   const [loadingText, setLoadingText] = useState('Processing your map…');
@@ -148,15 +152,20 @@ const ManualUploadGuideScreen = () => {
           className="min-w-[48px] min-h-[48px] w-12 h-12 justify-center items-center self-start mb-4"
           onPress={() => navigation.navigate('DocumentUploadScreen')}
           activeOpacity={0.7}>
-          <Text className="text-white text-xl font-bold">←</Text>
+          <MaterialCommunityIcons color="#FFFFFF" name="arrow-left" size={22} />
         </TouchableOpacity>
         <Text className="text-white text-2xl font-bold tracking-tight">
-          Manual Upload Guide
+          Upload Land Map
         </Text>
         <Text className="text-white/50 text-sm mt-2 leading-5">
           We couldn't find your boundary automatically. Follow these steps to
           upload it manually.
         </Text>
+        <View className="mt-3 flex-row items-center gap-2">
+          <View className="h-2.5 w-2.5 rounded-full bg-white" />
+          <View className="h-2.5 w-2.5 rounded-full bg-white" />
+          <View className="h-2.5 w-2.5 rounded-full bg-white/30" />
+        </View>
       </View>
 
       {/* Offline banner */}
@@ -192,7 +201,9 @@ const ManualUploadGuideScreen = () => {
             {/* Step content */}
             <View className="flex-1 pb-6">
               <Text className="text-white text-base font-bold mt-2">
-                {step.title}
+                {step.number === 3 && surveyNumber
+                  ? `Find Survey Number ${surveyNumber} and tap Download`
+                  : step.title}
               </Text>
               {step.number === 1 && (
                 <TouchableOpacity
@@ -203,7 +214,11 @@ const ManualUploadGuideScreen = () => {
                   <Text style={{color: COLORS.TEAL}} className="text-sm font-medium flex-1">
                     Open bhunaksha.mahabhumi.gov.in
                   </Text>
-                  <Text style={{color: COLORS.TEAL}} className="text-base ml-2">→</Text>
+                  <MaterialCommunityIcons
+                    color={COLORS.TEAL}
+                    name="arrow-right"
+                    size={18}
+                  />
                 </TouchableOpacity>
               )}
             </View>
@@ -214,6 +229,16 @@ const ManualUploadGuideScreen = () => {
         {errorMessage && (
           <View className="bg-red-900/40 rounded-lg p-3 mb-4">
             <Text className="text-red-300 text-sm">{errorMessage}</Text>
+            <TouchableOpacity
+              className="mt-3 min-h-[48px] justify-center"
+              onPress={() =>
+                void Linking.openURL(
+                  'mailto:support@terratrust.app?subject=Manual%20map%20upload%20support',
+                )
+              }
+              activeOpacity={0.7}>
+              <Text style={{color: COLORS.TEAL}}>Contact Support</Text>
+            </TouchableOpacity>
           </View>
         )}
       </ScrollView>
@@ -226,9 +251,9 @@ const ManualUploadGuideScreen = () => {
           onPress={onUpload}
           disabled={isLoading}
           activeOpacity={0.7}>
-          <Text className="text-white text-lg mr-2">↑</Text>
+          <MaterialCommunityIcons color="#FFFFFF" name="upload" size={18} />
           <Text className="text-white font-semibold text-base">
-            Upload Downloaded Image
+            Upload Downloaded Map
           </Text>
         </TouchableOpacity>
         <Text className="text-white/30 text-xs text-center mt-3">

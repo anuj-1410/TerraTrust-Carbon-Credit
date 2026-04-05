@@ -1,4 +1,4 @@
-import React, {useCallback, useEffect, useState} from 'react';
+import React, {useCallback, useEffect, useRef, useState} from 'react';
 import {
   View,
   Text,
@@ -10,6 +10,7 @@ import {
 } from 'react-native';
 import {useNavigation} from '@react-navigation/native';
 import type {NativeStackNavigationProp} from '@react-navigation/native-stack';
+import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
 import type {RootStackParamList} from '../../../types/navigation';
 import {useAppDispatch, useAppSelector} from '../../../store/hooks';
 import {
@@ -39,12 +40,17 @@ const LandListScreen = () => {
   const navigation = useNavigation<Nav>();
   const dispatch = useAppDispatch();
   const parcels = useAppSelector(s => s.land.parcels);
+  const parcelsRef = useRef(parcels);
 
   const [isOffline, setIsOffline] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [currentPage, setCurrentPage] = useState(1);
   const [hasMore, setHasMore] = useState(true);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
+
+  useEffect(() => {
+    parcelsRef.current = parcels;
+  }, [parcels]);
 
   const enrichParcels = useCallback(
     (
@@ -102,10 +108,11 @@ const LandListScreen = () => {
         params: {page: pageToLoad, limit: PAGE_SIZE},
       });
 
+      const currentParcels = parcelsRef.current;
       const items = Array.isArray(data) ? data : data.items ?? [];
-      const incomingParcels = enrichParcels(items, parcels);
+      const incomingParcels = enrichParcels(items, currentParcels);
       const nextParcels = isLoadMore
-        ? mergePagedParcels(parcels, incomingParcels)
+        ? mergePagedParcels(currentParcels, incomingParcels)
         : incomingParcels;
 
       dispatch(setParcels(nextParcels));
@@ -123,12 +130,11 @@ const LandListScreen = () => {
         setIsLoadingMore(false);
       }
     }
-  }, [dispatch, enrichParcels, mergePagedParcels, parcels]);
+  }, [dispatch, enrichParcels, mergePagedParcels]);
 
   useEffect(() => {
     void fetchParcels(1);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [fetchParcels]);
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
@@ -162,6 +168,7 @@ const LandListScreen = () => {
       navigation.navigate('AuditStartScreen', {
         landId: item.id,
         landName: item.farm_name,
+        originTab: 'LandTab',
       });
     };
 
@@ -170,7 +177,12 @@ const LandListScreen = () => {
         className="mx-4 mb-3 rounded-xl bg-white p-4 flex-row"
         style={{elevation: 2}}
         activeOpacity={0.82}
-        onPress={() => navigation.navigate('LandDetailScreen', {landId: item.id})}>
+        onPress={() =>
+          navigation.navigate('LandDetailScreen', {
+            landId: item.id,
+            originTab: 'LandTab',
+          })
+        }>
         {/* Satellite thumbnail */}
         <Image
           source={item.thumbnail_url ? {uri: item.thumbnail_url} : undefined}
@@ -215,7 +227,11 @@ const LandListScreen = () => {
   const renderEmptyState = () => (
     <View className="flex-1 items-center justify-center px-8 pt-24">
       <View className="w-24 h-24 rounded-full items-center justify-center mb-6" style={{backgroundColor: COLORS.FOREST_GREEN + '20'}}>
-        <Text className="text-5xl">🌿</Text>
+        <MaterialCommunityIcons
+          color={COLORS.FOREST_GREEN}
+          name="sprout"
+          size={44}
+        />
       </View>
       <Text className="text-xl font-bold mb-2" style={{color: COLORS.DARK_SLATE}}>
         No land parcels yet
@@ -229,7 +245,7 @@ const LandListScreen = () => {
         onPress={() => navigation.navigate('DocumentUploadScreen')}
         activeOpacity={0.7}>
         <Text className="text-white font-semibold text-base">
-          Add Your First Parcel
+          Register Your First Land
         </Text>
       </TouchableOpacity>
     </View>
@@ -247,10 +263,20 @@ const LandListScreen = () => {
       )}
 
       {/* Header */}
-      <View className="px-4 pt-4 pb-2">
+      <View className="flex-row items-center justify-between px-4 pt-4 pb-2">
         <Text className="text-2xl font-bold tracking-tight" style={{color: COLORS.DARK_SLATE}}>
           My Lands
         </Text>
+        <TouchableOpacity
+          className="min-h-[48px] min-w-[48px] items-center justify-center rounded-full"
+          onPress={() => navigation.navigate('DocumentUploadScreen')}
+          activeOpacity={0.7}>
+          <MaterialCommunityIcons
+            color={COLORS.FOREST_GREEN}
+            name="plus"
+            size={28}
+          />
+        </TouchableOpacity>
       </View>
 
       {/* Parcel list */}
@@ -285,9 +311,7 @@ const LandListScreen = () => {
         style={{backgroundColor: COLORS.FOREST_GREEN}}
         onPress={() => navigation.navigate('DocumentUploadScreen')}
         activeOpacity={0.7}>
-        <Text className="text-white text-3xl font-light leading-none" style={{marginTop: -2}}>
-          +
-        </Text>
+        <MaterialCommunityIcons color="#FFFFFF" name="plus" size={28} />
       </TouchableOpacity>
     </View>
   );

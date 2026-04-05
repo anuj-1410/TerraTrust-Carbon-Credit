@@ -1,6 +1,7 @@
 import React, {useEffect, useRef} from 'react';
 import {View, Text} from 'react-native';
 import LottieView from 'lottie-react-native';
+import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
 import {useNavigation} from '@react-navigation/native';
 import type {NativeStackNavigationProp} from '@react-navigation/native-stack';
 import type {RootStackParamList} from '../../../types/navigation';
@@ -118,7 +119,7 @@ const SplashScreen = () => {
   return (
     <View className="flex-1 items-center justify-center bg-[#F8FAF8] px-6">
       <View className="mb-5 h-[120px] w-[120px] items-center justify-center rounded-[32px] bg-white shadow-sm">
-        <Text className="text-5xl">🌿</Text>
+        <MaterialCommunityIcons color="#1B4332" name="sprout" size={52} />
       </View>
       <Text className="text-3xl font-bold text-[#1B4332]">TerraTrust</Text>
       <Text className="mt-2 text-sm text-[#6B7280]">

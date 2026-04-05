@@ -7,16 +7,22 @@ import {
   ScrollView,
   Keyboard,
 } from 'react-native';
-import {useNavigation} from '@react-navigation/native';
+import {CommonActions, useNavigation, useRoute} from '@react-navigation/native';
 import type {NativeStackNavigationProp} from '@react-navigation/native-stack';
+import type {RouteProp} from '@react-navigation/native';
 import LottieView from 'lottie-react-native';
+import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
 import type {RootStackParamList} from '../../../types/navigation';
+import Badge from '../../../common/components/Badge';
 import {mmkv} from '../../../store/mmkvStorage';
 
 type NavProp = NativeStackNavigationProp<RootStackParamList, 'ManualMeasureScreen'>;
+type RouteType = RouteProp<RootStackParamList, 'ManualMeasureScreen'>;
 
 const ManualMeasureScreen = () => {
   const navigation = useNavigation<NavProp>();
+  const route = useRoute<RouteType>();
+  const {zoneId, zoneIndex} = route.params;
 
   const [showTutorial, setShowTutorial] = useState(false);
   const [circumference, setCircumference] = useState('');
@@ -59,11 +65,18 @@ const ManualMeasureScreen = () => {
 
   const handleConfirm = useCallback(() => {
     if (calculatedDiameter === null) return;
-    // Navigate back to ARCameraScreen with returnDiameter
-    navigation.navigate('ARCameraScreen' as any, {
-      returnDiameter: calculatedDiameter,
-    });
-  }, [calculatedDiameter, navigation]);
+    navigation.dispatch(
+      CommonActions.navigate({
+        name: 'ARCameraScreen',
+        params: {
+          zoneId,
+          zoneIndex,
+          returnDiameter: calculatedDiameter,
+        },
+        merge: true,
+      }),
+    );
+  }, [calculatedDiameter, navigation, zoneId, zoneIndex]);
 
   return (
     <View className="flex-1 bg-[#F8FAF8]">
@@ -74,7 +87,7 @@ const ManualMeasureScreen = () => {
             onPress={() => navigation.goBack()}
             className="w-12 h-12 items-center justify-center rounded-full"
             accessibilityLabel="Go back">
-            <Text className="text-white text-2xl">←</Text>
+            <MaterialCommunityIcons color="#FFFFFF" name="arrow-left" size={24} />
           </TouchableOpacity>
           <View className="flex-1 items-center mr-12">
             <Text className="text-white text-xl font-bold">
@@ -120,7 +133,7 @@ const ManualMeasureScreen = () => {
           {/* Trunk cross-section diagram */}
           <View className="w-36 h-36 rounded-full border-4 border-dashed border-[#F59E0B] bg-[#D1FAE5] items-center justify-center">
             <View className="w-24 h-24 rounded-full bg-[#2D6A4F] items-center justify-center">
-              <Text className="text-white text-3xl">🌲</Text>
+              <MaterialCommunityIcons color="#FFFFFF" name="sprout" size={32} />
             </View>
           </View>
           <Text className="text-[#6B7280] text-sm text-center mt-4">
@@ -133,7 +146,7 @@ const ManualMeasureScreen = () => {
 
         {/* Input section */}
         <View className="bg-white rounded-2xl p-5 shadow-sm">
-          <Text className="text-[#6B7280] text-sm mb-2">Circumference</Text>
+          <Text className="text-[#6B7280] text-sm mb-2">Length in centimetres</Text>
           <View className="flex-row items-center">
             <TextInput
               className={`flex-1 text-[#191C1B] text-2xl font-bold border-b-2 pb-2 ${
@@ -180,11 +193,7 @@ const ManualMeasureScreen = () => {
               <Text className="text-[#6B7280] text-sm">
                 Calculated Diameter
               </Text>
-              <View className="bg-[#F3F4F6] px-3 py-1 rounded-full">
-                <Text className="text-[#6B7280] text-xs font-semibold">
-                  ◎ Manual Measurement
-                </Text>
-              </View>
+              <Badge label="Manual Measurement" variant="manual" />
             </View>
             <Text className="text-[#191C1B] text-3xl font-bold mb-2"
               style={{fontFamily: 'RobotoMono-Bold'}}>

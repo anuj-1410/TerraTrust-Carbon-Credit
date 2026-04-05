@@ -1,6 +1,6 @@
 import type {LandParcel} from '../../features/land/store/landSlice';
 
-type BadgeLabel = '✓ Verified' | '⏳ Pending' | '✗ Rejected';
+type BadgeLabel = 'Verified' | 'Pending' | 'Rejected';
 
 export interface LandStatusMeta {
   status: 'green' | 'orange' | 'red';
@@ -29,7 +29,7 @@ export function getLandStatus(
     return 'orange';
   }
 
-  const currentYear = new Date().getFullYear();
+  const currentYear = new Date(Date.now()).getFullYear();
 
   if (parcel.last_audit_date) {
     const lastAudit = new Date(parcel.last_audit_date);
@@ -67,7 +67,7 @@ export function getLandStatusMeta(parcel: LandParcel): LandStatusMeta {
   if (parcel.status === 'rejected') {
     return {
       status: 'red',
-      label: '✗ Rejected',
+      label: 'Rejected',
       showAudit: false,
       primaryAction: null,
       primaryActionLabel: null,
@@ -78,7 +78,7 @@ export function getLandStatusMeta(parcel: LandParcel): LandStatusMeta {
   if (parcel.status !== 'verified') {
     return {
       status: 'orange',
-      label: '⏳ Pending',
+      label: 'Pending',
       showAudit: false,
       primaryAction: null,
       primaryActionLabel: null,
@@ -93,7 +93,7 @@ export function getLandStatusMeta(parcel: LandParcel): LandStatusMeta {
   ) {
     return {
       status: 'orange',
-      label: '⏳ Pending',
+      label: 'Pending',
       showAudit: false,
       primaryAction: 'view_status',
       primaryActionLabel: 'View Status',
@@ -108,7 +108,7 @@ export function getLandStatusMeta(parcel: LandParcel): LandStatusMeta {
   if (status === 'green') {
     return {
       status,
-      label: '✓ Verified',
+      label: 'Verified',
       showAudit: false,
       primaryAction: null,
       primaryActionLabel: null,
@@ -119,7 +119,7 @@ export function getLandStatusMeta(parcel: LandParcel): LandStatusMeta {
   if (status === 'orange') {
     return {
       status: 'green',
-      label: '✓ Verified',
+      label: 'Verified',
       showAudit: true,
       primaryAction: 'start_audit',
       primaryActionLabel: 'Start Audit',
@@ -129,7 +129,7 @@ export function getLandStatusMeta(parcel: LandParcel): LandStatusMeta {
 
   return {
     status: 'green',
-    label: '✓ Verified',
+    label: 'Verified',
     showAudit: true,
     primaryAction: 'start_audit',
     primaryActionLabel: 'Start Audit',

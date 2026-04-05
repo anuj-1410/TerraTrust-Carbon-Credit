@@ -2,6 +2,7 @@ import {createSlice, createAsyncThunk, type PayloadAction} from '@reduxjs/toolki
 import api from '../../../services/api';
 import {detectARTier as detectARTierBridge} from '../../../services/ar-bridge';
 import type {RootState} from '../../../store/index';
+import type {MainAppOriginTab} from '../../../types/navigation';
 
 export type ARTier = 1 | 2 | 3;
 export type UploadStatus =
@@ -81,6 +82,7 @@ export interface FetchZonesError {
 export interface AuditState {
   activeAuditId: string | null;
   activeLandId: string | null;
+  originTab: MainAppOriginTab | null;
   zones: SamplingZone[];
   currentZoneIndex: number;
   scannedTrees: TreeSample[];
@@ -97,6 +99,7 @@ export interface AuditState {
 export const auditInitialState: AuditState = {
   activeAuditId: null,
   activeLandId: null,
+  originTab: null,
   zones: [],
   currentZoneIndex: 0,
   scannedTrees: [],
@@ -226,6 +229,9 @@ const auditSlice = createSlice({
     setZones(state, action: PayloadAction<SamplingZone[]>) {
       state.zones = action.payload;
     },
+    setOriginTab(state, action: PayloadAction<MainAppOriginTab | null>) {
+      state.originTab = action.payload;
+    },
     setCurrentZoneIndex(state, action: PayloadAction<number>) {
       state.currentZoneIndex = action.payload;
     },
@@ -326,6 +332,7 @@ const auditSlice = createSlice({
 export const {
   startAudit,
   setZones,
+  setOriginTab,
   setCurrentZoneIndex,
   addScannedTree,
   setArTier,

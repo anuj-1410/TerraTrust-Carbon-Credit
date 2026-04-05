@@ -24,27 +24,15 @@ function makeParcel(lastAuditYear: number | null, overrides: Partial<LandParcel>
 }
 
 describe('getLandStatus', () => {
-  const realDate = Date;
+  let nowSpy: jest.SpiedFunction<typeof Date.now> | undefined;
 
   afterEach(() => {
-    global.Date = realDate;
+    nowSpy?.mockRestore();
+    nowSpy = undefined;
   });
 
   function mockDate(isoString: string) {
-    const fixed = new realDate(isoString);
-    global.Date = class extends realDate {
-      constructor(...args: any[]) {
-        if (args.length === 0) {
-          super(fixed.getTime());
-        } else {
-          // @ts-ignore
-          super(...args);
-        }
-      }
-      static now() {
-        return fixed.getTime();
-      }
-    } as any;
+    nowSpy = jest.spyOn(Date, 'now').mockReturnValue(new Date(isoString).getTime());
   }
 
   it('returns orange when last_audit_year is null', () => {
@@ -90,7 +78,7 @@ describe('getLandStatus', () => {
       ),
     ).toEqual({
       status: 'orange',
-      label: '⏳ Pending',
+      label: 'Pending',
       showAudit: false,
       primaryAction: null,
       primaryActionLabel: null,

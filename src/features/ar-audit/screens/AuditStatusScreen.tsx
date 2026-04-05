@@ -1,4 +1,4 @@
-import React, {useEffect, useMemo, useRef, useState} from 'react';
+import React, {useCallback, useEffect, useMemo, useRef, useState} from 'react';
 import {
   BackHandler,
   Linking,
@@ -11,6 +11,7 @@ import {useNavigation, useRoute} from '@react-navigation/native';
 import type {RouteProp} from '@react-navigation/native';
 import type {NativeStackNavigationProp} from '@react-navigation/native-stack';
 import LottieView from 'lottie-react-native';
+import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
 
 import Button from '../../../common/components/Button';
 import {COLORS} from '../../../common/constants/colors';
@@ -42,14 +43,22 @@ const AuditStatusScreen = () => {
   const [statusHint, setStatusHint] = useState('');
   const hasAnnouncedTerminalStateRef = useRef(false);
 
-  useEffect(() => {
-    if (currentResult.status !== 'CALCULATING') {
-      return;
-    }
+  const goHome = useCallback(() => {
+    navigation.reset({index: 0, routes: [{name: 'HomeScreen'}]});
+  }, [navigation]);
 
-    const subscription = BackHandler.addEventListener('hardwareBackPress', () => true);
+  useEffect(() => {
+    const subscription = BackHandler.addEventListener('hardwareBackPress', () => {
+      if (currentResult.status === 'CALCULATING') {
+        return true;
+      }
+
+      goHome();
+      return true;
+    });
+
     return () => subscription.remove();
-  }, [currentResult.status]);
+  }, [currentResult.status, goHome]);
 
   useEffect(() => {
     let isMounted = true;
@@ -176,10 +185,6 @@ const AuditStatusScreen = () => {
     return `${currentResult.tx_hash.slice(0, 8)}...${currentResult.tx_hash.slice(-4)}`;
   }, [currentResult.tx_hash]);
 
-  const goHome = () => {
-    navigation.reset({index: 0, routes: [{name: 'HomeScreen'}]});
-  };
-
   return (
     <View className="flex-1" style={{backgroundColor: COLORS.OFF_WHITE}}>
       <ScrollView contentContainerStyle={{padding: 24, paddingTop: 56, paddingBottom: 32}}>
@@ -199,10 +204,30 @@ const AuditStatusScreen = () => {
               Calculating your carbon credits...
             </Text>
             <View className="mt-8 w-full rounded-2xl bg-white px-5 py-5">
-              <Text style={{color: COLORS.FOREST_GREEN}}>✓ Scan data received</Text>
-              <Text className="mt-3" style={{color: COLORS.TEAL}}>⟳ Running satellite analysis</Text>
-              <Text className="mt-3" style={{color: COLORS.DISABLED_GREY}}>○ Calculating carbon credits</Text>
-              <Text className="mt-3" style={{color: COLORS.DISABLED_GREY}}>○ Minting tokens to your wallet</Text>
+              <View className="flex-row items-center">
+                <MaterialCommunityIcons color={COLORS.FOREST_GREEN} name="check-circle-outline" size={18} />
+                <Text className="ml-2" style={{color: COLORS.FOREST_GREEN}}>
+                  Scan data received
+                </Text>
+              </View>
+              <View className="mt-3 flex-row items-center">
+                <MaterialCommunityIcons color={COLORS.TEAL} name="satellite-variant" size={18} />
+                <Text className="ml-2" style={{color: COLORS.TEAL}}>
+                  Running satellite analysis
+                </Text>
+              </View>
+              <View className="mt-3 flex-row items-center">
+                <MaterialCommunityIcons color={COLORS.DISABLED_GREY} name="calculator" size={18} />
+                <Text className="ml-2" style={{color: COLORS.DISABLED_GREY}}>
+                  Calculating carbon credits
+                </Text>
+              </View>
+              <View className="mt-3 flex-row items-center">
+                <MaterialCommunityIcons color={COLORS.DISABLED_GREY} name="wallet-outline" size={18} />
+                <Text className="ml-2" style={{color: COLORS.DISABLED_GREY}}>
+                  Minting tokens to your wallet
+                </Text>
+              </View>
             </View>
             <Text className="mt-6 text-center leading-6" style={{color: COLORS.DISABLED_GREY}}>
               This takes about 30-60 seconds. You can leave this screen.
@@ -260,7 +285,9 @@ const AuditStatusScreen = () => {
 
         {currentResult.status === 'COMPLETE_NO_CREDITS' ? (
           <View className="items-center pt-16">
-            <Text className="text-6xl">✅</Text>
+            <View className="h-16 w-16 items-center justify-center rounded-full bg-[#D1FAE5]">
+              <MaterialCommunityIcons color={COLORS.FOREST_GREEN} name="check-circle-outline" size={34} />
+            </View>
             <Text className="mt-5 text-3xl font-bold" style={{color: COLORS.DARK_SLATE}}>
               Audit Complete
             </Text>
@@ -278,7 +305,9 @@ const AuditStatusScreen = () => {
 
         {currentResult.status === 'FAILED' ? (
           <View className="items-center pt-16">
-            <Text className="text-6xl">⚠️</Text>
+            <View className="h-16 w-16 items-center justify-center rounded-full bg-[#FEE2E2]">
+              <MaterialCommunityIcons color={COLORS.ERROR_RED} name="alert-circle-outline" size={34} />
+            </View>
             <Text className="mt-5 text-3xl font-bold" style={{color: COLORS.ERROR_RED}}>
               Something went wrong
             </Text>

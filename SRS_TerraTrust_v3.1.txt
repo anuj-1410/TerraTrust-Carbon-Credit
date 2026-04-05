@@ -269,12 +269,12 @@ SECTION 3: COMPLETE TECHNOLOGY STACK
 
 MOBILE APPLICATION
 ------------------
-Framework        : React Native CLI 0.74+
+Framework        : React Native CLI 0.84.1
                    NOTE: Use a plain React Native project with New
                    Architecture enabled. TerraTrust does not use the
                    Expo-managed workflow because ARCore and custom native
                    modules are part of the baseline design.
-Language         : TypeScript 5.0+ (strict mode enabled)
+Language         : TypeScript 5.9.x (strict mode enabled)
 AR Engine        : Google ARCore (via Native Kotlin Bridge)
 Maps             : react-native-maps (used for ZoneNavigationScreen only
                    — Google Maps road view for GPS walking navigation)
@@ -285,18 +285,18 @@ Maps             : react-native-maps (used for ZoneNavigationScreen only
 Satellite Images : Google Earth Engine (backend-generated Sentinel-2 PNG)
                    Used for BoundaryConfirmScreen background and
                    LandListScreen thumbnails. Not a client library.
-State Management : Redux Toolkit 2.0+ with redux-persist
-Navigation       : React Navigation v6 (native stack + bottom tabs +
+State Management : Redux Toolkit 2.11+ with redux-persist
+Navigation       : React Navigation v7 (native stack + bottom tabs +
                    per-tab stacks + full-screen modal flows)
-Local Storage    : MMKV (30x faster than AsyncStorage, synchronous,
+Local Storage    : MMKV 3.3.x (30x faster than AsyncStorage, synchronous,
                    optional encryption support for persisted app state;
                    never hardcode the encryption key; do not use MMKV as
                    the wallet or secret store)
 Form Validation  : Zod + React Hook Form
-Styling          : NativeWind 4.0+ (Tailwind for React Native)
-ML On-device     : TensorFlow Lite (tree species identification)
+Styling          : NativeWind 4.2.x + Tailwind CSS 3.4.x
+ML On-device     : TensorFlow Lite 2.14.x (tree species identification)
 Blockchain       : ethers.js v6 (farmer wallet generation + balance)
-Camera           : react-native-vision-camera v4
+Camera           : react-native-vision-camera v4.7.x
                    (higher quality capture for OCR accuracy)
 Background Sync  : react-native-background-fetch
 Security Storage : react-native-keychain (private key in Android Keystore)
@@ -413,7 +413,7 @@ NOTE: All services listed here are FREE. You must complete ALL of these
 Operating System : Windows 10+ / macOS 12+ / Ubuntu 20.04+
 RAM              : Minimum 16GB (Android Studio uses 4-8GB alone)
 Storage          : Minimum 50GB free space
-Node.js          : v18 LTS (recommended: install via nvm)
+Node.js          : v22.11+ LTS (required by package.json engines; install via nvm)
 Python           : v3.11+ (check: python3 --version)
 Java JDK         : OpenJDK 17 (required for Android build)
 Android Studio   : Latest stable version
@@ -3379,7 +3379,8 @@ MMKV is used instead of AsyncStorage because:
   - Synchronous API — tree data saves instantly when farmer taps "Save"
   - Optional encryption support when the key is supplied securely at runtime
   - Intended for persisted app state, not for private keys or other secrets
-  - react-native-mmkv v4 requires React Native 0.74+ with New Architecture
+  - Current repo baseline uses react-native-mmkv 3.3.x on React Native 0.84.1
+  - New Architecture stays enabled
 
   // store/mmkvStorage.ts
   import { MMKV } from 'react-native-mmkv';
@@ -3856,7 +3857,7 @@ Map Overlays:
 
 17.5 NAVIGATION ARCHITECTURE AND COMPLETE SCREEN LIST
 ------------------------------------------------------
-Top-level navigation uses three navigator types from React Navigation v6:
+Top-level navigation uses three navigator types from React Navigation v7:
 
 1. RootNavigator (Native Stack)
    - AuthStack: SplashScreen, LoginScreen, OTPScreen, KYCScreen,
@@ -4346,58 +4347,65 @@ SECTION 22: MOBILE npm DEPENDENCIES (package.json)
 ================================================================================
 
 Install all mobile dependencies with:
-  npx @react-native-community/cli@latest init TerraTrustAR --template react-native-template-typescript
+  npx @react-native-community/cli@20.1.3 init TerraTrustAR --version 0.84.1 --template react-native-template-typescript
   cd TerraTrustAR
 
-  # react-native-mmkv v4 requires the New Architecture.
+  # TerraTrustAR baseline assumes Node.js 22.11+ and the New Architecture.
+  # Keep react-native-mmkv on the stable 3.3.x line for this repo.
   # In android/gradle.properties set: newArchEnabled=true
 
+  # Core platform alignment
+  npm install react@19.2.4
+  npm install --save-dev react-test-renderer@19.2.4 @types/react@^19.2.14
+  npm install --save-dev jest@^29.7.0 @types/jest@^29.5.14
+  npm install --save-dev typescript@^5.9.3
+
   # State management + persistence
-  npm install @reduxjs/toolkit react-redux redux-persist
-  npm install react-native-mmkv
+  npm install @reduxjs/toolkit@^2.11.2 react-redux@^9.2.0 redux-persist@^6.0.0
+  npm install react-native-mmkv@^3.3.3
 
   # Navigation
-  npm install @react-navigation/native @react-navigation/native-stack
-  npm install @react-navigation/bottom-tabs
-  npm install react-native-screens react-native-safe-area-context
+  npm install @react-navigation/native@^7.2.2 @react-navigation/native-stack@^7.14.10
+  npm install @react-navigation/bottom-tabs@^7.15.9
+  npm install react-native-screens@^4.24.0 react-native-safe-area-context@^5.7.0
 
   # Maps (Google Maps for ZoneNavigationScreen, none-mode for Boundary)
-  npm install react-native-maps
+  npm install react-native-maps@^1.27.2
 
   # Camera (high quality for OCR document scanning)
-  npm install react-native-vision-camera
+  npm install react-native-vision-camera@^4.7.3
 
   # Location
-  npm install react-native-geolocation-service
+  npm install react-native-geolocation-service@^5.3.1
 
   # Network
-  npm install axios
-  npm install @react-native-firebase/app @react-native-firebase/auth
+  npm install axios@^1.14.0
+  npm install @react-native-firebase/app@^24.0.0 @react-native-firebase/auth@^24.0.0
 
   # Blockchain
-  npm install ethers
-  npm install react-native-keychain
+  npm install ethers@^6.16.0
+  npm install react-native-keychain@^10.0.0
 
   # Config / env
-  npm install react-native-config
+  npm install react-native-config@^1.6.1
 
   # Background sync
-  npm install react-native-background-fetch
+  npm install react-native-background-fetch@^4.3.0
 
   # Charts
-  npm install react-native-chart-kit react-native-svg
+  npm install react-native-chart-kit@^6.12.0 react-native-svg@^15.15.4
 
   # Animations
-  npm install lottie-react-native
+  npm install lottie-react-native@^7.3.6
 
   # UI utilities
-  npm install react-native-reanimated
-  npm install react-native-haptic-feedback
-  npm install react-native-device-info
+  npm install react-native-reanimated@^4.3.0
+  npm install react-native-haptic-feedback@^2.3.4
+  npm install react-native-device-info@^15.0.2
 
   # Styling
-  npm install nativewind
-  npm install --save-dev tailwindcss
+  npm install nativewind@^4.2.3
+  npm install --save-dev tailwindcss@^3.4.19
 
   # Crypto (SHA-256 photo hashing)
   # No extra JS crypto package required.
@@ -4405,10 +4413,10 @@ Install all mobile dependencies with:
   # from src/common/utils/hash.ts.
 
   # Forms
-  npm install zod react-hook-form @hookform/resolvers
+  npm install zod@^4.3.6 react-hook-form@^7.72.1 @hookform/resolvers@^5.2.2
 
   # Testing
-  npm install --save-dev jest @testing-library/react-native
+  npm install --save-dev @testing-library/react-native@^13.3.3
 
 Build commands:
   Start Metro bundler:    npx react-native start

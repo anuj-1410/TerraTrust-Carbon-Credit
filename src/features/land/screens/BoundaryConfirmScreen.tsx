@@ -1,11 +1,19 @@
 import React, {useCallback, useMemo, useState} from 'react';
-import {View, Text, Image, TouchableOpacity, StyleSheet} from 'react-native';
+import {
+  View,
+  Text,
+  Image,
+  TouchableOpacity,
+  StyleSheet,
+  Platform,
+} from 'react-native';
 import {useNavigation} from '@react-navigation/native';
 import type {NativeStackNavigationProp} from '@react-navigation/native-stack';
 import MapView, {Polygon} from 'react-native-maps';
 import NetInfo from '@react-native-community/netinfo';
 import Geolocation from 'react-native-geolocation-service';
 import LottieView from 'lottie-react-native';
+import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
 
 import type {RootStackParamList} from '../../../types/navigation';
 import {useAppDispatch, useAppSelector} from '../../../store/hooks';
@@ -18,6 +26,8 @@ import {
 import api from '../../../services/api';
 import {COLORS} from '../../../common/constants/colors';
 import BottomSheet from '../../../common/components/BottomSheet';
+import {calculateAreaHectares} from '../../../common/utils/geoJson';
+import {hectaresToAcres} from '../../../common/utils/units';
 
 type Nav = NativeStackNavigationProp<RootStackParamList>;
 
@@ -42,13 +52,19 @@ const BoundaryConfirmScreen = () => {
   const boundary = currentDraft.boundary;
   const ocrResult = currentDraft.ocrResult;
   const defaultFarmName = ocrResult?.survey_number?.trim() || 'My Land';
+  const areaAcres = boundary
+    ? hectaresToAcres(calculateAreaHectares(boundary)).toFixed(2)
+    : null;
+  const sourceLabel = currentDraft.boundarySource === 'MANUAL'
+    ? 'Manual Map'
+    : 'Official Government Record';
 
   const [isLoading, setIsLoading] = useState(false);
   const [registerError, setRegisterError] = useState<string | null>(null);
   const [isOffline, setIsOffline] = useState(false);
   const [imageLoadFailed, setImageLoadFailed] = useState(false);
   const [showRetryOptions, setShowRetryOptions] = useState(false);
-  const [loadingText, setLoadingText] = useState('Registering your land…');
+  const [loadingText, setLoadingText] = useState('Registering your land...');
 
   // Compute region from GeoJSON coordinates
   const {region, polygonCoords} = useMemo(() => {
@@ -177,7 +193,7 @@ const BoundaryConfirmScreen = () => {
 
     setShowRetryOptions(false);
     setIsLoading(true);
-    setLoadingText('Trying to find your land boundary again…');
+    setLoadingText('Trying to find your land boundary again...');
     setRegisterError(null);
 
     const gps = await getGPS();
@@ -234,7 +250,7 @@ const BoundaryConfirmScreen = () => {
         'We still could not verify this boundary automatically. Upload the boundary map manually or retake the document.',
       );
     } finally {
-      setLoadingText('Registering your land…');
+      setLoadingText('Registering your land...');
       setIsLoading(false);
     }
   }, [dispatch, navigation, ocrResult]);
@@ -264,7 +280,7 @@ const BoundaryConfirmScreen = () => {
       {/* MapView with polygon overlay */}
       <MapView
         style={StyleSheet.absoluteFill}
-        mapType="none"
+        mapType={Platform.OS === 'android' ? 'none' : 'standard'}
         region={region}
         scrollEnabled={false}
         zoomEnabled={false}
@@ -281,12 +297,23 @@ const BoundaryConfirmScreen = () => {
       </MapView>
 
       {/* Back button */}
-      <TouchableOpacity
-        className="absolute top-12 left-4 min-w-[48px] min-h-[48px] justify-center items-center bg-black/30 rounded-full w-12 h-12"
-        onPress={() => navigation.goBack()}
-        activeOpacity={0.7}>
-        <Text className="text-white text-lg font-bold">←</Text>
-      </TouchableOpacity>
+      <View className="absolute left-0 right-0 top-0 flex-row items-center justify-between px-4 pb-4 pt-12">
+        <TouchableOpacity
+          className="min-h-[48px] min-w-[48px] items-center justify-center rounded-full bg-black/30"
+          onPress={() => navigation.goBack()}
+          activeOpacity={0.7}>
+          <MaterialCommunityIcons color="#FFFFFF" name="arrow-left" size={22} />
+        </TouchableOpacity>
+        <View className="items-center">
+          <Text className="text-lg font-bold text-white">Confirm Your Land</Text>
+          <View className="mt-2 flex-row items-center gap-2">
+            <View className="h-2.5 w-2.5 rounded-full bg-white" />
+            <View className="h-2.5 w-2.5 rounded-full bg-white" />
+            <View className="h-2.5 w-2.5 rounded-full bg-white/30" />
+          </View>
+        </View>
+        <View className="h-12 w-12" />
+      </View>
 
       {/* Offline banner */}
       {isOffline && (
@@ -301,8 +328,10 @@ const BoundaryConfirmScreen = () => {
       <View
         className="absolute bottom-0 left-0 right-0 rounded-t-2xl px-6 pt-6 pb-8"
         style={{backgroundColor: COLORS.DARK_SLATE}}>
+        <Text className="text-xl font-bold text-white">Is this your land?</Text>
+
         {/* Survey Number */}
-        <View className="mb-4">
+        <View className="mb-4 mt-4">
           <Text className="text-white/50 text-xs uppercase tracking-widest">
             Survey Number
           </Text>
@@ -323,13 +352,19 @@ const BoundaryConfirmScreen = () => {
 
         <View className="mb-6">
           <Text className="text-white/50 text-xs uppercase tracking-widest">
-            Land Name
+            Area
           </Text>
           <Text className="text-white text-base font-medium mt-0.5">
-            {defaultFarmName}
+            {areaAcres ? `${areaAcres} acres` : 'Calculating...'}
           </Text>
-          <Text className="text-white/50 text-sm mt-2 leading-5">
-            You can rename this parcel later from the land details screen.
+        </View>
+
+        <View className="mb-6">
+          <Text className="text-white/50 text-xs uppercase tracking-widest">
+            Source
+          </Text>
+          <Text className="text-white text-base font-medium mt-0.5">
+            {sourceLabel}
           </Text>
         </View>
 
@@ -348,9 +383,11 @@ const BoundaryConfirmScreen = () => {
           disabled={isLoading}
           activeOpacity={0.7}>
           <Text className="text-white font-semibold text-base">
-            Yes, this is my land — Confirm
+            {isLoading ? 'Registering your land...' : 'Yes, this is my land'}
           </Text>
-          <Text className="text-white ml-2">✓</Text>
+          {!isLoading ? (
+            <MaterialCommunityIcons color="#FFFFFF" name="check" size={18} />
+          ) : null}
         </TouchableOpacity>
 
         {/* Try Again */}

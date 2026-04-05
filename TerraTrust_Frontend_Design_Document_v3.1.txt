@@ -5,8 +5,8 @@ PROJECT: TERRATRUST-AR
 
 Version       : 3.1 (Firebase Auth + Pinata + Maps strategy updated)
 Platform      : Android (Primary), iOS (Future Scope)
-Framework     : React Native CLI (0.74+)
-Language      : TypeScript (Strict Mode)
+Framework     : React Native CLI (0.84.1)
+Language      : TypeScript 5.9.x (Strict Mode)
 Last Updated  : March 2026
 
 --------------------------------------------------------------------------------
@@ -131,15 +131,15 @@ type.
 
 Component             | Technology                  | Version  | Reason
 ----------------------|-----------------------------|---------|--------------------------
-Core Framework        | React Native CLI            | 0.74+   | Required for Native ARCore
+Core Framework        | React Native CLI            | 0.84.1  | Required for Native ARCore
                       |                             |         | bridge and react-native-
                       |                             |         | mmkv. Use the plain RN
                       |                             |         | app with New Architecture.
-Language              | TypeScript                  | 5.0+    | Type safety for complex AR
+Language              | TypeScript                  | 5.9.x   | Type safety for complex AR
                       |                             | (Strict)| data and GeoJSON objects.
-State Management      | Redux Toolkit (RTK)         | 2.0+    | Manages global state for
+State Management      | Redux Toolkit (RTK)         | 2.11+   | Manages global state for
                       |                             |         | User, Land, Audit, Credits.
-Navigation            | React Navigation            | v6      | Native stack + bottom tab
+Navigation            | React Navigation            | v7      | Native stack + bottom tab
                       |                             |         | navigators with per-tab
                       |                             |         | stacks and modal flows.
 Maps                  | react-native-maps           | Latest  | Used for ZoneNavigation-
@@ -160,11 +160,11 @@ Satellite Imagery     | Google Earth Engine (GEE)   | Backend | Sentinel-2 true 
                       |                             |         | PNG URL to the app.
 AR Bridge             | Native Modules (Kotlin)     | Custom  | Direct ARCore Depth API.
                       |                             |         | No JS library can do this.
-Camera                | react-native-vision-camera  | v4      | High-quality document and
+Camera                | react-native-vision-camera  | v4.7.x  | High-quality document and
                       |                             |         | AR frame capture.
 Form Validation       | Zod + React Hook Form       | Latest  | Type-safe form validation.
-Styling               | NativeWind (Tailwind)       | 4.0+    | Utility class styling.
-Local Storage         | MMKV                        | Latest  | Fast, synchronous storage
+Styling               | NativeWind + Tailwind CSS   | 4.2/3.4 | Utility class styling.
+Local Storage         | MMKV                        | 3.3.x   | Fast, synchronous storage
                       |                             |         | with optional encryption
                       |                             |         | for persisted app state.
                       |                             |         | Never hardcode the key.
@@ -173,7 +173,7 @@ Offline Persistence   | Redux Persist               | Latest  | Survives app cra
 Location              | react-native-geolocation-   | Latest  | GPS for zone navigation and
                       | service                     |         | geofencing.
 HTTP Client           | Axios                       | Latest  | API calls with interceptors.
-Animations            | Lottie + Reanimated 2       | Latest  | Loading states, AR overlays.
+Animations            | Lottie + Reanimated 4       | 7.x/4.x | Loading states, AR overlays.
 Blockchain (Wallet)   | ethers.js                   | v6      | Farmer wallet generation and
                       |                             |         | token balance reading.
 Authentication        | @react-native-firebase/app | Latest  | Firebase app bootstrap and
@@ -182,7 +182,7 @@ Authentication        | @react-native-firebase/app | Latest  | Firebase app boot
 Data Access           | FastAPI REST API            | Backend | App never connects directly
                       |                             |         | to Supabase tables or
                       |                             |         | storage buckets.
-Species Detection     | TensorFlow Lite             | Latest  | On-device tree species
+Species Detection     | TensorFlow Lite             | 2.14.x  | On-device tree species
                       |                             |         | identification. No internet
                       |                             |         | required.
 Background Sync       | react-native-background-    | Latest  | Auto-uploads pending audits
@@ -197,14 +197,14 @@ Haptics               | react-native-haptic-        | Latest  | Vibration feedba
 Config / Env          | react-native-config         | Latest  | Loads .env variables into app.
 Animations            | lottie-react-native         | Latest  | Loading states (spinning leaf),
                       |                             |         | scan success, token mint.
-Motion Animations     | react-native-reanimated     | 2+      | AR overlay transitions and
+Motion Animations     | react-native-reanimated     | 4.3.x   | AR overlay transitions and
                       |                             |         | smooth screen animations.
 Charting              | react-native-chart-kit      | Latest  | Bar chart on
                       | + react-native-svg          |         | CreditHistoryScreen.
 
 1.3 NAVIGATION ARCHITECTURE
 ---------------------------
-The mobile app uses three navigator layers from React Navigation v6:
+The mobile app uses three navigator layers from React Navigation v7:
 
 RootNavigator (Native Stack):
   - AuthStack for SplashScreen, LoginScreen, OTPScreen, KYCScreen,
@@ -1154,7 +1154,8 @@ MMKV must be used instead of AsyncStorage because:
   - Synchronous API — tree scan data saves instantly when farmer taps "Save"
   - Optional encryption support when the key is sourced securely at runtime
   - Intended for persisted app state, not private keys or backend secrets
-  - react-native-mmkv v4 requires React Native 0.74+ with New Architecture
+  - Current repo baseline uses react-native-mmkv 3.3.x on React Native 0.84.1
+  - New Architecture stays enabled
 
 The following state slices MUST be persisted to MMKV:
 
@@ -2015,32 +2016,43 @@ IMPORTANT: Never commit .env files to git. Add both to .gitignore.
 14.3 PROJECT INITIALISATION
 -----------------------------
 
-  npx @react-native-community/cli@latest init TerraTrustAR --template react-native-template-typescript
+  npx @react-native-community/cli@20.1.3 init TerraTrustAR --version 0.84.1 --template react-native-template-typescript
   cd TerraTrustAR
 
+  # TerraTrustAR baseline assumes Node.js 22.11+ and the New Architecture.
+  # Keep react-native-mmkv on the stable 3.3.x line for this repo.
+  # In android/gradle.properties set: newArchEnabled=true
+
+  # Core platform alignment
+  npm install react@19.2.4
+  npm install --save-dev react-test-renderer@19.2.4 @types/react@^19.2.14
+  npm install --save-dev jest@^29.7.0 @types/jest@^29.5.14
+  npm install --save-dev typescript@^5.9.3
+
   # Core dependencies
-  npm install @reduxjs/toolkit react-redux redux-persist
-  npm install react-native-mmkv
-  npm install @react-navigation/native @react-navigation/native-stack
-  npm install @react-navigation/bottom-tabs
-  npm install react-native-screens react-native-safe-area-context
-  npm install react-native-maps
-  npm install react-native-vision-camera
-  npm install react-native-geolocation-service
-  npm install axios
-  npm install @react-native-firebase/app @react-native-firebase/auth
-  npm install ethers
-  npm install react-native-keychain
-  npm install react-native-config
-  npm install react-native-background-fetch
-  npm install react-native-chart-kit react-native-svg
-  npm install lottie-react-native
-  npm install react-native-reanimated
-  npm install react-native-haptic-feedback
-  npm install react-native-device-info
-  npm install nativewind
-  npm install zod react-hook-form @hookform/resolvers
-  npm install --save-dev jest @testing-library/react-native
+  npm install @reduxjs/toolkit@^2.11.2 react-redux@^9.2.0 redux-persist@^6.0.0
+  npm install react-native-mmkv@^3.3.3
+  npm install @react-navigation/native@^7.2.2 @react-navigation/native-stack@^7.14.10
+  npm install @react-navigation/bottom-tabs@^7.15.9
+  npm install react-native-screens@^4.24.0 react-native-safe-area-context@^5.7.0
+  npm install react-native-maps@^1.27.2
+  npm install react-native-vision-camera@^4.7.3
+  npm install react-native-geolocation-service@^5.3.1
+  npm install axios@^1.14.0
+  npm install @react-native-firebase/app@^24.0.0 @react-native-firebase/auth@^24.0.0
+  npm install ethers@^6.16.0
+  npm install react-native-keychain@^10.0.0
+  npm install react-native-config@^1.6.1
+  npm install react-native-background-fetch@^4.3.0
+  npm install react-native-chart-kit@^6.12.0 react-native-svg@^15.15.4
+  npm install lottie-react-native@^7.3.6
+  npm install react-native-reanimated@^4.3.0
+  npm install react-native-haptic-feedback@^2.3.4
+  npm install react-native-device-info@^15.0.2
+  npm install nativewind@^4.2.3
+  npm install --save-dev tailwindcss@^3.4.19
+  npm install zod@^4.3.6 react-hook-form@^7.72.1 @hookform/resolvers@^5.2.2
+  npm install --save-dev @testing-library/react-native@^13.3.3
 
   # Crypto note
   # No extra JS crypto dependency is needed for evidence-photo hashing.

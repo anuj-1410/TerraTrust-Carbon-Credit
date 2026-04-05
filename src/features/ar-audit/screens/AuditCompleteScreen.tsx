@@ -3,6 +3,7 @@ import {View, Text, TouchableOpacity, ScrollView} from 'react-native';
 import {useNavigation} from '@react-navigation/native';
 import type {NativeStackNavigationProp} from '@react-navigation/native-stack';
 import LottieView from 'lottie-react-native';
+import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
 
 import type {RootStackParamList} from '../../../types/navigation';
 import {useAppDispatch, useAppSelector} from '../../../store/hooks';
@@ -86,7 +87,7 @@ const AuditCompleteScreen = () => {
         {isError && (
           <View className="items-center mt-10">
             <View className="w-16 h-16 rounded-full bg-[#FEE2E2] items-center justify-center">
-              <Text className="text-3xl">⚠️</Text>
+              <MaterialCommunityIcons color={COLORS.ERROR_RED} name="alert-circle-outline" size={32} />
             </View>
             <Text className="text-lg font-bold mt-4" style={{color: COLORS.ERROR_RED}}>
               Verification Failed
@@ -100,7 +101,7 @@ const AuditCompleteScreen = () => {
         {/* Offline state banner */}
         {isOffline && (
           <View className="mt-6 bg-[#FEF3C7] rounded-2xl px-4 py-4 flex-row items-center">
-            <Text className="text-lg mr-3">☁️</Text>
+            <MaterialCommunityIcons color="#92400E" name="cloud-upload-outline" size={20} />
             <Text className="flex-1 text-[#92400E] text-sm leading-5">
               Saved for upload when you're back online.
             </Text>
@@ -112,7 +113,7 @@ const AuditCompleteScreen = () => {
           <View className="mt-6 bg-white rounded-2xl p-5 shadow-sm">
             <View className="items-center mb-4">
               <View className="w-16 h-16 rounded-full bg-[#D1FAE5] items-center justify-center">
-                <Text className="text-3xl">✓</Text>
+                <MaterialCommunityIcons color={COLORS.FOREST_GREEN} name="check-circle-outline" size={32} />
               </View>
               <Text className="text-xl font-bold mt-3" style={{color: COLORS.DARK_SLATE}}>
                 All Zones Completed!
@@ -162,7 +163,7 @@ const AuditCompleteScreen = () => {
         )}
 
         {/* Session complete message */}
-        {sessionComplete && (
+        {sessionComplete && zones.length > 3 && (
           <View className="mt-4 bg-[#D1FAE5] rounded-2xl p-4">
             <Text className="text-sm text-center" style={{color: '#065F46'}}>
               Session 1 saved. Return tomorrow for Session 2.

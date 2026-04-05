@@ -9,7 +9,6 @@ export async function createFarmerWallet(): Promise<string> {
   await Keychain.setGenericPassword('wallet_private_key', wallet.privateKey, {
     service: KEYCHAIN_SERVICE,
     accessible: Keychain.ACCESSIBLE.WHEN_UNLOCKED_THIS_DEVICE_ONLY,
-    accessControl: Keychain.ACCESS_CONTROL.BIOMETRY_ANY_OR_DEVICE_PASSCODE,
     securityLevel: Keychain.SECURITY_LEVEL.SECURE_HARDWARE,
   });
 

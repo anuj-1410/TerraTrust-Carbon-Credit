@@ -15,6 +15,7 @@ import {pick, types, isErrorWithCode, errorCodes} from '@react-native-documents/
 import Geolocation from 'react-native-geolocation-service';
 import NetInfo from '@react-native-community/netinfo';
 import LottieView from 'lottie-react-native';
+import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
 
 import type {RootStackParamList} from '../../../types/navigation';
 import {useAppDispatch, useAppSelector} from '../../../store/hooks';
@@ -56,7 +57,22 @@ const DocumentUploadScreen = () => {
   const [ocrResult, setOcrResult] = useState<OCRResult | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [isOffline, setIsOffline] = useState(false);
-  const [loadingMessage, setLoadingMessage] = useState('Reading your document…');
+  const [loadingMessage, setLoadingMessage] = useState('Reading your document...');
+
+  const closeRegistrationFlow = useCallback(() => {
+    navigation.reset({
+      index: 0,
+      routes: [
+        {
+          name: 'HomeScreen',
+          params: {
+            screen: 'LandTab',
+            params: {screen: 'LandListScreen'},
+          },
+        },
+      ],
+    });
+  }, [navigation]);
 
   const ownerNameMismatch = Boolean(
     ocrResult?.owner_name &&
@@ -130,7 +146,7 @@ const DocumentUploadScreen = () => {
       return;
     }
 
-    setLoadingMessage('Reading your document…');
+    setLoadingMessage('Reading your document...');
     setScreenState('loading');
     setIsOffline(false);
 
@@ -182,7 +198,7 @@ const DocumentUploadScreen = () => {
     }
 
     dispatch(setCurrentDraft({fetchStatus: 'fetching'}));
-    setLoadingMessage('Finding your land boundary…');
+    setLoadingMessage('Fetching your official land boundary...');
     setScreenState('loading');
 
     const gps = await getGPS();
@@ -271,10 +287,11 @@ const DocumentUploadScreen = () => {
           </TouchableOpacity>
         </View>
         <TouchableOpacity
-          className="absolute top-12 left-4 min-w-[48px] min-h-[48px] justify-center"
+          className="absolute top-12 left-4 min-h-[48px] min-w-[48px] flex-row items-center justify-center"
           onPress={() => setScreenState('capture')}
           activeOpacity={0.7}>
-          <Text className="text-white text-base font-semibold">← Back</Text>
+          <MaterialCommunityIcons color="#FFFFFF" name="arrow-left" size={20} />
+          <Text className="ml-1 text-white text-base font-semibold">Back</Text>
         </TouchableOpacity>
       </View>
     );
@@ -301,6 +318,24 @@ const DocumentUploadScreen = () => {
     <ScrollView
       className="flex-1 bg-[#2D3748]"
       contentContainerStyle={{flexGrow: 1}}>
+      <View className="flex-row items-center justify-between px-6 pt-6">
+        <TouchableOpacity
+          className="min-h-[48px] min-w-[48px] items-center justify-center"
+          onPress={closeRegistrationFlow}
+          activeOpacity={0.7}>
+          <MaterialCommunityIcons color="#FFFFFF" name="close" size={24} />
+        </TouchableOpacity>
+        <View className="items-center">
+          <Text className="text-lg font-bold text-white">Register Land</Text>
+          <View className="mt-2 flex-row items-center gap-2">
+            <View className="h-2.5 w-2.5 rounded-full bg-white" />
+            <View className="h-2.5 w-2.5 rounded-full bg-white/30" />
+            <View className="h-2.5 w-2.5 rounded-full bg-white/30" />
+          </View>
+        </View>
+        <View className="h-12 w-12" />
+      </View>
+
       {/* Offline banner */}
       {isOffline && (
         <View className="bg-amber-600 px-4 py-2">
@@ -325,7 +360,7 @@ const DocumentUploadScreen = () => {
               className="bg-[#114D3A] rounded-xl p-6 flex-row items-center min-h-[72px]"
               onPress={openCamera}
               activeOpacity={0.7}>
-              <Text className="text-3xl mr-4">📷</Text>
+              <MaterialCommunityIcons color="#FFFFFF" name="camera-outline" size={28} />
               <View>
                 <Text className="text-white text-base font-semibold">Take Photo</Text>
                 <Text className="text-white/50 text-xs mt-0.5">
@@ -338,7 +373,7 @@ const DocumentUploadScreen = () => {
               className="bg-[#114D3A] rounded-xl p-6 flex-row items-center min-h-[72px]"
               onPress={pickFromGallery}
               activeOpacity={0.7}>
-              <Text className="text-3xl mr-4">🖼️</Text>
+              <MaterialCommunityIcons color="#FFFFFF" name="image-outline" size={28} />
               <View>
                 <Text className="text-white text-base font-semibold">
                   Upload from Gallery
@@ -425,35 +460,38 @@ const DocumentUploadScreen = () => {
           </View>
 
           {ownerNameMismatch ? (
-            <View className="mt-4 rounded-xl bg-[#FEF3C7] p-4">
+            <View className="mt-4 rounded-xl bg-red-900/40 p-4">
               <Text className="text-sm font-semibold text-[#92400E]">
                 Owner name mismatch detected.
               </Text>
-              <Text className="mt-2 text-sm leading-6 text-[#92400E]">
+              <Text className="mt-2 text-sm leading-6 text-red-200">
                 This document lists {ocrResult.owner_name}, but your verified TerraTrust profile is {registeredOwnerName}. Please retake the document with the correct owner name before continuing.
               </Text>
             </View>
           ) : null}
 
           <View className="mt-6 gap-3 pb-6">
-            <TouchableOpacity
-              className={`rounded-xl h-12 items-center justify-center flex-row min-h-[48px] ${
-                ownerNameMismatch ? 'bg-[#9CA3AF]' : 'bg-[#EC5B13]'
-              }`}
-              onPress={onContinue}
-              disabled={ownerNameMismatch}
-              activeOpacity={0.7}>
-              <Text className="text-white font-semibold text-base">
-                This looks correct — Continue
-              </Text>
-              <Text className="text-white ml-2">→</Text>
-            </TouchableOpacity>
+            {!ownerNameMismatch ? (
+              <TouchableOpacity
+                className="rounded-xl h-12 items-center justify-center flex-row min-h-[48px] bg-[#2F855A]"
+                onPress={onContinue}
+                activeOpacity={0.7}>
+                <Text className="text-white font-semibold text-base">
+                  This looks correct — Continue
+                </Text>
+                <MaterialCommunityIcons
+                  color="#FFFFFF"
+                  name="arrow-right"
+                  size={18}
+                />
+              </TouchableOpacity>
+            ) : null}
             <TouchableOpacity
               className="rounded-xl h-12 items-center justify-center border border-white/20 min-h-[48px]"
               onPress={onTryAgain}
               activeOpacity={0.7}>
               <Text className="text-white/80 font-semibold text-base">
-                Retake Document
+                Try Again
               </Text>
             </TouchableOpacity>
           </View>
