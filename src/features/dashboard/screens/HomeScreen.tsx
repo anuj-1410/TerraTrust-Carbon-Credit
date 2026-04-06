@@ -17,7 +17,15 @@ import {fetchCreditsThunk} from '../store/creditsSlice';
 import type {AuditRecord} from '../store/creditsSlice';
 import {getLandStatusMeta} from '../../../common/utils/getLandStatus';
 import {COLORS} from '../../../common/constants/colors';
-import type {LandParcel} from '../../land/store/landSlice';
+import api from '../../../services/api';
+import {
+  mergeLandParcels,
+  normalizeLandParcels,
+  setLastSynced,
+  setParcels,
+  type LandListResponse,
+  type LandParcel,
+} from '../../land/store/landSlice';
 import type {RootStackParamList} from '../../../types/navigation';
 import Badge from '../../../common/components/Badge';
 import {hectaresToAcres} from '../../../common/utils/units';
@@ -40,12 +48,64 @@ const HomeScreen = () => {
   const unreadNotifications = useAppSelector(
     s => s.notifications.items.filter(item => !item.read).length,
   );
+  const parcelsRef = useRef(parcels);
+  const [isLoadingParcels, setIsLoadingParcels] = useState(false);
+
+  useEffect(() => {
+    parcelsRef.current = parcels;
+  }, [parcels]);
 
   // Fetch on mount
   useEffect(() => {
     if (isAuthenticated) {
       dispatch(fetchCreditsThunk());
     }
+  }, [dispatch, isAuthenticated]);
+
+  useEffect(() => {
+    if (!isAuthenticated) {
+      return;
+    }
+
+    let isMounted = true;
+
+    const loadParcelPreview = async () => {
+      if (parcelsRef.current.length === 0) {
+        setIsLoadingParcels(true);
+      }
+
+      try {
+        const {data} = await api.get<LandListResponse | Array<Record<string, unknown>>>(
+          '/api/v1/land/list',
+          {
+            params: {page: 1, limit: 3},
+          },
+        );
+
+        if (!isMounted) {
+          return;
+        }
+
+        const currentParcels = parcelsRef.current;
+        const items = Array.isArray(data) ? data : data.items ?? [];
+        const previewParcels = normalizeLandParcels(items, currentParcels);
+
+        dispatch(setParcels(mergeLandParcels(currentParcels, previewParcels)));
+        dispatch(setLastSynced(new Date().toISOString()));
+      } catch {
+        // Leave cached parcels in place when preview refresh fails.
+      } finally {
+        if (isMounted) {
+          setIsLoadingParcels(false);
+        }
+      }
+    };
+
+    void loadParcelPreview();
+
+    return () => {
+      isMounted = false;
+    };
   }, [dispatch, isAuthenticated]);
 
   // Credit earned celebration logic
@@ -269,6 +329,15 @@ const HomeScreen = () => {
               </Text>
             </TouchableOpacity>
           </View>
+          {isLoadingParcels && previewParcels.length === 0 ? (
+            <View
+              className="items-center rounded-xl px-5 py-6"
+              style={{backgroundColor: COLORS.CARD_WHITE}}>
+              <Text style={{color: COLORS.DISABLED_GREY}}>
+                Loading your registered lands...
+              </Text>
+            </View>
+          ) : null}
           {previewParcels.map((parcel: LandParcel) => {
             const meta = getLandStatusMeta(parcel);
             return (
@@ -300,6 +369,11 @@ const HomeScreen = () => {
                     style={{color: COLORS.DISABLED_GREY}}>
                     {hectaresToAcres(parcel.area_hectares).toFixed(2)} acres
                   </Text>
+                  <Text
+                    className="mt-1 text-xs font-[Roboto]"
+                    style={{color: COLORS.DISABLED_GREY}}>
+                    Survey No. {parcel.survey_number}
+                  </Text>
                   {meta.secondaryLabel ? (
                     <Text
                       className="mt-1 text-xs font-[Roboto]"
@@ -327,7 +401,7 @@ const HomeScreen = () => {
               </TouchableOpacity>
             );
           })}
-          {previewParcels.length === 0 ? (
+          {!isLoadingParcels && previewParcels.length === 0 ? (
             <TouchableOpacity
               className="items-center rounded-xl px-5 py-6"
               style={{backgroundColor: COLORS.CARD_WHITE}}

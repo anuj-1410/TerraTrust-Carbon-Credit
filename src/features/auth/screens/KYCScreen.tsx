@@ -1,6 +1,7 @@
-import React, {useState} from 'react';
+import React, {useEffect, useState} from 'react';
 import {
   ActivityIndicator,
+  BackHandler,
   View,
   Text,
   TextInput,
@@ -62,6 +63,15 @@ const KYCScreen = () => {
   const [fullName, aadhaarNumber] = watch(['fullName', 'aadhaarNumber']);
   const isFormReady =
     /^[A-Za-z ]{2,}$/.test(fullName.trim()) && /^\d{12}$/.test(aadhaarNumber);
+
+  useEffect(() => {
+    const subscription = BackHandler.addEventListener(
+      'hardwareBackPress',
+      () => true,
+    );
+
+    return () => subscription.remove();
+  }, []);
 
   const syncProfile = async (aadhaarHash: string) => {
     const {data: profile} = await api.get<AuthBootstrapResponse>('/api/v1/auth/me');

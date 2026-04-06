@@ -56,6 +56,10 @@ export async function isMockLocationEnabled(): Promise<boolean> {
   return ARModule.checkMockLocation();
 }
 
+export async function moveAppToBackground(): Promise<boolean> {
+  return ARModule.moveTaskToBack();
+}
+
 export async function identifySpecies(
   imageBase64: string,
 ): Promise<SpeciesInferenceResult> {

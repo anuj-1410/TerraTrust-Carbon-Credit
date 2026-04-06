@@ -257,7 +257,7 @@ const BoundaryConfirmScreen = () => {
 
   const onRetakeDocument = useCallback(() => {
     dispatch(clearCurrentDraft());
-    navigation.navigate('DocumentUploadScreen');
+    navigation.replace('DocumentUploadScreen');
   }, [dispatch, navigation]);
 
   return (

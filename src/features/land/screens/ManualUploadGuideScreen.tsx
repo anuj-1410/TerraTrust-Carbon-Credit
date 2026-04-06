@@ -150,7 +150,7 @@ const ManualUploadGuideScreen = () => {
       <View className="px-6 pt-14 pb-4">
         <TouchableOpacity
           className="min-w-[48px] min-h-[48px] w-12 h-12 justify-center items-center self-start mb-4"
-          onPress={() => navigation.navigate('DocumentUploadScreen')}
+          onPress={() => navigation.goBack()}
           activeOpacity={0.7}>
           <MaterialCommunityIcons color="#FFFFFF" name="arrow-left" size={22} />
         </TouchableOpacity>

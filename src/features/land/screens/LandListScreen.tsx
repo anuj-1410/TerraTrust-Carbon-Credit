@@ -14,6 +14,9 @@ import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityI
 import type {RootStackParamList} from '../../../types/navigation';
 import {useAppDispatch, useAppSelector} from '../../../store/hooks';
 import {
+  mergeLandParcels,
+  normalizeLandParcels,
+  type LandListResponse,
   setParcels,
   setLastSynced,
   type LandParcel,
@@ -25,14 +28,6 @@ import {COLORS} from '../../../common/constants/colors';
 import {getLandStatusMeta} from '../../../common/utils/getLandStatus';
 
 type Nav = NativeStackNavigationProp<RootStackParamList>;
-
-interface LandListResponse {
-  items: Array<Record<string, unknown>>;
-  page: number;
-  limit: number;
-  total: number;
-  has_more: boolean;
-}
 
 const PAGE_SIZE = 10;
 
@@ -52,48 +47,6 @@ const LandListScreen = () => {
     parcelsRef.current = parcels;
   }, [parcels]);
 
-  const enrichParcels = useCallback(
-    (
-      records: Array<Record<string, unknown>>,
-      existingParcels: LandParcel[],
-    ) =>
-      records.map(item => {
-        const parcelId = String(item.id ?? '');
-        const cached = existingParcels.find(parcel => parcel.id === parcelId);
-
-        return {
-          ...(cached ?? {}),
-          ...item,
-          id: parcelId,
-          boundary_geojson: cached?.boundary_geojson ?? null,
-          district: String(item.district ?? cached?.district ?? ''),
-          taluka: String(item.taluka ?? cached?.taluka ?? ''),
-          village: String(item.village ?? cached?.village ?? ''),
-          state: String(item.state ?? cached?.state ?? ''),
-          created_at: String(item.created_at ?? cached?.created_at ?? ''),
-        } as LandParcel;
-      }),
-    [],
-  );
-
-  const mergePagedParcels = useCallback(
-    (existingParcels: LandParcel[], incomingParcels: LandParcel[]) => {
-      const incomingById = new Map(
-        incomingParcels.map(parcel => [parcel.id, parcel]),
-      );
-
-      const updatedExisting = existingParcels.map(
-        parcel => incomingById.get(parcel.id) ?? parcel,
-      );
-      const newParcels = incomingParcels.filter(
-        parcel => !existingParcels.some(existing => existing.id === parcel.id),
-      );
-
-      return [...updatedExisting, ...newParcels];
-    },
-    [],
-  );
-
   const fetchParcels = useCallback(async (pageToLoad = 1) => {
     const isLoadMore = pageToLoad > 1;
 
@@ -110,9 +63,9 @@ const LandListScreen = () => {
 
       const currentParcels = parcelsRef.current;
       const items = Array.isArray(data) ? data : data.items ?? [];
-      const incomingParcels = enrichParcels(items, currentParcels);
+      const incomingParcels = normalizeLandParcels(items, currentParcels);
       const nextParcels = isLoadMore
-        ? mergePagedParcels(currentParcels, incomingParcels)
+        ? mergeLandParcels(currentParcels, incomingParcels)
         : incomingParcels;
 
       dispatch(setParcels(nextParcels));
@@ -130,7 +83,7 @@ const LandListScreen = () => {
         setIsLoadingMore(false);
       }
     }
-  }, [dispatch, enrichParcels, mergePagedParcels]);
+  }, [dispatch]);
 
   useEffect(() => {
     void fetchParcels(1);
@@ -199,6 +152,12 @@ const LandListScreen = () => {
             className="text-sm mt-0.5"
             style={{fontFamily: 'RobotoMono-Regular', color: COLORS.FOREST_GREEN}}>
             {hectaresToAcres(item.area_hectares).toFixed(2)} acres
+          </Text>
+          <Text className="mt-1 text-sm" style={{color: COLORS.DISABLED_GREY}}>
+            Survey No. {item.survey_number}
+          </Text>
+          <Text className="mt-1 text-sm" style={{color: COLORS.DISABLED_GREY}}>
+            Last audit: {item.last_audit_year ?? 'No audit yet'}
           </Text>
           <View className="flex-row items-center mt-1.5 gap-2">
             <Badge label={cardState.label} variant={badgeVariant} />

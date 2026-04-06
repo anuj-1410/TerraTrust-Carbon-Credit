@@ -1,5 +1,10 @@
 import type {GeoJSONPolygon} from '../../features/land/store/landSlice';
 
+export interface GeoPoint {
+  lat: number;
+  lng: number;
+}
+
 export function isClosedPolygon(polygon: GeoJSONPolygon): boolean {
   const ring = polygon.coordinates[0];
   if (!ring || ring.length < 4) {
@@ -8,6 +13,36 @@ export function isClosedPolygon(polygon: GeoJSONPolygon): boolean {
   const first = ring[0];
   const last = ring[ring.length - 1];
   return first[0] === last[0] && first[1] === last[1];
+}
+
+export function isPointInsidePolygon(
+  point: GeoPoint,
+  polygon: GeoJSONPolygon,
+): boolean {
+  const ring = polygon.coordinates[0];
+  if (!ring || ring.length < 4) {
+    return false;
+  }
+
+  let inside = false;
+
+  for (let index = 0, previous = ring.length - 1; index < ring.length; previous = index++) {
+    const [currentLng, currentLat] = ring[index];
+    const [previousLng, previousLat] = ring[previous];
+
+    const intersects =
+      currentLat > point.lat !== previousLat > point.lat &&
+      point.lng <
+        ((previousLng - currentLng) * (point.lat - currentLat)) /
+          (previousLat - currentLat) +
+          currentLng;
+
+    if (intersects) {
+      inside = !inside;
+    }
+  }
+
+  return inside;
 }
 
 export function calculateAreaHectares(polygon: GeoJSONPolygon): number {

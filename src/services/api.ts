@@ -2,10 +2,9 @@ import axios, {AxiosHeaders, type InternalAxiosRequestConfig} from 'axios';
 import Config from 'react-native-config';
 import {getFreshFirebaseIdToken, signOutFirebase} from './firebase';
 import {navigationRef} from './navigationRef';
-import {store} from '../store';
-import {logout} from '../features/auth/store/authSlice';
+import {resetAppState, store} from '../store';
 import {setMaintenance, showBanner} from '../store/uiSlice';
-import {mmkv} from '../store/mmkvStorage';
+import {clearPersistedAppStatePreserveOnboarding, mmkv} from '../store/mmkvStorage';
 
 const api = axios.create({
   baseURL: Config.API_BASE_URL,
@@ -97,7 +96,8 @@ api.interceptors.response.use(
     // 401: session expired → force re-login
     if (error.response?.status === 401) {
       await signOutFirebase();
-      store.dispatch(logout());
+      clearPersistedAppStatePreserveOnboarding();
+      store.dispatch(resetAppState());
       if (navigationRef.isReady()) {
         navigationRef.reset({index: 0, routes: [{name: 'LoginScreen'}]});
       }

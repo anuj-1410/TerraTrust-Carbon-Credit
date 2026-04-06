@@ -1,5 +1,5 @@
-import React, {useCallback, useMemo} from 'react';
-import {View, Text, TouchableOpacity, ScrollView} from 'react-native';
+import React, {useCallback, useEffect, useMemo} from 'react';
+import {BackHandler, View, Text, TouchableOpacity, ScrollView} from 'react-native';
 import {useNavigation} from '@react-navigation/native';
 import type {NativeStackNavigationProp} from '@react-navigation/native-stack';
 import LottieView from 'lottie-react-native';
@@ -53,6 +53,15 @@ const AuditCompleteScreen = () => {
     uploadStatus === 'uploading' || uploadStatus === 'processing';
   const isError = uploadStatus === 'error';
   const isOffline = uploadStatus === 'offline';
+
+  useEffect(() => {
+    const subscription = BackHandler.addEventListener(
+      'hardwareBackPress',
+      () => true,
+    );
+
+    return () => subscription.remove();
+  }, []);
 
   return (
     <View className="flex-1" style={{backgroundColor: COLORS.OFF_WHITE}}>
@@ -146,7 +155,6 @@ const AuditCompleteScreen = () => {
 
             <View className="h-px bg-[#F2F4F2] my-4" />
 
-            {/* Carbon estimate — Flaw #88 */}
             <View className="items-center">
               <Text className="text-sm" style={{color: '#6B7280'}}>
                 Preliminary Carbon Estimate

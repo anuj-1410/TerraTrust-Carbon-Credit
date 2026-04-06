@@ -1,5 +1,5 @@
-import React, {useEffect, useRef, useState} from 'react';
-import {Alert, View, Text, TouchableOpacity} from 'react-native';
+import React, {useCallback, useEffect, useRef, useState} from 'react';
+import {Alert, BackHandler, View, Text, TouchableOpacity} from 'react-native';
 import {useNavigation, useRoute} from '@react-navigation/native';
 import type {NativeStackNavigationProp} from '@react-navigation/native-stack';
 import type {RouteProp} from '@react-navigation/native';
@@ -97,7 +97,7 @@ const ZoneNavigationScreen = () => {
     });
   };
 
-  const handleExitAudit = () => {
+  const handleExitAudit = useCallback(() => {
     Alert.alert('Exit audit?', 'Your progress will be saved.', [
       {text: 'Keep auditing', style: 'cancel'},
       {
@@ -110,7 +110,19 @@ const ZoneNavigationScreen = () => {
           }),
       },
     ]);
-  };
+  }, [navigation, originTab]);
+
+  useEffect(() => {
+    const subscription = BackHandler.addEventListener(
+      'hardwareBackPress',
+      () => {
+        handleExitAudit();
+        return true;
+      },
+    );
+
+    return () => subscription.remove();
+  }, [handleExitAudit]);
 
   // Compute distance to current zone centre
   const distanceToZone = (() => {
@@ -150,7 +162,6 @@ const ZoneNavigationScreen = () => {
                 }
               : undefined
           }>
-          {/* Farm boundary polygon overlay — Flaw #76 */}
           {boundaryCoords.length > 0 && (
             <Polygon
               coordinates={boundaryCoords}
@@ -325,7 +336,6 @@ const ZoneNavigationScreen = () => {
           </View>
         </View>
 
-        {/* Direction instruction — Flaw #79 */}
         {distanceToZone !== null && distanceToZone > 0 && currentZone && currentPosition && (
           <Text className="text-[#6B7280] text-sm mt-2">
             Zone {currentZoneLetter} is {distanceToZone}m away. Walk toward the{' '}

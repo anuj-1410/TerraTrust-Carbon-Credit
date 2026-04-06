@@ -32,8 +32,6 @@ interface ParcelAuditHistory {
   ipfs_certificate_url?: string;
 }
 
-const PROCESSING_STATUSES = new Set(['PROCESSING', 'CALCULATING', 'READY_TO_MINT']);
-
 const LandDetailScreen = () => {
   const navigation = useNavigation<Nav>();
   const route = useRoute<RouteType>();
@@ -128,7 +126,11 @@ const LandDetailScreen = () => {
           <TouchableOpacity
             className="min-h-[48px] min-w-[48px] items-center justify-center"
             onPress={() => navigation.navigate('EditLandNameScreen', {landId: parcel.id})}>
-            <Text style={{color: COLORS.FOREST_GREEN}}>Edit</Text>
+            <MaterialCommunityIcons
+              color={COLORS.FOREST_GREEN}
+              name="pencil-outline"
+              size={22}
+            />
           </TouchableOpacity>
         </View>
 
@@ -219,13 +221,10 @@ const LandDetailScreen = () => {
           </Card>
 
           <View className="mt-4 gap-3">
-            {parcel.is_verified &&
-            parcel.current_audit_id &&
-            parcel.current_audit_status &&
-            PROCESSING_STATUSES.has(parcel.current_audit_status) ? (
+            {statusMeta?.primaryAction === 'view_status' && parcel.current_audit_id ? (
               <TouchableOpacity
                 className="min-h-[52px] items-center justify-center rounded-xl"
-                style={{backgroundColor: COLORS.FOREST_GREEN}}
+                style={{backgroundColor: COLORS.TEAL}}
                 onPress={() =>
                   navigation.navigate('AuditStatusScreen', {
                     auditId: parcel.current_audit_id as string,
@@ -233,7 +232,7 @@ const LandDetailScreen = () => {
                 }>
                 <Text className="font-semibold text-white">View Audit Status</Text>
               </TouchableOpacity>
-            ) : parcel.is_verified ? (
+            ) : statusMeta?.primaryAction === 'start_audit' ? (
               <TouchableOpacity
                 className="min-h-[52px] items-center justify-center rounded-xl"
                 style={{backgroundColor: COLORS.FOREST_GREEN}}
@@ -246,7 +245,7 @@ const LandDetailScreen = () => {
                 }>
                 <Text className="font-semibold text-white">Start Audit</Text>
               </TouchableOpacity>
-            ) : (
+            ) : parcel.is_verified ? null : (
               <View
                 className="min-h-[52px] items-center justify-center rounded-xl px-4"
                 style={{backgroundColor: 'rgba(160,174,192,0.25)'}}>
