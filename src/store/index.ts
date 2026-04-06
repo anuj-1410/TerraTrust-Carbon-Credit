@@ -20,6 +20,7 @@ import type {LandState} from '../features/land/store/landSlice';
 import auditReducer from '../features/ar-audit/store/auditSlice';
 import type {AuditState} from '../features/ar-audit/store/auditSlice';
 import creditsReducer from '../features/dashboard/store/creditsSlice';
+import type {CreditsState} from '../features/dashboard/store/creditsSlice';
 import profileReducer, {
   type ProfileState,
 } from '../features/profile/store/profileSlice';
@@ -66,6 +67,14 @@ const profilePersistConfig: PersistConfig<ProfileState> = {
   stateReconciler: autoMergeLevel2,
 };
 
+const creditsPersistConfig: PersistConfig<CreditsState> = {
+  key: 'credits',
+  version: 1,
+  storage: mmkvStorage,
+  migrate: createMigrate(migrations, {debug: false}),
+  stateReconciler: autoMergeLevel2,
+};
+
 const notificationsPersistConfig: PersistConfig<NotificationsState> = {
   key: 'notifications',
   version: 1,
@@ -78,7 +87,7 @@ const appReducer = combineReducers({
   auth: persistReducer(authPersistConfig, authReducer),
   land: persistReducer(landPersistConfig, landReducer),
   audit: persistReducer(auditPersistConfig, auditReducer),
-  credits: creditsReducer,
+  credits: persistReducer(creditsPersistConfig, creditsReducer),
   profile: persistReducer(profilePersistConfig, profileReducer),
   notifications: persistReducer(notificationsPersistConfig, notificationsReducer),
   ui: uiReducer,

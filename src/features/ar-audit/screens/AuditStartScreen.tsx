@@ -5,6 +5,7 @@ import {
   TouchableOpacity,
   ScrollView,
   Alert,
+  BackHandler,
 } from 'react-native';
 import {useNavigation, useRoute} from '@react-navigation/native';
 import type {NativeStackNavigationProp} from '@react-navigation/native-stack';
@@ -69,6 +70,18 @@ const AuditStartScreen = () => {
       },
     ]);
   }, [navigation, originTab]);
+
+  React.useEffect(() => {
+    const subscription = BackHandler.addEventListener(
+      'hardwareBackPress',
+      () => {
+        handleCancelAudit();
+        return true;
+      },
+    );
+
+    return () => subscription.remove();
+  }, [handleCancelAudit]);
 
   const handleStartAudit = useCallback(async () => {
     try {

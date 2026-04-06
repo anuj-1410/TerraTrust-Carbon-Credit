@@ -22,6 +22,7 @@ const NOTIFICATION_ICON: Record<NotificationItem['type'], keyof typeof MaterialC
   audit_failed: 'alert-circle-outline',
   audit_due: 'calendar-alert',
   land_registration_complete: 'map-check-outline',
+  wallet_recovery: 'wallet-plus-outline',
 };
 
 const NotificationsScreen = () => {

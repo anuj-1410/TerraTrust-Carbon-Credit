@@ -1,16 +1,25 @@
-import React, {useCallback} from 'react';
+import React, {useCallback, useState} from 'react';
 import {View, Text, TouchableOpacity, ScrollView, Image} from 'react-native';
-import {useNavigation, useRoute} from '@react-navigation/native';
+import {CommonActions, useNavigation, useRoute} from '@react-navigation/native';
 import type {NativeStackNavigationProp} from '@react-navigation/native-stack';
 import type {RouteProp} from '@react-navigation/native';
 import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
 import type {RootStackParamList} from '../../../types/navigation';
 import Badge from '../../../common/components/Badge';
+import BottomSheet from '../../../common/components/BottomSheet';
 import {useAppDispatch, useAppSelector} from '../../../store/hooks';
 import {addScannedTree, setCurrentZoneIndex} from '../store/auditSlice';
 
 type NavProp = NativeStackNavigationProp<RootStackParamList, 'TreeResultScreen'>;
 type RouteType = RouteProp<RootStackParamList, 'TreeResultScreen'>;
+
+const MAX_TREES_PER_ZONE = 5;
+
+const formatLatitude = (value: number) =>
+  `${Math.abs(value).toFixed(4)}°${value >= 0 ? 'N' : 'S'}`;
+
+const formatLongitude = (value: number) =>
+  `${Math.abs(value).toFixed(4)}°${value >= 0 ? 'E' : 'W'}`;
 
 const TreeResultScreen = () => {
   const navigation = useNavigation<NavProp>();
@@ -18,77 +27,120 @@ const TreeResultScreen = () => {
   const dispatch = useAppDispatch();
   const audit = useAppSelector(state => state.audit);
   const {scannedTrees, zones, currentZoneIndex, minTreesRequired} = audit;
+  const [hasSavedTree, setHasSavedTree] = useState(false);
+  const [showZoneCompletionSheet, setShowZoneCompletionSheet] = useState(false);
 
-  // Flaw #85: Read pending tree from route params instead of already-saved array
   const tree = route.params.pendingTree;
   const currentZone = zones[currentZoneIndex] ?? null;
+  const nextZone = zones[currentZoneIndex + 1] ?? null;
+  const zoneName = currentZone?.label ?? `Zone ${currentZoneIndex + 1}`;
 
-  // Count includes already-saved trees + this pending one
   const treesInZone = scannedTrees.filter(
     t => t.zone_id === currentZone?.zone_id,
   ).length + 1; // +1 for pending tree
-  const treesPerZone = Math.max(
+  const minimumTreesPerZone = Math.max(
     3,
     Math.floor(minTreesRequired / Math.max(zones.length, 1)),
   );
+  const zoneMinReached = treesInZone >= minimumTreesPerZone;
+  const canScanMoreTrees = treesInZone < MAX_TREES_PER_ZONE;
+  const isLastZone = currentZoneIndex >= zones.length - 1;
 
   const precisionBadge = (() => {
     if (!tree) return {label: '', variant: 'manual' as const};
     if (tree.measurement_tier === 1)
       return {
-        label: 'High Precision',
+        label: '◉ High Precision',
         variant: 'high-precision' as const,
       };
     if (tree.measurement_tier === 2)
       return {
-        label: 'Standard Precision',
+        label: '◉ Standard Precision',
         variant: 'standard-precision' as const,
       };
     return {
-      label: 'Manual Measurement',
+      label: '◎ Manual Measurement',
       variant: 'manual' as const,
     };
   })();
 
-  const zoneMinReached = treesInZone >= treesPerZone;
-  const allZonesComplete =
-    zoneMinReached && currentZoneIndex >= zones.length - 1;
+  const navigateBackToCamera = useCallback(() => {
+    navigation.dispatch(
+      CommonActions.navigate({
+        name: 'ARCameraScreen',
+        params: {
+          zoneId: currentZone?.zone_id ?? tree.zone_id,
+          zoneIndex: currentZoneIndex,
+          returnDiameter: undefined,
+          resetScanToken: `${Date.now()}`,
+        },
+        merge: true,
+      }),
+    );
+  }, [currentZone, currentZoneIndex, navigation, tree.zone_id]);
 
-  // Flaw #85/#86: "Confirm and Save Tree" — dispatches addScannedTree
   const handleConfirmSave = useCallback(() => {
-    if (!tree) return;
-    dispatch(addScannedTree(tree));
+    if (!tree || hasSavedTree) return;
 
-    if (allZonesComplete) {
-      navigation.navigate('AuditCompleteScreen');
-    } else if (zoneMinReached) {
-      dispatch(setCurrentZoneIndex(currentZoneIndex + 1));
-      navigation.navigate('ZoneNavigationScreen', {
-        auditId: audit.activeAuditId!,
-        landId: audit.activeLandId!,
-      });
-    } else {
-      navigation.navigate('ARCameraScreen', {
-        zoneId: currentZone?.zone_id ?? '',
-        zoneIndex: currentZoneIndex,
-      });
+    dispatch(addScannedTree(tree));
+    setHasSavedTree(true);
+
+    if (zoneMinReached) {
+      setShowZoneCompletionSheet(true);
+      return;
     }
+
+    navigateBackToCamera();
   }, [
-    tree,
-    allZonesComplete,
     zoneMinReached,
-    currentZoneIndex,
-    audit.activeAuditId,
-    audit.activeLandId,
-    currentZone,
     dispatch,
-    navigation,
+    hasSavedTree,
+    navigateBackToCamera,
+    tree,
   ]);
 
-  // Flaw #87: Rescan discards pendingTree — just navigate back without saving
   const handleRescan = useCallback(() => {
-    navigation.goBack();
-  }, [navigation]);
+    navigateBackToCamera();
+  }, [navigateBackToCamera]);
+
+  const handleScanMoreTrees = useCallback(() => {
+    setShowZoneCompletionSheet(false);
+    navigateBackToCamera();
+  }, [navigateBackToCamera]);
+
+  const handleContinue = useCallback(() => {
+    setShowZoneCompletionSheet(false);
+
+    if (isLastZone) {
+      navigation.navigate('AuditCompleteScreen');
+      return;
+    }
+
+    if (!audit.activeAuditId || !audit.activeLandId) {
+      return;
+    }
+
+    dispatch(setCurrentZoneIndex(currentZoneIndex + 1));
+    navigation.dispatch(
+      CommonActions.navigate({
+        name: 'ZoneNavigationScreen',
+        params: {
+          auditId: audit.activeAuditId,
+          landId: audit.activeLandId,
+          originTab: audit.originTab ?? undefined,
+        },
+        merge: true,
+      }),
+    );
+  }, [
+    audit.activeAuditId,
+    audit.activeLandId,
+    audit.originTab,
+    currentZoneIndex,
+    dispatch,
+    isLastZone,
+    navigation,
+  ]);
 
   if (!tree) {
     return (
@@ -103,7 +155,7 @@ const TreeResultScreen = () => {
       {/* Header */}
       <View className="bg-[#1B4332] pt-12 pb-5 px-5 flex-row items-center">
         <TouchableOpacity
-          onPress={() => navigation.goBack()}
+          onPress={handleRescan}
           className="w-12 h-12 items-center justify-center rounded-full"
           accessibilityLabel="Go back">
           <MaterialCommunityIcons color="#FFFFFF" name="arrow-left" size={24} />
@@ -154,7 +206,7 @@ const TreeResultScreen = () => {
             <Text className="text-[#191C1B] text-base">
               {tree.ar_height_m !== null ? (
                 <Text style={{fontFamily: 'RobotoMono-Regular'}}>
-                  AR Measured: {tree.ar_height_m} m
+                  AR Measured: {tree.ar_height_m.toFixed(1)} m
                 </Text>
               ) : (
                 'From GEDI Satellite'
@@ -170,7 +222,7 @@ const TreeResultScreen = () => {
             <Text
               className="text-[#191C1B] text-sm"
               style={{fontFamily: 'RobotoMono-Regular'}}>
-              {tree.gps_lat.toFixed(4)}°N, {tree.gps_lng.toFixed(4)}°E
+              {formatLatitude(tree.gps_lat)}, {formatLongitude(tree.gps_lng)}
             </Text>
             <Text className="text-[#9CA3AF] text-xs mt-0.5">
               ± {tree.gps_accuracy_m.toFixed(1)}m
@@ -209,10 +261,13 @@ const TreeResultScreen = () => {
         <View className="mt-4 items-center">
           <Text className="text-[#6B7280] text-sm">
             {currentZone?.label ?? `Zone ${currentZoneIndex + 1}`}:{' '}
-            {treesInZone} of {treesPerZone} trees scanned
+            {treesInZone} of {MAX_TREES_PER_ZONE} trees scanned
+          </Text>
+          <Text className="mt-1 text-center text-xs text-[#9CA3AF]">
+            Minimum {minimumTreesPerZone} trees required in each zone.
           </Text>
           <View className="flex-row mt-2">
-            {Array.from({length: treesPerZone}).map((_, i) => (
+            {Array.from({length: MAX_TREES_PER_ZONE}).map((_, i) => (
               <View
                 key={i}
                 className={`w-3 h-3 rounded-full mr-1.5 ${
@@ -228,22 +283,61 @@ const TreeResultScreen = () => {
       <View className="px-5 pb-8 pt-3 bg-[#F8FAF8]">
         <TouchableOpacity
           onPress={handleConfirmSave}
-          className="h-14 rounded-xl bg-[#2D6A4F] items-center justify-center flex-row"
+          disabled={hasSavedTree}
+          className="h-14 rounded-xl items-center justify-center flex-row"
+          style={{backgroundColor: hasSavedTree ? '#9CA3AF' : '#2D6A4F'}}
           activeOpacity={0.7}>
           <Text className="text-white text-base font-bold">
-            Confirm and Save Tree
+            {hasSavedTree ? 'Tree Saved' : 'Confirm and Save Tree'}
           </Text>
           <MaterialCommunityIcons color="#FFFFFF" name="check" size={18} />
         </TouchableOpacity>
         <TouchableOpacity
           onPress={handleRescan}
+          disabled={hasSavedTree}
           className="mt-3 h-12 rounded-xl border-2 border-[#D1D5DB] items-center justify-center flex-row"
+          style={{opacity: hasSavedTree ? 0.5 : 1}}
           activeOpacity={0.7}>
           <Text className="text-[#6B7280] text-base font-semibold">
             Rescan This Tree
           </Text>
         </TouchableOpacity>
       </View>
+
+      <BottomSheet visible={showZoneCompletionSheet} onClose={() => undefined}>
+        <Text className="text-[#191C1B] text-xl font-bold text-center">
+          {isLastZone ? 'All zones done!' : `${zoneName} complete!`}
+        </Text>
+        <Text className="mt-2 text-center text-sm text-[#6B7280]">
+          {isLastZone
+            ? `${treesInZone} trees scanned in ${zoneName}. Review your audit and submit it for satellite verification.`
+            : canScanMoreTrees
+              ? `${treesInZone} trees scanned in ${zoneName}. You can scan ${MAX_TREES_PER_ZONE - treesInZone} more tree${MAX_TREES_PER_ZONE - treesInZone === 1 ? '' : 's'} in this zone or continue to ${nextZone?.label ?? `Zone ${currentZoneIndex + 2}`}.`
+              : `You have reached the maximum of ${MAX_TREES_PER_ZONE} trees for ${zoneName}. Continue to ${nextZone?.label ?? `Zone ${currentZoneIndex + 2}`}.`}
+        </Text>
+
+        {canScanMoreTrees && (
+          <TouchableOpacity
+            onPress={handleScanMoreTrees}
+            className="mt-6 h-12 rounded-xl border-2 border-[#D1D5DB] items-center justify-center"
+            activeOpacity={0.7}>
+            <Text className="text-[#6B7280] text-base font-semibold">
+              Scan more trees in this zone
+            </Text>
+          </TouchableOpacity>
+        )}
+
+        <TouchableOpacity
+          onPress={handleContinue}
+          className="mt-3 h-14 rounded-xl bg-[#2D6A4F] items-center justify-center"
+          activeOpacity={0.7}>
+          <Text className="text-white text-base font-bold">
+            {isLastZone
+              ? 'Review and Submit'
+              : `Go to ${nextZone?.label ?? `Zone ${currentZoneIndex + 2}`} ->`}
+          </Text>
+        </TouchableOpacity>
+      </BottomSheet>
     </View>
   );
 };

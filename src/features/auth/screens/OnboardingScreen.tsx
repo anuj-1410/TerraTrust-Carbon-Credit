@@ -1,5 +1,5 @@
-import React, {useMemo, useState} from 'react';
-import {View, Text, TouchableOpacity} from 'react-native';
+import React, {useEffect, useMemo, useState} from 'react';
+import {BackHandler, View, Text, TouchableOpacity} from 'react-native';
 import {useNavigation} from '@react-navigation/native';
 import type {NativeStackNavigationProp} from '@react-navigation/native-stack';
 import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
@@ -35,6 +35,15 @@ const OnboardingScreen = () => {
   const [activeIndex, setActiveIndex] = useState(0);
 
   const currentCard = useMemo(() => ONBOARDING_CARDS[activeIndex], [activeIndex]);
+
+  useEffect(() => {
+    const subscription = BackHandler.addEventListener(
+      'hardwareBackPress',
+      () => true,
+    );
+
+    return () => subscription.remove();
+  }, []);
 
   const finishOnboarding = () => {
     markOnboardingComplete();

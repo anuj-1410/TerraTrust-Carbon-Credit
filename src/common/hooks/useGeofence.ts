@@ -1,8 +1,9 @@
-import {useEffect, useRef, useState, useCallback} from 'react';
+import {useEffect, useState} from 'react';
 import Geolocation from 'react-native-geolocation-service';
 import type {GPS, SamplingZone} from '../../features/ar-audit/store/auditSlice';
 import type {GeoJSONPolygon} from '../../features/land/store/landSlice';
 import {useAppSelector} from '../../store/hooks';
+import {isPointInsidePolygon} from '../utils/geoJson';
 
 export interface GeofencePosition extends GPS {
   accuracy: number;
@@ -18,7 +19,6 @@ export interface UseGeofenceResult {
 }
 
 const ACCURACY_THRESHOLD = 20;
-const GRACE_PERIOD_MS = 30_000;
 const ZONE_ARRIVAL_METRES = 10;
 
 function haversineDistance(a: GPS, b: GPS): number {
@@ -36,22 +36,6 @@ function haversineDistance(a: GPS, b: GPS): number {
   return R * 2 * Math.atan2(Math.sqrt(x), Math.sqrt(1 - x));
 }
 
-function pointInPolygon(point: GPS, polygon: GeoJSONPolygon): boolean {
-  const ring = polygon.coordinates[0];
-  if (!ring || ring.length < 4) return false;
-
-  let inside = false;
-  for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
-    const [xi, yi] = ring[i]; // [lng, lat]
-    const [xj, yj] = ring[j];
-    const intersect =
-      yi > point.lat !== yj > point.lat &&
-      point.lng < ((xj - xi) * (point.lat - yi)) / (yj - yi) + xi;
-    if (intersect) inside = !inside;
-  }
-  return inside;
-}
-
 export function useGeofence(
   boundary: GeoJSONPolygon | null,
   currentZone: SamplingZone | null,
@@ -61,25 +45,6 @@ export function useGeofence(
   const [currentPosition, setCurrentPosition] =
     useState<GeofencePosition | null>(null);
   const [error, setError] = useState<string | null>(null);
-
-  const lastGoodPosition = useRef<GeofencePosition | null>(null);
-  const lastGoodTime = useRef<number>(0);
-
-  const getEffectivePosition = useCallback((): GeofencePosition | null => {
-    if (currentPosition && currentPosition.accuracy <= ACCURACY_THRESHOLD) {
-      lastGoodPosition.current = currentPosition;
-      lastGoodTime.current = Date.now();
-      return currentPosition;
-    }
-    // Grace period: use last good position for up to 30 seconds
-    if (
-      lastGoodPosition.current &&
-      Date.now() - lastGoodTime.current <= GRACE_PERIOD_MS
-    ) {
-      return lastGoodPosition.current;
-    }
-    return null;
-  }, [currentPosition]);
 
   useEffect(() => {
     const watchId = Geolocation.watchPosition(
@@ -105,25 +70,30 @@ export function useGeofence(
     return () => Geolocation.clearWatch(watchId);
   }, [gpsHighAccuracy]);
 
-  const effectivePos = getEffectivePosition();
+  const hasAccurateFix =
+    currentPosition !== null && currentPosition.accuracy <= ACCURACY_THRESHOLD;
 
   // Local client-side check (fast, preliminary)
-  const localInside =
-    effectivePos && boundary ? pointInPolygon(effectivePos, boundary) : false;
-  const isInsideBoundary = localInside;
+  const isInsideBoundary = Boolean(
+    hasAccurateFix &&
+      currentPosition &&
+      boundary &&
+      isPointInsidePolygon(currentPosition, boundary),
+  );
 
   const isAtZoneCentre =
-    effectivePos && currentZone
-      ? haversineDistance(effectivePos, currentZone.centre_gps) <=
+    hasAccurateFix && currentPosition && currentZone
+      ? haversineDistance(currentPosition, currentZone.centre_gps) <=
         ZONE_ARRIVAL_METRES
       : false;
 
   return {
     isInsideBoundary,
     isAtZoneCentre,
-    currentPosition: effectivePos,
+    currentPosition,
     gpsAccuracy: currentPosition?.accuracy ?? null,
-    hasWeakSignal: (currentPosition?.accuracy ?? 0) > ACCURACY_THRESHOLD,
+    hasWeakSignal:
+      currentPosition !== null && currentPosition.accuracy > ACCURACY_THRESHOLD,
     error,
   };
 }

@@ -99,6 +99,21 @@ class ARModule(private val reactContext: ReactApplicationContext) :
         }
     }
 
+    @ReactMethod
+    fun moveTaskToBack(promise: Promise) {
+        try {
+            val activity = reactApplicationContext.currentActivity
+            if (activity == null) {
+                promise.resolve(false)
+                return
+            }
+
+            promise.resolve(activity.moveTaskToBack(true))
+        } catch (e: Exception) {
+            promise.resolve(false)
+        }
+    }
+
     // ---- T012: measureCylinder Tier 1 (RAW_DEPTH_ONLY) ----
     // ---- T013: measureCylinder Tier 2 (SLAM) ----
 

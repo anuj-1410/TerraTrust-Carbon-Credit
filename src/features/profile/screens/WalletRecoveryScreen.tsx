@@ -79,7 +79,7 @@ const WalletRecoveryScreen = () => {
         dispatch(
           addNotification({
             id: 'wallet-recovery-pending',
-            type: 'audit_submitted',
+            type: 'wallet_recovery',
             title: 'Wallet recovery submitted',
             body: 'TerraTrust received your wallet recovery request.',
             createdAt: new Date().toISOString(),

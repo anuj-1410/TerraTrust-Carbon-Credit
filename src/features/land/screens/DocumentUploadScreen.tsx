@@ -1,5 +1,6 @@
-import React, {useCallback, useRef, useState} from 'react';
+import React, {useCallback, useEffect, useRef, useState} from 'react';
 import {
+  BackHandler,
   View,
   Text,
   TouchableOpacity,
@@ -60,6 +61,7 @@ const DocumentUploadScreen = () => {
   const [loadingMessage, setLoadingMessage] = useState('Reading your document...');
 
   const closeRegistrationFlow = useCallback(() => {
+    dispatch(clearCurrentDraft());
     navigation.reset({
       index: 0,
       routes: [
@@ -72,7 +74,19 @@ const DocumentUploadScreen = () => {
         },
       ],
     });
-  }, [navigation]);
+  }, [dispatch, navigation]);
+
+  useEffect(() => {
+    const subscription = BackHandler.addEventListener(
+      'hardwareBackPress',
+      () => {
+        closeRegistrationFlow();
+        return true;
+      },
+    );
+
+    return () => subscription.remove();
+  }, [closeRegistrationFlow]);
 
   const ownerNameMismatch = Boolean(
     ocrResult?.owner_name &&

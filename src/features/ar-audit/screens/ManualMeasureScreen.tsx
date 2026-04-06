@@ -31,7 +31,6 @@ const ManualMeasureScreen = () => {
     null,
   );
 
-  // Flaw #83: Show tutorial on first visit
   useEffect(() => {
     const tutorialShown = mmkv.getBoolean('manual_tutorial_shown');
     if (!tutorialShown) {
@@ -104,7 +103,6 @@ const ManualMeasureScreen = () => {
         className="flex-1 px-5"
         contentContainerStyle={{paddingBottom: 32}}
         keyboardShouldPersistTaps="handled">
-        {/* Tutorial animation — Flaw #83 */}
         {showTutorial && (
           <View className="items-center mt-8 mb-6 bg-white rounded-2xl p-5 shadow-sm">
             <LottieView

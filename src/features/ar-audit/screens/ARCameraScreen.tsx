@@ -23,6 +23,7 @@ import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityI
 
 import type {RootStackParamList} from '../../../types/navigation';
 import Badge from '../../../common/components/Badge';
+import {isPointInsidePolygon} from '../../../common/utils/geoJson';
 import {useAppSelector} from '../../../store/hooks';
 import type {TreeSample} from '../store/auditSlice';
 import {
@@ -80,9 +81,14 @@ const ARCameraScreen = () => {
 
   const audit = useAppSelector(state => state.audit);
   const gpsHighAccuracy = useAppSelector(state => state.profile.gpsHighAccuracy);
-  const {zones, scannedTrees, arTier, minTreesRequired} = audit;
+  const boundary = useAppSelector(state =>
+    state.land.parcels.find(parcel => parcel.id === state.audit.activeLandId)
+      ?.boundary_geojson ?? null,
+  );
+  const {zones, scannedTrees, arTier} = audit;
   const currentZone = zones[zoneIndex] ?? null;
   const returnedDiameter = route.params.returnDiameter;
+  const resetScanToken = route.params.resetScanToken;
 
   // State
   const [phase, setPhase] = useState<MeasurePhase>('idle');
@@ -122,6 +128,23 @@ const ARCameraScreen = () => {
     transform: [{translateX: slamArrowX.value}],
   }));
 
+  const resetScanState = useCallback(() => {
+    void cancelHeightMeasurement().catch(() => undefined);
+    setPhase('idle');
+    setStatusText('Point camera at tree trunk');
+    setSpeciesName(null);
+    setSpeciesConfidence(0);
+    setWoodDensity(0);
+    setDiameterCm(null);
+    setArHeightM(null);
+    setMeasureConfidence(0);
+    setTierUsed(arTier as 1 | 2 | 3);
+    setEvidenceBase64(null);
+    setEvidenceHash(null);
+    timerProgress.value = 0;
+    slamArrowX.value = 0;
+  }, [arTier, slamArrowX, timerProgress]);
+
   useEffect(() => {
     let mounted = true;
 
@@ -142,6 +165,14 @@ const ARCameraScreen = () => {
       mounted = false;
     };
   }, []);
+
+  useEffect(() => {
+    if (!resetScanToken) {
+      return;
+    }
+
+    resetScanState();
+  }, [resetScanState, resetScanToken]);
 
   // Wire returnDiameter from ManualMeasureScreen (T031)
   useEffect(() => {
@@ -169,8 +200,11 @@ const ARCameraScreen = () => {
     return () => Geolocation.clearWatch(watchId);
   }, [gpsHighAccuracy]);
 
-  const totalScanned = scannedTrees.length;
-  const totalRequired = minTreesRequired;
+  const treesInCurrentZone = scannedTrees.filter(
+    tree => tree.zone_id === currentZone?.zone_id,
+  ).length;
+  const zoneProgressLabel = currentZone?.label ?? `Zone ${zoneIndex + 1}`;
+  const maxTreesPerZone = 5;
   const needsArHeight = Boolean(currentZone && !currentZone.gedi_available);
   const canMeasureArHeight = needsArHeight && arTier !== 3;
   const requiresArHeightBeforeSave = needsArHeight && canMeasureArHeight;
@@ -383,7 +417,6 @@ const ARCameraScreen = () => {
     setPhase(diameterCm !== null ? 'result' : 'species_done');
   }, [diameterCm]);
 
-  // ──── ACCEPT — navigate to TreeResult with pendingTree (Flaw #81) ────
   const handleAcceptSave = useCallback(async () => {
     if (!speciesName || diameterCm === null) return;
 
@@ -399,6 +432,17 @@ const ARCameraScreen = () => {
       Alert.alert(
         'Weak GPS Signal',
         'GPS accuracy is too weak to save this tree. Move to an open area and try again.',
+      );
+      return;
+    }
+
+    if (
+      boundary &&
+      !isPointInsidePolygon({lat: gpsLat, lng: gpsLng}, boundary)
+    ) {
+      Alert.alert(
+        'Outside Registered Land',
+        'You appear to be outside your registered land boundary. Please return to your land before saving this tree scan.',
       );
       return;
     }
@@ -450,6 +494,7 @@ const ARCameraScreen = () => {
     gpsLat,
     gpsLng,
     gpsAccuracy,
+    boundary,
     evidenceBase64,
     evidenceHash,
     zoneId,
@@ -530,9 +575,12 @@ const ARCameraScreen = () => {
         <Text className="flex-1 text-white text-base text-center">
           {statusText}
         </Text>
-        <View className="bg-white/20 rounded-full px-3 py-1">
-          <Text className="text-white text-sm font-bold">
-            {totalScanned}/{totalRequired}
+        <View className="rounded-2xl bg-white/20 px-3 py-1.5">
+          <Text className="text-center text-[11px] font-semibold text-white">
+            {zoneProgressLabel}
+          </Text>
+          <Text className="text-center text-sm font-bold text-white">
+            {treesInCurrentZone}/{maxTreesPerZone} trees
           </Text>
         </View>
       </View>
@@ -640,20 +688,6 @@ const ARCameraScreen = () => {
               </TouchableOpacity>
             )}
 
-            {/* Measure Height — only if gedi_available === false */}
-            {phase === 'species_done' &&
-              canMeasureArHeight && (
-                <TouchableOpacity
-                  onPress={() => {
-                    void handleStartHeightMeasurement();
-                  }}
-                  className="h-14 px-4 rounded-xl border-2 border-white/60 items-center justify-center">
-                  <View className="flex-row items-center">
-                    <MaterialCommunityIcons color="#FFFFFF" name="arrow-expand-vertical" size={18} />
-                    <Text className="ml-2 text-white text-sm">Height</Text>
-                  </View>
-                </TouchableOpacity>
-              )}
           </View>
         </View>
       )}

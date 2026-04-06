@@ -5,7 +5,8 @@ export type NotificationType =
   | 'audit_submitted'
   | 'audit_failed'
   | 'audit_due'
-  | 'land_registration_complete';
+  | 'land_registration_complete'
+  | 'wallet_recovery';
 
 export interface NotificationItem {
   id: string;

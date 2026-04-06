@@ -74,6 +74,7 @@ export type RootStackParamList = {
     zoneId: string;
     zoneIndex: number;
     returnDiameter?: number;
+    resetScanToken?: string;
   };
   ManualMeasureScreen: {
     zoneId: string;

@@ -26,6 +26,7 @@ import {setPendingMint} from '../../dashboard/store/creditsSlice';
 import {store} from '../../../store';
 import {syncAuditStatus} from '../utils/auditStatus';
 import type {RootStackParamList} from '../../../types/navigation';
+import {moveAppToBackground} from '../../../services/ar-bridge';
 
 type Nav = NativeStackNavigationProp<RootStackParamList, 'AuditStatusScreen'>;
 type RouteType = RouteProp<RootStackParamList, 'AuditStatusScreen'>;
@@ -49,6 +50,7 @@ const AuditStatusScreen = () => {
   useEffect(() => {
     const subscription = BackHandler.addEventListener('hardwareBackPress', () => {
       if (currentResult.status === 'CALCULATING') {
+        void moveAppToBackground();
         return true;
       }
 
