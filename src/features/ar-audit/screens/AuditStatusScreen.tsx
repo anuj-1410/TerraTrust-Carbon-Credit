@@ -38,6 +38,12 @@ const AuditStatusScreen = () => {
   const route = useRoute<RouteType>();
   const dispatch = useAppDispatch();
   const auditResult = useAppSelector(state => state.audit.auditResult);
+  const activeLandId = useAppSelector(state => state.audit.activeLandId);
+  const parcelName = useAppSelector(
+    state =>
+      state.land.parcels.find(parcel => parcel.id === activeLandId)?.farm_name ??
+      null,
+  );
   const [currentResult, setCurrentResult] = useState<AuditResultResponse>(
     auditResult ?? {status: 'CALCULATING'},
   );
@@ -139,6 +145,12 @@ const AuditStatusScreen = () => {
         <Text className="text-center text-2xl font-bold" style={{color: COLORS.DARK_SLATE}}>
           Processing Your Credits
         </Text>
+        {parcelName || currentResult.audit_year ? (
+          <Text className="mt-3 text-center leading-6" style={{color: COLORS.DISABLED_GREY}}>
+            {parcelName ?? 'Your land parcel'}
+            {currentResult.audit_year ? ` • Audit Year ${currentResult.audit_year}` : ''}
+          </Text>
+        ) : null}
 
         {currentResult.status === 'CALCULATING' ? (
           <View className="items-center pt-10">

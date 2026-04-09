@@ -316,6 +316,7 @@ const auditSlice = createSlice({
       .addCase(submitAudit.fulfilled, state => {
         state.uploadStatus = 'processing';
         state.errorMessage = null;
+        state.auditResult = {status: 'CALCULATING'};
       })
       .addCase(submitAudit.rejected, (state, action) => {
         if (action.payload === '__OFFLINE__') {

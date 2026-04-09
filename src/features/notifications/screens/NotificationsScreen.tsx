@@ -16,7 +16,15 @@ import type {RootStackParamList} from '../../../types/navigation';
 
 type Nav = NativeStackNavigationProp<RootStackParamList, 'NotificationsScreen'>;
 
-const NOTIFICATION_ICON: Record<NotificationItem['type'], keyof typeof MaterialCommunityIcons.glyphMap> = {
+type NotificationIconName =
+  | 'cash-multiple'
+  | 'progress-clock'
+  | 'alert-circle-outline'
+  | 'calendar-alert'
+  | 'map-check-outline'
+  | 'wallet-plus-outline';
+
+const NOTIFICATION_ICON: Record<NotificationItem['type'], NotificationIconName> = {
   credits_ready: 'cash-multiple',
   audit_submitted: 'progress-clock',
   audit_failed: 'alert-circle-outline',
@@ -29,7 +37,7 @@ const NotificationsScreen = () => {
   const navigation = useNavigation<Nav>();
   const dispatch = useAppDispatch();
   const items = useAppSelector(state =>
-    [...state.notifications.items].sort(
+    [...state.notifications.notifications].sort(
       (left, right) => new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime(),
     ),
   );

@@ -9,6 +9,7 @@ import api from '../../../services/api';
 import {
   getCurrentFirebaseUser,
   getFreshFirebaseIdToken,
+  signOutFirebase,
   type AuthBootstrapResponse,
 } from '../../../services/firebase';
 import {useAppDispatch, useAppSelector} from '../../../store/hooks';
@@ -35,12 +36,21 @@ const SplashScreen = () => {
     let isMounted = true;
     let hasResolved = false;
 
+    const resetSession = async () => {
+      try {
+        await signOutFirebase();
+      } catch {
+        // Ignore sign-out cleanup failures during bootstrap.
+      }
+    };
+
     const timeoutHandle = setTimeout(() => {
       if (!isMounted || hasResolved) {
         return;
       }
 
       hasResolved = true;
+      void resetSession();
       dispatch(
         showBanner({
           message: 'Could not verify your session. Please sign in again.',
@@ -57,6 +67,7 @@ const SplashScreen = () => {
 
       hasResolved = true;
       clearTimeout(timeoutHandle);
+      void resetSession();
 
       if (message) {
         dispatch(showBanner({message, type: 'offline'}));

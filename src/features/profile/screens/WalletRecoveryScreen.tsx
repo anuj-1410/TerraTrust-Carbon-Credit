@@ -30,7 +30,7 @@ const WalletRecoveryScreen = () => {
   const dispatch = useAppDispatch();
   const phone = useAppSelector(state => state.auth.user?.phone ?? '');
   const notificationsEnabled = useAppSelector(
-    state => state.profile.notificationsEnabled,
+    state => state.profile.settingsNotificationsEnabled,
   );
   const [step, setStep] = useState<RecoveryStep>('intro');
   const [otpCode, setOtpCode] = useState('');

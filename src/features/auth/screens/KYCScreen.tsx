@@ -39,6 +39,18 @@ const kycSchema = z.object({
 
 type KYCForm = z.infer<typeof kycSchema>;
 
+function formatAadhaarDisplay(value: string, isFocused: boolean): string {
+  if (!value) {
+    return '';
+  }
+
+  const visibleValue = isFocused
+    ? value
+    : `${'X'.repeat(Math.max(0, value.length - 4))}${value.slice(-4)}`;
+
+  return visibleValue.replace(/(\w{4})(?=\w)/g, '$1 ').trim();
+}
+
 const KYCScreen = () => {
   const navigation = useNavigation<Nav>();
   const dispatch = useAppDispatch();
@@ -47,11 +59,13 @@ const KYCScreen = () => {
   );
   const [isLoading, setIsLoading] = useState(false);
   const [apiError, setApiError] = useState<string | null>(null);
+  const [aadhaarFocused, setAadhaarFocused] = useState(false);
 
   const {
     control,
     handleSubmit,
     reset,
+    setValue,
     watch,
     formState: {errors},
   } = useForm<KYCForm>({
@@ -89,6 +103,11 @@ const KYCScreen = () => {
     dispatch(setKycCompleted(profile.kyc_completed));
   };
 
+  const clearAadhaarInput = () => {
+    setAadhaarFocused(false);
+    setValue('aadhaarNumber', '', {shouldValidate: true, shouldDirty: false});
+  };
+
   const onSubmit = async (data: KYCForm) => {
     setIsLoading(true);
     setApiError(null);
@@ -102,6 +121,7 @@ const KYCScreen = () => {
       if (response.status === 200) {
         await syncProfile(aadhaarHash);
         reset({fullName: '', aadhaarNumber: ''});
+        setAadhaarFocused(false);
         navigation.reset({
           index: 0,
           routes: [{name: getAuthenticatedEntryRoute(true)}],
@@ -114,6 +134,7 @@ const KYCScreen = () => {
         if (message === 'KYC already completed') {
           await syncProfile(existingAadhaarHash);
           reset({fullName: '', aadhaarNumber: ''});
+          setAadhaarFocused(false);
           navigation.reset({
             index: 0,
             routes: [{name: getAuthenticatedEntryRoute(true)}],
@@ -125,6 +146,7 @@ const KYCScreen = () => {
         setApiError('Something went wrong. Please try again.');
       }
     } finally {
+      clearAadhaarInput();
       setIsLoading(false);
     }
   };
@@ -194,11 +216,18 @@ const KYCScreen = () => {
                   placeholder="Enter 12-digit Aadhaar number"
                   placeholderTextColor="#9CA3AF"
                   keyboardType="number-pad"
-                  maxLength={12}
-                  onBlur={onBlur}
+                  maxLength={14}
+                  onBlur={() => {
+                    setAadhaarFocused(false);
+                    onBlur();
+                  }}
+                  onFocus={() => setAadhaarFocused(true)}
                   onChangeText={text => onChange(text.replace(/\D/g, ''))}
-                  value={value}
+                  value={formatAadhaarDisplay(value, aadhaarFocused)}
                   editable={!isLoading}
+                  autoComplete="off"
+                  textContentType="none"
+                  importantForAutofill="no"
                 />
               )}
             />

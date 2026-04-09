@@ -35,7 +35,7 @@ export async function syncAuditStatus({
     return result;
   }
 
-  const notificationsEnabled = getState().profile.notificationsEnabled;
+  const notificationsEnabled = getState().profile.settingsNotificationsEnabled;
   dispatch(setPendingMint(false));
 
   if (result.status === 'MINTED') {
