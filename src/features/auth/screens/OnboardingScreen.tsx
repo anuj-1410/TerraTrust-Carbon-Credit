@@ -8,6 +8,8 @@ import Card from '../../../common/components/Card';
 import Button from '../../../common/components/Button';
 import {markOnboardingComplete} from '../../../common/utils/onboarding';
 import {COLORS} from '../../../common/constants/colors';
+import {useAppDispatch} from '../../../store/hooks';
+import {setOnboardingComplete} from '../../profile/store/profileSlice';
 import type {RootStackParamList} from '../../../types/navigation';
 
 type Nav = NativeStackNavigationProp<RootStackParamList, 'OnboardingScreen'>;
@@ -32,6 +34,7 @@ const ONBOARDING_CARDS = [
 
 const OnboardingScreen = () => {
   const navigation = useNavigation<Nav>();
+  const dispatch = useAppDispatch();
   const [activeIndex, setActiveIndex] = useState(0);
 
   const currentCard = useMemo(() => ONBOARDING_CARDS[activeIndex], [activeIndex]);
@@ -47,6 +50,7 @@ const OnboardingScreen = () => {
 
   const finishOnboarding = () => {
     markOnboardingComplete();
+    dispatch(setOnboardingComplete(true));
     navigation.reset({index: 0, routes: [{name: 'HomeScreen'}]});
   };
 

@@ -80,7 +80,9 @@ const ARCameraScreen = () => {
   const device = useCameraDevice('back');
 
   const audit = useAppSelector(state => state.audit);
-  const gpsHighAccuracy = useAppSelector(state => state.profile.gpsHighAccuracy);
+  const gpsHighAccuracy = useAppSelector(
+    state => state.profile.settingsHighAccuracyGPS,
+  );
   const boundary = useAppSelector(state =>
     state.land.parcels.find(parcel => parcel.id === state.audit.activeLandId)
       ?.boundary_geojson ?? null,
@@ -208,6 +210,8 @@ const ARCameraScreen = () => {
   const needsArHeight = Boolean(currentZone && !currentZone.gedi_available);
   const canMeasureArHeight = needsArHeight && arTier !== 3;
   const requiresArHeightBeforeSave = needsArHeight && canMeasureArHeight;
+  const canStartDiameterMeasurement = Boolean(speciesName);
+  const canStartHeightMeasurement = Boolean(speciesName) && canMeasureArHeight;
 
   useEffect(() => {
     return () => {
@@ -657,37 +661,59 @@ const ARCameraScreen = () => {
       {/* Bottom action buttons */}
       {(phase === 'idle' || phase === 'species_done') && (
         <View className="absolute bottom-0 left-0 right-0 px-5 pb-8 pt-6 bg-gradient-to-t from-black/80">
-          <View className="flex-row justify-center items-end space-x-4">
-            {/* Identify Species */}
-            {phase === 'idle' && (
-              <TouchableOpacity
-                onPress={handleIdentifySpecies}
-                className="flex-1 h-14 rounded-xl border-2 border-white/60 items-center justify-center">
-                <View className="flex-row items-center">
-                  <MaterialCommunityIcons color="#FFFFFF" name="magnify" size={18} />
-                  <Text className="ml-2 text-white text-sm font-semibold">
-                    Identify Species
-                  </Text>
-                </View>
-              </TouchableOpacity>
-            )}
+          <View className="flex-row items-center">
+            <TouchableOpacity
+              onPress={handleIdentifySpecies}
+              className="mx-1 flex-1 rounded-xl border-2 items-center justify-center px-3 py-3"
+              style={{
+                borderColor: speciesName ? 'rgba(74, 222, 128, 0.85)' : 'rgba(255,255,255,0.6)',
+                backgroundColor: speciesName ? 'rgba(34, 197, 94, 0.18)' : 'transparent',
+              }}>
+              <MaterialCommunityIcons
+                color="#FFFFFF"
+                name={speciesName ? 'check-circle-outline' : 'magnify'}
+                size={18}
+              />
+              <Text className="mt-1 text-center text-xs font-semibold text-white">
+                {speciesName ? 'Species Ready' : 'Identify Species'}
+              </Text>
+            </TouchableOpacity>
 
-            {/* Measure Diameter */}
-            {phase === 'species_done' && speciesName && (
+            <TouchableOpacity
+              onPress={() => {
+                void handleMeasureDiameter();
+              }}
+              disabled={!canStartDiameterMeasurement}
+              className="mx-1 flex-1 rounded-xl items-center justify-center px-3 py-3"
+              style={{
+                backgroundColor: canStartDiameterMeasurement
+                  ? '#2D6A4F'
+                  : 'rgba(107, 114, 128, 0.75)',
+              }}>
+              <MaterialCommunityIcons color="#FFFFFF" name="ruler" size={18} />
+              <Text className="mt-1 text-center text-xs font-semibold text-white">
+                Measure Diameter
+              </Text>
+            </TouchableOpacity>
+
+            {needsArHeight ? (
               <TouchableOpacity
                 onPress={() => {
-                  void handleMeasureDiameter();
+                  void handleStartHeightMeasurement();
                 }}
-                className="flex-1 h-14 rounded-xl bg-[#2D6A4F] items-center justify-center mx-2">
-                <View className="flex-row items-center">
-                  <MaterialCommunityIcons color="#FFFFFF" name="ruler" size={18} />
-                  <Text className="ml-2 text-white text-base font-bold">
-                    Measure Diameter
-                  </Text>
-                </View>
+                disabled={!canStartHeightMeasurement}
+                className="mx-1 flex-1 rounded-xl items-center justify-center px-3 py-3"
+                style={{
+                  backgroundColor: canStartHeightMeasurement
+                    ? '#2D6A4F'
+                    : 'rgba(107, 114, 128, 0.75)',
+                }}>
+                <MaterialCommunityIcons color="#FFFFFF" name="arrow-expand-vertical" size={18} />
+                <Text className="mt-1 text-center text-xs font-semibold text-white">
+                  {canMeasureArHeight ? 'Measure Height' : 'Height Unavailable'}
+                </Text>
               </TouchableOpacity>
-            )}
-
+            ) : null}
           </View>
         </View>
       )}

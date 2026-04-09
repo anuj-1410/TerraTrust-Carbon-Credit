@@ -184,6 +184,26 @@ const ZoneNavigationScreen = () => {
             </Marker>
           )}
 
+          {scannedTrees.map(tree => (
+            <Marker
+              key={tree.tree_id}
+              coordinate={{
+                latitude: tree.gps_lat,
+                longitude: tree.gps_lng,
+              }}
+              anchor={{x: 0.5, y: 0.5}}>
+              <View
+                className="h-3.5 w-3.5 rounded-full border border-white"
+                style={{
+                  backgroundColor:
+                    tree.zone_id === currentZone?.zone_id
+                      ? COLORS.FOREST_GREEN
+                      : COLORS.TEAL,
+                }}
+              />
+            </Marker>
+          ))}
+
           {/* Zone circles */}
           {zones.map((zone, idx) => {
             const isComplete = zone.is_complete;
@@ -279,7 +299,7 @@ const ZoneNavigationScreen = () => {
       </View>
 
       {/* Geofence warning banner — FR-008 */}
-      {currentPosition && !isInsideBoundary && (
+      {currentPosition && !hasWeakSignal && !isInsideBoundary && (
         <View className="mx-4 mt-2 bg-[#FEF3C7] rounded-2xl px-4 py-3 flex-row items-center">
           <MaterialCommunityIcons color="#92400E" name="alert-outline" size={20} />
           <Text className="flex-1 text-[#92400E] text-sm leading-5">
@@ -377,12 +397,12 @@ const ZoneNavigationScreen = () => {
           disabled={
             hasLocationPermission === false ||
             !isAtZoneCentre ||
-            (currentPosition != null && !isInsideBoundary)
+            (currentPosition != null && !hasWeakSignal && !isInsideBoundary)
           }
           className={`h-14 rounded-xl items-center justify-center flex-row ${
             hasLocationPermission !== false &&
             isAtZoneCentre &&
-            (isInsideBoundary || !currentPosition)
+            (isInsideBoundary || !currentPosition || hasWeakSignal)
               ? 'bg-[#2D6A4F]'
               : 'bg-[#9CA3AF]'
           }`}

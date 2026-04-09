@@ -1,15 +1,17 @@
 import {createSlice, type PayloadAction} from '@reduxjs/toolkit';
 
 export interface ProfileState {
-  notificationsEnabled: boolean;
-  gpsHighAccuracy: boolean;
+  settingsNotificationsEnabled: boolean;
+  settingsHighAccuracyGPS: boolean;
+  onboardingComplete: boolean;
   walletRecoveryPending: boolean;
   pendingWalletAddress: string | null;
 }
 
 export const profileInitialState: ProfileState = {
-  notificationsEnabled: true,
-  gpsHighAccuracy: true,
+  settingsNotificationsEnabled: true,
+  settingsHighAccuracyGPS: true,
+  onboardingComplete: false,
   walletRecoveryPending: false,
   pendingWalletAddress: null,
 };
@@ -19,10 +21,13 @@ const profileSlice = createSlice({
   initialState: profileInitialState,
   reducers: {
     setNotificationsEnabled(state, action: PayloadAction<boolean>) {
-      state.notificationsEnabled = action.payload;
+      state.settingsNotificationsEnabled = action.payload;
     },
     setGpsHighAccuracy(state, action: PayloadAction<boolean>) {
-      state.gpsHighAccuracy = action.payload;
+      state.settingsHighAccuracyGPS = action.payload;
+    },
+    setOnboardingComplete(state, action: PayloadAction<boolean>) {
+      state.onboardingComplete = action.payload;
     },
     setWalletRecoveryPending(state, action: PayloadAction<boolean>) {
       state.walletRecoveryPending = action.payload;
@@ -36,6 +41,7 @@ const profileSlice = createSlice({
 export const {
   setNotificationsEnabled,
   setGpsHighAccuracy,
+  setOnboardingComplete,
   setWalletRecoveryPending,
   setPendingWalletAddress,
 } = profileSlice.actions;

@@ -2,7 +2,8 @@ import React, {useEffect, useMemo, useState} from 'react';
 import {
   View,
   Text,
-  ScrollView,
+  FlatList,
+  ActivityIndicator,
   TouchableOpacity,
   Linking,
   Dimensions,
@@ -40,15 +41,35 @@ const CreditHistoryScreen = () => {
   const canGoBack = navigation.canGoBack();
 
   const isAuthenticated = useAppSelector(s => s.auth.isAuthenticated);
-  const {history, lastFetchedAt} = useAppSelector(s => s.credits);
+  const {history, historyHasMore, historyPage, lastFetchedAt} = useAppSelector(
+    s => s.credits,
+  );
   const [isLoading, setIsLoading] = useState(false);
+  const [isLoadingMore, setIsLoadingMore] = useState(false);
 
   useEffect(() => {
     if (isAuthenticated) {
       setIsLoading(true);
-      dispatch(fetchCreditsThunk()).finally(() => setIsLoading(false));
+      dispatch(fetchCreditsThunk({page: 1, limit: 20})).finally(() =>
+        setIsLoading(false),
+      );
     }
   }, [dispatch, isAuthenticated]);
+
+  const loadMoreHistory = () => {
+    if (!isAuthenticated || isLoading || isLoadingMore || !historyHasMore) {
+      return;
+    }
+
+    setIsLoadingMore(true);
+    dispatch(
+      fetchCreditsThunk({
+        page: historyPage + 1,
+        limit: 20,
+        append: true,
+      }),
+    ).finally(() => setIsLoadingMore(false));
+  };
 
   // Bar chart data
   const chartData = useMemo(() => {
@@ -70,7 +91,11 @@ const CreditHistoryScreen = () => {
 
   // Sorted history desc
   const sortedHistory = useMemo(
-    () => [...history].sort((a, b) => b.audit_year - a.audit_year),
+    () =>
+      [...history].sort(
+        (a, b) =>
+          new Date(b.minted_at).getTime() - new Date(a.minted_at).getTime(),
+      ),
     [history],
   );
 
@@ -123,141 +148,161 @@ const CreditHistoryScreen = () => {
     );
   }
 
-  return (
-    <View className="flex-1" style={{backgroundColor: COLORS.OFF_WHITE}}>
-      <ScrollView className="flex-1 px-4 pt-12 pb-6">
-        {/* Header */}
-        <View className="flex-row items-center mb-2">
-          {canGoBack ? (
-            <TouchableOpacity
-              className="min-h-[48px] min-w-[48px] items-center justify-center"
-              onPress={() => navigation.goBack()}>
-              <MaterialCommunityIcons
-                color={COLORS.DARK_SLATE}
-                name="arrow-left"
-                size={24}
-              />
-            </TouchableOpacity>
-          ) : null}
+  const renderHistoryItem = ({
+    item,
+    index,
+  }: {
+    item: AuditRecord;
+    index: number;
+  }) => (
+    <View
+      key={`${item.audit_year}-${item.minted_at ?? index}`}
+      className="mb-3 rounded-xl p-4 shadow-sm"
+      style={{backgroundColor: COLORS.CARD_WHITE}}>
+      <View className="flex-row items-center justify-between mb-2">
+        <Text
+          className="text-base font-bold font-[Roboto]"
+          style={{color: COLORS.DARK_SLATE}}>
+          {item.land_name}
+        </Text>
+        <View
+          className="rounded-full px-3 py-1"
+          style={{backgroundColor: COLORS.OFF_WHITE}}>
           <Text
-            className={`${canGoBack ? 'ml-3 ' : ''}text-xl font-bold font-[Roboto]`}
-            style={{color: COLORS.DARK_SLATE}}>
-            Credit History
+            className="text-xs font-[RobotoMono-Regular]"
+            style={{color: COLORS.DISABLED_GREY}}>
+            {item.audit_year}
           </Text>
         </View>
+      </View>
 
-        {/* Last Updated Badge */}
-        {lastFetchedAt && !isLoading && (
-          <Text
-            className="mb-4 text-xs font-[Roboto]"
-            style={{color: COLORS.DISABLED_GREY}}>
-            Last updated{' '}
-            {new Date(lastFetchedAt).toLocaleDateString('en-GB', {
-              day: 'numeric',
-              month: 'short',
-              year: 'numeric',
-            })}{' '}
-            {new Date(lastFetchedAt).toLocaleTimeString('en-GB', {
-              hour: '2-digit',
-              minute: '2-digit',
-            })}
-          </Text>
-        )}
+      <Text
+        className="mb-3 text-xl font-bold font-[RobotoMono-Bold]"
+        style={{color: COLORS.FOREST_GREEN}}>
+        +{item.credits_issued} CTT
+      </Text>
 
-        {/* Bar Chart */}
-        {chartData && (
-          <View
-            className="mb-6 rounded-xl p-4 shadow-sm"
-            style={{backgroundColor: COLORS.CARD_WHITE}}>
+      <View className="flex-row items-center">
+        {item.ipfs_certificate_url ? (
+          <TouchableOpacity
+            className="min-h-[48px] min-w-[48px] items-center justify-center mr-4"
+            onPress={() => void Linking.openURL(item.ipfs_certificate_url)}>
             <Text
-              className="mb-3 text-sm font-[Roboto]"
+              className="text-sm font-[Roboto]"
+              style={{color: COLORS.TEAL}}>
+              View Certificate
+            </Text>
+          </TouchableOpacity>
+        ) : null}
+        {item.tx_hash ? (
+          <TouchableOpacity
+            className="min-h-[48px] min-w-[48px] items-center justify-center"
+            onPress={() =>
+              void Linking.openURL(
+                `https://amoy.polygonscan.com/tx/${item.tx_hash}`,
+              )
+            }>
+            <Text
+              className="text-xs font-[RobotoMono-Regular]"
               style={{color: COLORS.DISABLED_GREY}}>
-              Year-over-Year Growth
+              {truncateHash(item.tx_hash)}
             </Text>
-            <BarChart
-              data={chartData}
-              width={screenWidth - 64}
-              height={200}
-              chartConfig={chartConfig}
-              fromZero
-              showBarTops
-              yAxisLabel=""
-              yAxisSuffix=""
-              style={{borderRadius: 12}}
+          </TouchableOpacity>
+        ) : null}
+      </View>
+    </View>
+  );
+
+  const renderListHeader = () => (
+    <View>
+      <View className="flex-row items-center mb-2">
+        {canGoBack ? (
+          <TouchableOpacity
+            className="min-h-[48px] min-w-[48px] items-center justify-center"
+            onPress={() => navigation.goBack()}>
+            <MaterialCommunityIcons
+              color={COLORS.DARK_SLATE}
+              name="arrow-left"
+              size={24}
             />
-          </View>
-        )}
-
-        {/* Audit History List */}
+          </TouchableOpacity>
+        ) : null}
         <Text
-          className="mb-3 text-lg font-bold font-[Roboto]"
+          className={`${canGoBack ? 'ml-3 ' : ''}text-xl font-bold font-[Roboto]`}
           style={{color: COLORS.DARK_SLATE}}>
-          Audit History
+          Credit History
         </Text>
-        {sortedHistory.map((record: AuditRecord, index: number) => (
-          <View
-            key={`${record.audit_year}-${record.minted_at ?? index}`}
-            className="mb-3 rounded-xl p-4 shadow-sm"
-            style={{backgroundColor: COLORS.CARD_WHITE}}>
-            {/* Top row: land name + year */}
-            <View className="flex-row items-center justify-between mb-2">
-              <Text
-                className="text-base font-bold font-[Roboto]"
-                style={{color: COLORS.DARK_SLATE}}>
-                {record.land_name}
-              </Text>
-              <View
-                className="rounded-full px-3 py-1"
-                style={{backgroundColor: COLORS.OFF_WHITE}}>
-                <Text
-                  className="text-xs font-[RobotoMono-Regular]"
-                  style={{color: COLORS.DISABLED_GREY}}>
-                  {record.audit_year}
-                </Text>
-              </View>
-            </View>
+      </View>
 
-            {/* Credits */}
-            <Text
-              className="mb-3 text-xl font-bold font-[RobotoMono-Bold]"
-              style={{color: COLORS.FOREST_GREEN}}>
-              +{record.credits_issued} CTT
-            </Text>
+      {lastFetchedAt && !isLoading && (
+        <Text
+          className="mb-4 text-xs font-[Roboto]"
+          style={{color: COLORS.DISABLED_GREY}}>
+          Last updated{' '}
+          {new Date(lastFetchedAt).toLocaleDateString('en-GB', {
+            day: 'numeric',
+            month: 'short',
+            year: 'numeric',
+          })}{' '}
+          {new Date(lastFetchedAt).toLocaleTimeString('en-GB', {
+            hour: '2-digit',
+            minute: '2-digit',
+          })}
+        </Text>
+      )}
 
-            {/* Action links */}
-            <View className="flex-row items-center">
-              {record.ipfs_certificate_url ? (
-                <TouchableOpacity
-                  className="min-h-[48px] min-w-[48px] items-center justify-center mr-4"
-                  onPress={() =>
-                    void Linking.openURL(record.ipfs_certificate_url)
-                  }>
-                  <Text
-                    className="text-sm font-[Roboto]"
-                    style={{color: COLORS.TEAL}}>
-                    View Certificate
-                  </Text>
-                </TouchableOpacity>
-              ) : null}
-              {record.tx_hash ? (
-                <TouchableOpacity
-                  className="min-h-[48px] min-w-[48px] items-center justify-center"
-                  onPress={() =>
-                    void Linking.openURL(
-                      `https://amoy.polygonscan.com/tx/${record.tx_hash}`,
-                    )
-                  }>
-                  <Text
-                    className="text-xs font-[RobotoMono-Regular]"
-                    style={{color: COLORS.DISABLED_GREY}}>
-                    {truncateHash(record.tx_hash)}
-                  </Text>
-                </TouchableOpacity>
-              ) : null}
+      {chartData && (
+        <View
+          className="mb-6 rounded-xl p-4 shadow-sm"
+          style={{backgroundColor: COLORS.CARD_WHITE}}>
+          <Text
+            className="mb-3 text-sm font-[Roboto]"
+            style={{color: COLORS.DISABLED_GREY}}>
+            Year-over-Year Growth
+          </Text>
+          <BarChart
+            data={chartData}
+            width={screenWidth - 64}
+            height={200}
+            chartConfig={chartConfig}
+            fromZero
+            showBarTops
+            yAxisLabel=""
+            yAxisSuffix=""
+            style={{borderRadius: 12}}
+          />
+        </View>
+      )}
+
+      <Text
+        className="mb-3 text-lg font-bold font-[Roboto]"
+        style={{color: COLORS.DARK_SLATE}}>
+        Audit History
+      </Text>
+    </View>
+  );
+
+  return (
+    <View className="flex-1" style={{backgroundColor: COLORS.OFF_WHITE}}>
+      <FlatList
+        data={sortedHistory}
+        keyExtractor={(item, index) =>
+          `${item.audit_year}-${item.minted_at ?? index}`
+        }
+        renderItem={renderHistoryItem}
+        ListHeaderComponent={renderListHeader}
+        ListFooterComponent={
+          isLoadingMore ? (
+            <View className="pb-8 pt-2">
+              <ActivityIndicator color={COLORS.FOREST_GREEN} />
             </View>
-          </View>
-        ))}
-      </ScrollView>
+          ) : null
+        }
+        onEndReached={loadMoreHistory}
+        onEndReachedThreshold={0.3}
+        showsVerticalScrollIndicator={false}
+        contentContainerStyle={{paddingHorizontal: 16, paddingTop: 48, paddingBottom: 24}}
+      />
     </View>
   );
 };

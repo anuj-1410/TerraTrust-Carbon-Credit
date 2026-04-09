@@ -22,9 +22,11 @@ import type {AuditState} from '../features/ar-audit/store/auditSlice';
 import creditsReducer from '../features/dashboard/store/creditsSlice';
 import type {CreditsState} from '../features/dashboard/store/creditsSlice';
 import profileReducer, {
+  profileInitialState,
   type ProfileState,
 } from '../features/profile/store/profileSlice';
 import notificationsReducer, {
+  notificationsInitialState,
   type NotificationsState,
 } from '../features/notifications/store/notificationsSlice';
 import uiReducer from './uiSlice';
@@ -32,6 +34,57 @@ import uiReducer from './uiSlice';
 export const resetAppState = createAction('app/resetState');
 
 const migrations = {};
+
+async function migrateProfileState(state: any): Promise<any> {
+  if (!state || typeof state !== 'object') {
+    return state;
+  }
+
+  const legacyState = state as Partial<ProfileState> & {
+    notificationsEnabled?: boolean;
+    gpsHighAccuracy?: boolean;
+  };
+
+  return {
+    ...profileInitialState,
+    ...legacyState,
+    settingsNotificationsEnabled:
+      legacyState.settingsNotificationsEnabled ??
+      legacyState.notificationsEnabled ??
+      profileInitialState.settingsNotificationsEnabled,
+    settingsHighAccuracyGPS:
+      legacyState.settingsHighAccuracyGPS ??
+      legacyState.gpsHighAccuracy ??
+      profileInitialState.settingsHighAccuracyGPS,
+    onboardingComplete:
+      legacyState.onboardingComplete ??
+      profileInitialState.onboardingComplete,
+  };
+}
+
+async function migrateNotificationsState(state: any): Promise<any> {
+  if (!state || typeof state !== 'object') {
+    return state;
+  }
+
+  const legacyState = state as Partial<NotificationsState> & {
+    items?: NotificationsState['notifications'];
+  };
+  const notifications = Array.isArray(legacyState.notifications)
+    ? legacyState.notifications
+    : Array.isArray(legacyState.items)
+      ? legacyState.items
+      : notificationsInitialState.notifications;
+
+  return {
+    ...legacyState,
+    notifications,
+    unreadCount:
+      typeof legacyState.unreadCount === 'number'
+        ? legacyState.unreadCount
+        : notifications.filter(item => !item.read).length,
+  };
+}
 
 const authPersistConfig: PersistConfig<AuthState> = {
   key: 'auth',
@@ -61,9 +114,9 @@ const auditPersistConfig: PersistConfig<AuditState> = {
 
 const profilePersistConfig: PersistConfig<ProfileState> = {
   key: 'profile',
-  version: 1,
+  version: 2,
   storage: mmkvStorage,
-  migrate: createMigrate(migrations, {debug: false}),
+  migrate: migrateProfileState,
   stateReconciler: autoMergeLevel2,
 };
 
@@ -77,9 +130,9 @@ const creditsPersistConfig: PersistConfig<CreditsState> = {
 
 const notificationsPersistConfig: PersistConfig<NotificationsState> = {
   key: 'notifications',
-  version: 1,
+  version: 2,
   storage: mmkvStorage,
-  migrate: createMigrate(migrations, {debug: false}),
+  migrate: migrateNotificationsState,
   stateReconciler: autoMergeLevel2,
 };
 

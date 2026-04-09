@@ -14,20 +14,50 @@ const api = axios.create({
   },
 });
 
+function parsePendingAuditPayload(
+  raw: string,
+): Record<string, unknown> | null {
+  try {
+    const payload = JSON.parse(raw);
+
+    if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
+      return null;
+    }
+
+    const record = payload as Record<string, unknown>;
+    if (
+      typeof record.land_id !== 'string' ||
+      typeof record.audit_id !== 'string' ||
+      !Array.isArray(record.trees)
+    ) {
+      return null;
+    }
+
+    return record;
+  } catch {
+    return null;
+  }
+}
+
 export async function retryPendingAuditUpload(): Promise<boolean> {
   const raw = mmkv.getString('pending_upload');
   if (!raw) {
     return false;
   }
 
+  const payload = parsePendingAuditPayload(raw);
+  if (!payload) {
+    mmkv.delete('pending_upload');
+    return false;
+  }
+
   try {
-    const payload = JSON.parse(raw);
     await api.post('/api/v1/audit/submit-samples', payload);
     mmkv.delete('pending_upload');
     return true;
   } catch (error) {
     const axiosErr = error as {response?: {status?: number}};
-    if (axiosErr.response?.status === 401 || error instanceof SyntaxError) {
+    if (axiosErr.response?.status === 401) {
       mmkv.delete('pending_upload');
     }
     return false;

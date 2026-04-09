@@ -41,19 +41,39 @@ export function useGeofence(
   currentZone: SamplingZone | null,
   _landId?: string,
 ): UseGeofenceResult {
-  const gpsHighAccuracy = useAppSelector(state => state.profile.gpsHighAccuracy);
+  const gpsHighAccuracy = useAppSelector(
+    state => state.profile.settingsHighAccuracyGPS,
+  );
   const [currentPosition, setCurrentPosition] =
     useState<GeofencePosition | null>(null);
+  const [lastReliableInsideBoundary, setLastReliableInsideBoundary] =
+    useState<boolean | null>(null);
   const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    setLastReliableInsideBoundary(null);
+  }, [boundary]);
 
   useEffect(() => {
     const watchId = Geolocation.watchPosition(
       position => {
-        setCurrentPosition({
+        const nextPosition = {
           lat: position.coords.latitude,
           lng: position.coords.longitude,
           accuracy: position.coords.accuracy,
-        });
+        };
+
+        setCurrentPosition(nextPosition);
+
+        if (
+          boundary &&
+          nextPosition.accuracy <= ACCURACY_THRESHOLD
+        ) {
+          setLastReliableInsideBoundary(
+            isPointInsidePolygon(nextPosition, boundary),
+          );
+        }
+
         setError(null);
       },
       err => {
@@ -75,10 +95,11 @@ export function useGeofence(
 
   // Local client-side check (fast, preliminary)
   const isInsideBoundary = Boolean(
-    hasAccurateFix &&
-      currentPosition &&
+    currentPosition &&
       boundary &&
-      isPointInsidePolygon(currentPosition, boundary),
+      (hasAccurateFix
+        ? isPointInsidePolygon(currentPosition, boundary)
+        : lastReliableInsideBoundary),
   );
 
   const isAtZoneCentre =

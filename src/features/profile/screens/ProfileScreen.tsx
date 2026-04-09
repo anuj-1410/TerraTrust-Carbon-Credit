@@ -24,10 +24,9 @@ const ProfileScreen = () => {
   const dispatch = useAppDispatch();
   const user = useAppSelector(state => state.auth.user);
   const walletAddress = useAppSelector(state => state.auth.walletAddress);
+  const kycCompleted = useAppSelector(state => state.auth.kycCompleted);
   const balance = useAppSelector(state => state.credits.balance);
-  const unreadCount = useAppSelector(
-    state => state.notifications.items.filter(item => !item.read).length,
-  );
+  const unreadCount = useAppSelector(state => state.notifications.unreadCount);
   const walletRecoveryPending = useAppSelector(
     state => state.profile.walletRecoveryPending,
   );
@@ -94,7 +93,10 @@ const ProfileScreen = () => {
             {maskedPhone}
           </Text>
           <View className="mt-3 self-start">
-            <Badge label="Verified" variant="verified" />
+            <Badge
+              label={kycCompleted ? 'Verified' : 'Pending KYC'}
+              variant={kycCompleted ? 'verified' : 'pending'}
+            />
           </View>
         </View>
       </Card>

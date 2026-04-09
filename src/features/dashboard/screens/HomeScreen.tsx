@@ -41,13 +41,10 @@ const HomeScreen = () => {
     s => s.auth.user?.name?.trim().split(/\s+/)[0] ?? 'Farmer',
   );
   const isAuthenticated = useAppSelector(s => s.auth.isAuthenticated);
-  const {balance, history, pendingMint, lastFetchedAt} = useAppSelector(
-    s => s.credits,
-  );
+  const {balance, history, historyPreview, pendingMint, lastFetchedAt} =
+    useAppSelector(s => s.credits);
   const parcels = useAppSelector(s => s.land.parcels);
-  const unreadNotifications = useAppSelector(
-    s => s.notifications.items.filter(item => !item.read).length,
-  );
+  const unreadNotifications = useAppSelector(s => s.notifications.unreadCount);
   const parcelsRef = useRef(parcels);
   const [isLoadingParcels, setIsLoadingParcels] = useState(false);
 
@@ -58,7 +55,7 @@ const HomeScreen = () => {
   // Fetch on mount
   useEffect(() => {
     if (isAuthenticated) {
-      dispatch(fetchCreditsThunk());
+      dispatch(fetchCreditsThunk({page: 1, limit: 2, previewOnly: true}));
     }
   }, [dispatch, isAuthenticated]);
 
@@ -137,11 +134,13 @@ const HomeScreen = () => {
 
   // History preview — last 2 entries desc
   const previewHistory = useMemo(
-    () =>
-      [...history]
+    () => {
+      const source = historyPreview.length > 0 ? historyPreview : history;
+      return [...source]
         .sort((a, b) => b.audit_year - a.audit_year)
-        .slice(0, 2),
-    [history],
+        .slice(0, 2);
+    },
+    [history, historyPreview],
   );
 
   const previewParcels = useMemo(() => parcels.slice(0, 3), [parcels]);

@@ -17,7 +17,7 @@ import BackgroundFetch from 'react-native-background-fetch';
 import NetInfo from '@react-native-community/netinfo';
 import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
 
-import {store, persistor} from '../store';
+import {store, persistor, type RootState} from '../store';
 import type {
   HistoryStackParamList,
   HomeStackParamList,
@@ -34,8 +34,13 @@ import api, {retryPendingAuditUpload} from '../services/api';
 import {COLORS} from '../common/constants/colors';
 import {useARTier} from '../common/hooks/useARTier';
 import {setPendingMint} from '../features/dashboard/store/creditsSlice';
-import {setUploadStatus} from '../features/ar-audit/store/auditSlice';
+import {
+  setAuditResult,
+  setUploadStatus,
+} from '../features/ar-audit/store/auditSlice';
 import {syncAuditStatus} from '../features/ar-audit/utils/auditStatus';
+import {isOnboardingComplete} from '../common/utils/onboarding';
+import {setOnboardingComplete} from '../features/profile/store/profileSlice';
 
 // Auth screens
 import SplashScreen from '../features/auth/screens/SplashScreen';
@@ -130,6 +135,27 @@ function isAtMainTabRoot(): boolean {
   return !nestedStackState || nestedStackState.index === 0;
 }
 
+function shouldSyncActiveAudit(
+  auditState: RootState['audit'],
+  retriedUpload = false,
+): boolean {
+  if (!auditState.activeAuditId) {
+    return false;
+  }
+
+  if (retriedUpload || auditState.uploadStatus === 'processing') {
+    return true;
+  }
+
+  return auditState.auditResult?.status === 'CALCULATING';
+}
+
+function primeAuditProcessingState(dispatch: typeof store.dispatch) {
+  dispatch(setUploadStatus('processing'));
+  dispatch(setPendingMint(true));
+  dispatch(setAuditResult({status: 'CALCULATING'}));
+}
+
 function TabIcon({
   name,
   color,
@@ -207,9 +233,7 @@ function ProfileStackNavigator() {
 
 function MainTabs() {
   const insets = useSafeAreaInsets();
-  const unreadNotifications = useAppSelector(
-    state => state.notifications.items.filter(item => !item.read).length,
-  );
+  const unreadNotifications = useAppSelector(state => state.notifications.unreadCount);
   const walletRecoveryPending = useAppSelector(
     state => state.profile.walletRecoveryPending,
   );
@@ -308,18 +332,14 @@ async function configureBackgroundFetch() {
         const retriedUpload = await retryPendingAuditUpload();
 
         if (retriedUpload) {
-          store.dispatch(setUploadStatus('processing'));
-          store.dispatch(setPendingMint(true));
+          primeAuditProcessingState(store.dispatch);
         }
 
-        const {activeAuditId, uploadStatus} = store.getState().audit;
+        const auditState = store.getState().audit;
 
-        if (
-          activeAuditId &&
-          (uploadStatus === 'processing' || retriedUpload)
-        ) {
+        if (shouldSyncActiveAudit(auditState, retriedUpload)) {
           await syncAuditStatus({
-            auditId: activeAuditId,
+            auditId: auditState.activeAuditId as string,
             dispatch: store.dispatch,
             getState: store.getState,
           });
@@ -345,14 +365,53 @@ function AppLifecycleEffects() {
   );
   const activeAuditId = useAppSelector(state => state.audit.activeAuditId);
   const auditUploadStatus = useAppSelector(state => state.audit.uploadStatus);
+  const auditResultStatus = useAppSelector(
+    state => state.audit.auditResult?.status ?? null,
+  );
+  const onboardingComplete = useAppSelector(
+    state => state.profile.onboardingComplete,
+  );
   const wasOfflineRef = useRef(false);
   const lastBackPressRef = useRef(0);
+
+  useEffect(() => {
+    const persistedOnboardingComplete = isOnboardingComplete();
+    if (persistedOnboardingComplete !== onboardingComplete) {
+      dispatch(setOnboardingComplete(persistedOnboardingComplete));
+    }
+  }, [dispatch, onboardingComplete]);
 
   useEffect(() => {
     let isMounted = true;
 
     const bootstrapApp = async () => {
       await configureBackgroundFetch();
+
+      try {
+        const networkState = await NetInfo.fetch();
+        const isOnline =
+          networkState.isConnected !== false &&
+          networkState.isInternetReachable !== false;
+
+        if (isOnline) {
+          const retriedUpload = await retryPendingAuditUpload();
+
+          if (retriedUpload) {
+            primeAuditProcessingState(dispatch);
+          }
+
+          const auditState = store.getState().audit;
+          if (shouldSyncActiveAudit(auditState, retriedUpload)) {
+            await syncAuditStatus({
+              auditId: auditState.activeAuditId as string,
+              dispatch,
+              getState: store.getState,
+            });
+          }
+        }
+      } catch {
+        // Ignore bootstrap retry failures.
+      }
 
       try {
         const response = await api.get('/api/v1/status');
@@ -401,13 +460,13 @@ function AppLifecycleEffects() {
           const retriedUpload = await retryPendingAuditUpload();
 
           if (retriedUpload) {
-            dispatch(setUploadStatus('processing'));
-            dispatch(setPendingMint(true));
+            primeAuditProcessingState(dispatch);
           }
 
-          if (activeAuditId && (auditUploadStatus === 'processing' || retriedUpload)) {
+          const auditState = store.getState().audit;
+          if (shouldSyncActiveAudit(auditState, retriedUpload)) {
             await syncAuditStatus({
-              auditId: activeAuditId,
+              auditId: auditState.activeAuditId as string,
               dispatch,
               getState: store.getState,
             });
@@ -422,8 +481,23 @@ function AppLifecycleEffects() {
   }, [activeAuditId, auditUploadStatus, bannerType, dispatch]);
 
   useEffect(() => {
-    if (!activeAuditId || auditUploadStatus !== 'processing') {
+    if (
+      !activeAuditId ||
+      !shouldSyncActiveAudit(
+        {
+          ...store.getState().audit,
+          activeAuditId,
+          uploadStatus: auditUploadStatus,
+          auditResult:
+            auditResultStatus === null ? null : {status: auditResultStatus},
+        },
+      )
+    ) {
       return;
+    }
+
+    if (auditUploadStatus !== 'processing') {
+      primeAuditProcessingState(dispatch);
     }
 
     const pollAuditInShell = async () => {
@@ -449,7 +523,7 @@ function AppLifecycleEffects() {
     }, 5000);
 
     return () => clearInterval(intervalId);
-  }, [activeAuditId, auditUploadStatus, dispatch]);
+  }, [activeAuditId, auditResultStatus, auditUploadStatus, dispatch]);
 
   useEffect(() => {
     if (!maintenanceMode || !navigationRef.isReady()) {

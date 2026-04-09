@@ -1,5 +1,7 @@
 import {createSlice, type PayloadAction} from '@reduxjs/toolkit';
 
+const MAX_NOTIFICATIONS = 50;
+
 export type NotificationType =
   | 'credits_ready'
   | 'audit_submitted'
@@ -20,40 +22,57 @@ export interface NotificationItem {
 }
 
 export interface NotificationsState {
-  items: NotificationItem[];
+  notifications: NotificationItem[];
+  unreadCount: number;
 }
 
 export const notificationsInitialState: NotificationsState = {
-  items: [],
+  notifications: [],
+  unreadCount: 0,
 };
+
+function updateUnreadCount(state: NotificationsState) {
+  state.unreadCount = state.notifications.filter(item => !item.read).length;
+}
 
 const notificationsSlice = createSlice({
   name: 'notifications',
   initialState: notificationsInitialState,
   reducers: {
     addNotification(state, action: PayloadAction<NotificationItem>) {
-      const existingIndex = state.items.findIndex(
+      const existingIndex = state.notifications.findIndex(
         notification => notification.id === action.payload.id,
       );
 
       if (existingIndex >= 0) {
-        state.items[existingIndex] = action.payload;
+        state.notifications[existingIndex] = action.payload;
+        updateUnreadCount(state);
         return;
       }
 
-      state.items.unshift(action.payload);
+      state.notifications.unshift(action.payload);
+      state.notifications = state.notifications.slice(0, MAX_NOTIFICATIONS);
+      updateUnreadCount(state);
     },
     markNotificationRead(state, action: PayloadAction<string>) {
-      const item = state.items.find(notification => notification.id === action.payload);
+      const item = state.notifications.find(
+        notification => notification.id === action.payload,
+      );
       if (item) {
         item.read = true;
+        updateUnreadCount(state);
       }
     },
     markAllNotificationsRead(state) {
-      state.items = state.items.map(item => ({...item, read: true}));
+      state.notifications = state.notifications.map(item => ({
+        ...item,
+        read: true,
+      }));
+      updateUnreadCount(state);
     },
     clearNotifications(state) {
-      state.items = [];
+      state.notifications = [];
+      state.unreadCount = 0;
     },
   },
 });

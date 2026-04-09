@@ -7,7 +7,7 @@ Version       : 3.1 (Firebase Auth + Pinata + Maps strategy updated)
 Platform      : Android (Primary), iOS (Future Scope)
 Framework     : React Native CLI (0.84.1)
 Language      : TypeScript 5.9.x (Strict Mode)
-Last Updated  : March 2026
+Last Updated  : April 2026
 
 --------------------------------------------------------------------------------
 WHAT CHANGED FROM PREVIOUS VERSION (v3.0)
@@ -40,7 +40,7 @@ WHAT CHANGED FROM PREVIOUS VERSION (v3.0)
 9. OCR server description corrected.
    Section 12 (Offline Strategy) previously stated "Document OCR requires
    backend Tesseract server." Updated to reflect that the backend now uses
-   PaddleOCR PP-OCRv5 (changed in backend document v3.1). The frontend
+  Google Cloud Vision API (changed in backend document v3.1). The frontend
    behaviour is identical — OCR still happens on the server, farmer still
    sees the same extracted fields. Only the server-side engine changed.
 
@@ -529,7 +529,7 @@ a map for their confirmation.
 LAYER 1 — Automatic via LGD API + BhuNaksha WMS (Primary, tried first)
   How it works:
   1. Farmer uploads photo of their 7/12 Extract or Record of Rights document.
-  2. Image sent to backend. PaddleOCR (PP-OCRv5 Devanagari model) extracts:
+  2. Image sent to backend. Google Cloud Vision API extracts:
      Survey Number, Owner Name, Village, Taluka, District, State.
   3. Backend calls Maharashtra LGD API (http://115.124.105.220/API/) with the
      extracted District and Taluka to get official LGD location codes.
@@ -1767,7 +1767,7 @@ GEE satellite image     | CACHED         | Sentinel-2 PNG fetched once after
                         |                | first load.
 Tree data saving        | YES            | Saved to Redux + MMKV locally.
                         |                | Uploaded when internet returns.
-Document OCR            | NO             | Requires backend PaddleOCR server.
+Document OCR            | NO             | Requires backend Google Cloud Vision service.
 Boundary API fetch      | NO             | Requires WMS API call.
 Audit submission        | QUEUED         | Background fetch service detects
                         |                | connectivity and auto-uploads.

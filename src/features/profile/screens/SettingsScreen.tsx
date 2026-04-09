@@ -22,9 +22,11 @@ const SettingsScreen = () => {
   const navigation = useNavigation<Nav>();
   const dispatch = useAppDispatch();
   const notificationsEnabled = useAppSelector(
-    state => state.profile.notificationsEnabled,
+    state => state.profile.settingsNotificationsEnabled,
   );
-  const gpsHighAccuracy = useAppSelector(state => state.profile.gpsHighAccuracy);
+  const gpsHighAccuracy = useAppSelector(
+    state => state.profile.settingsHighAccuracyGPS,
+  );
 
   return (
     <View className="flex-1 px-4 pt-12" style={{backgroundColor: COLORS.OFF_WHITE}}>

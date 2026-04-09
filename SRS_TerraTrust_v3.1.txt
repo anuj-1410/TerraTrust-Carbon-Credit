@@ -4,14 +4,14 @@
        Autonomous Carbon Credit Verification System for Indian Farmers
 ================================================================================
 Document Version  : 3.1 (Revised — Firebase Auth + Pinata alignment review)
-Date              : March 2026
+Date              : April 2026
 Target Platform   : Android (React Native CLI + Native Kotlin)
 Backend           : Python 3.11+ / FastAPI + Celery
 Authentication    : Firebase Phone Auth + Firebase Admin token verification
 Database          : Supabase (PostgreSQL 15 + PostGIS 3.3 + Storage) — Cloud Hosted
 Blockchain        : Polygon PoS (Solidity ERC-1155 Smart Contract)
 Satellite Engine  : Google Earth Engine (GEE)
-OCR Engine        : PaddleOCR PP-OCRv5 (Devanagari model)
+OCR Engine        : Google Cloud Vision API (Document Text Detection)
 Status            : Final — Ready for Implementation
 ================================================================================
 
@@ -48,9 +48,9 @@ Version 3.1 — Current Version (Architecture Alignment Review Incorporated)
                 * IPFS provider finalised: Pinata replaces NFT.Storage.
                   On-chain value remains ipfs://CID while the app opens
                   gateway URLs from the configured Pinata gateway domain.
-                * OCR engine changed: Tesseract → PaddleOCR PP-OCRv5
-                  for better Indic-script document handling with built-in
-                  orientation correction and lighter CPU deployment.
+                * OCR engine changed: Tesseract → Google Cloud Vision API
+                  for managed multilingual document OCR with no local model
+                  download or OCR engine binary maintenance.
                 * Maps strategy corrected and split by screen:
                   - ZoneNavigationScreen: Google Maps (road map for GPS nav)
                   - BoundaryConfirmScreen: GEE Sentinel-2 PNG as background
@@ -63,9 +63,21 @@ Version 3.1 — Current Version (Architecture Alignment Review Incorporated)
                 * KYC updated: Aadhaar number collected and stored as
                   SHA-256 hash only. Never stored in plain text.
                 * Earth Engine setup corrected:
-                  register the Cloud project itself, use service-account JSON
-                  with ee.ServiceAccountCredentials(), and select the required
-                  noncommercial quota tier before rollout.
+                  register the Cloud project itself, reuse one shared backend
+                  Google service account via GOOGLE_APPLICATION_CREDENTIALS,
+                  and select the required noncommercial quota tier before
+                  rollout.
+                * Backend deployment aligned to a single Render web service:
+                  FastAPI serves HTTP while the Celery worker runs alongside
+                  it in the same backend deployment.
+                * Redis deployment aligned to Upstash Redis:
+                  use the TLS Redis connection string in REDIS_URL. Do not use
+                  Upstash REST credentials for Celery.
+                * Google credential handling corrected:
+                  upload one backend Google service-account JSON as a Render
+                  Secret File and point GOOGLE_APPLICATION_CREDENTIALS to it
+                  so Firebase Admin, Google Cloud Vision, and Earth Engine all
+                  use the same backend identity.
                 * AR tier naming standardised: Tier 1 / Tier 2 / Tier 3
                   (not A/B/C as used in v3.0)
                 * NISAR phasing clarified: Sentinel-1 remains production SAR
@@ -151,7 +163,7 @@ TerraTrust-AR automates this entire verification process:
 ---------
 Input  : Government land document (7/12 Extract or Record of Rights),
          AR tree scans from farmer's Android smartphone
-Process: PaddleOCR document reading, LGD API + BhuNaksha WMS boundary
+Process: Google Cloud Vision document reading, LGD API + BhuNaksha WMS boundary
          fetching, ARCore trunk diameter measurement, 6-layer satellite
          fusion, XGBoost biomass modelling, Polygon blockchain minting
 Output : Verified Carbon Ton Tokens (CTT) on Polygon blockchain +
@@ -198,7 +210,7 @@ SECTION 2: SYSTEM OVERVIEW AND ARCHITECTURE
 
 [ FARMER'S PHONE ]          [ BACKEND SERVER ]          [ CLOUD SERVICES ]
        |                            |                            |
- React Native App             FastAPI + Celery            Supabase DB
+ React Native App        FastAPI + Celery Worker         Supabase DB
   + Kotlin ARCore            (Python 3.11+)          (PostgreSQL+PostGIS)
        |                            |                            |
        |----HTTPS/JSON----------->  |----SQL query----------->   |
@@ -216,8 +228,8 @@ SECTION 2: SYSTEM OVERVIEW AND ARCHITECTURE
 2.2 DATA FLOW SUMMARY
 ----------------------
 1. Farmer uploads 7/12 document photo.
-   → PaddleOCR extracts Survey Number, Owner Name, Village, Taluka,
-     District from the document image.
+   → Google Cloud Vision API extracts Survey Number, Owner Name,
+     Village, Taluka, District from the document image.
    → Backend calls Maharashtra LGD API to get official location codes.
    → Backend calls BhuNaksha WMS GetFeatureInfo to get official GeoJSON
      polygon of the survey number.
@@ -260,7 +272,9 @@ microservice later without rewriting.
 
 Asynchronous event-driven for heavy operations: the API immediately
 returns a response. Satellite computation and blockchain minting run
-in the background via Celery workers. The mobile app polls for results.
+in the background via Celery tasks executed by a worker process running
+alongside FastAPI in the same backend service. The mobile app polls for
+results.
 
 
 ================================================================================
@@ -315,15 +329,14 @@ Runtime          : Python 3.11+
 Framework        : FastAPI 0.110+ (async, auto Swagger docs at /docs)
 ASGI Server      : Uvicorn (production server for FastAPI)
 Task Queue       : Celery 5.3+ (background satellite + minting tasks)
-Message Broker   : Redis 7.0+ (Celery broker — free on Redis Cloud or
-                   Render.com)
+Message Broker   : Redis 7.0+ (Celery broker — Upstash Redis over TLS
+                   via REDIS_URL)
 Satellite        : Google Earth Engine Python API (earthengine-api)
 NISAR Data       : asf_search (Alaska Satellite Facility Python library)
-OCR              : PaddleOCR PP-OCRv5 3.x + paddlepaddle 3.x (CPU build)
-                   Model: devanagari_PP-OCRv5_mobile_rec
-                   NOTE: Replaces Tesseract. PaddleOCR handles deskew
-                   and orientation correction internally.
-Image Processing : OpenCV (cv2) — preprocessing only (not deskew)
+OCR              : Google Cloud Vision API + OpenCV preprocessing
+                   Uses DOCUMENT_TEXT_DETECTION for 7/12 document field
+                   extraction with shared backend Google credentials.
+Image Processing : OpenCV (cv2) — image cleanup and normalization before OCR
 Geo Processing   : Shapely 2.0+ (GeoJSON polygon validation)
 Blockchain       : web3.py 7.x (Polygon smart contract calls)
 IPFS Upload      : requests to Pinata pinning API (pinJSONToIPFS)
@@ -473,18 +486,17 @@ Setup steps:
     Production: use the Play Integrity provider.
     Requirement: reject OTP requests from builds that fail App Check once
     production rollout begins.
-  Step 7: Generate backend credentials for Firebase Admin SDK:
-    Firebase Console → Project Settings → Service Accounts
-    → Generate new private key.
-    Save the JSON file as firebase-service-account.json in backend/
-    and NEVER commit it to git.
+  Step 7: Do NOT generate a separate Firebase-only JSON key for this
+    project.
+    TerraTrust uses one shared backend Google service account created in
+    Google Cloud setup below. Firebase Admin SDK reads that credential
+    through GOOGLE_APPLICATION_CREDENTIALS.
   Step 8: Add a short privacy notice to the login flow and privacy policy.
     Firebase sends phone numbers to Google for spam and abuse
     prevention during phone authentication.
 
 Environment variables from this step:
   FIREBASE_PROJECT_ID=[your-firebase-project-id]
-  FIREBASE_SERVICE_ACCOUNT_PATH=./firebase-service-account.json
 
 ────────────────────────────────────────────────
 B) SUPABASE — Database + File Storage
@@ -530,7 +542,7 @@ Environment variables from this step:
   SUPABASE_SERVICE_KEY=[service_role_key]    ← Backend only, NEVER in app
 
 ────────────────────────────────────────────────
-C) GOOGLE CLOUD CONSOLE — Maps + ARCore + Earth Engine
+C) GOOGLE CLOUD CONSOLE — Maps + ARCore + Vision + Earth Engine
 ────────────────────────────────────────────────
 URL     : https://console.cloud.google.com
 Cost    : Billing-enabled pay-as-you-go.
@@ -546,6 +558,7 @@ Setup steps:
           enable each of these:
             - Maps SDK for Android
             - ARCore API
+            - Cloud Vision API
             - Earth Engine API
   Step 4: Create a Maps API Key:
           APIs & Services → Credentials → Create Credentials → API Key.
@@ -563,17 +576,21 @@ Setup steps:
       than a full map-tile design. Still, set Cloud Billing budget alerts
       and monitor usage from Google Maps Platform reporting instead of
       relying on older free-load assumptions.
-  Step 6: Create a Service Account for Google Earth Engine backend use:
+  Step 6: Create one shared backend service account for server-side Google
+          integrations:
           APIs & Services → Credentials → Create Credentials
           → Service Account.
-          Name: terratrust-gee-service
+          Name: terratrust-backend-service
           Click "Create and Continue".
-          Role: Search for "Earth Engine" → select
-                "Earth Engine Resource Writer".
+          Grant the project access required for:
+            - Google Cloud Vision API OCR
+            - Earth Engine project access
+            - Firebase Admin SDK calls in the same Google project
           Click Done.
           Click on the service account you just created.
           Go to Keys tab → Add Key → Create new key → JSON.
-          Download the JSON file. Save as: gee-service-account.json
+          Download the JSON file. Save as:
+          backend-google-service-account.json
           Add this file to .gitignore immediately. NEVER commit it.
   Step 7: Download google-services.json for Android:
           Project Settings (gear icon) → General → Your apps.
@@ -583,8 +600,8 @@ Setup steps:
 
 Environment variables from this step:
   GOOGLE_MAPS_API_KEY=[your-maps-api-key]
-  GEE_SERVICE_ACCOUNT_EMAIL=[sa-name]@[project].iam.gserviceaccount.com
-  GEE_SERVICE_ACCOUNT_KEY_PATH=./gee-service-account.json
+  GOOGLE_CLOUD_PROJECT=[your-google-cloud-project-id]
+  GOOGLE_APPLICATION_CREDENTIALS=./backend-google-service-account.json
 
 ────────────────────────────────────────────────
 D) GOOGLE EARTH ENGINE — Satellite Processing Registration
@@ -616,19 +633,15 @@ Setup steps:
           the project level. Select the correct tier for this project before
           rollout. If no tier is selected by April 27, 2026, the project is
           placed on the Community Tier by default.
-  Step 4: The service account created in Google Cloud does not need
-          separate per-account registration when the project is already
-          registered. Grant the service account the required project
-          permissions and use its JSON key from the backend only.
+    Step 4: Reuse the same backend-google-service-account.json created in
+      Google Cloud setup above. Do not create a separate Earth Engine
+      key for TerraTrust. The backend uses this file through
+      GOOGLE_APPLICATION_CREDENTIALS so Earth Engine, Firebase Admin,
+      and Cloud Vision share one backend identity.
 
 Test GEE authentication (run after setup):
   import ee
-  service_account = '[sa-email]'
-  credentials = ee.ServiceAccountCredentials(
-      service_account,
-      './gee-service-account.json'
-  )
-  ee.Initialize(credentials)
+    ee.Initialize(project='[your-google-cloud-project-id]')
   print(ee.Number(42).getInfo())   # Must print: 42
 
 ────────────────────────────────────────────────
@@ -797,27 +810,25 @@ Setup steps (run in your contracts/ folder):
   (Select: "Create a JavaScript project" when prompted)
 
 ────────────────────────────────────────────────
-K) REDIS CLOUD — Celery Message Broker (Free)
+K) UPSTASH REDIS — Celery Message Broker
 ────────────────────────────────────────────────
-URL     : https://redis.com/try-free/
-Cost    : Free (30MB, always-on)
-
-Alternative: Use Render.com's free Redis instance (750 hours/month).
+URL     : https://console.upstash.com/
+Cost    : Free tier available
 
 Setup steps:
-  Option A (Redis Cloud — always-on, recommended):
-    Step 1: Go to redis.com/try-free/. Sign up.
-    Step 2: Create a free subscription. Select: Single Region.
-    Step 3: Create database. Note the connection URL.
-            Format: redis://default:[password]@[host]:[port]
-
-  Option B (Render.com Redis — simpler, same account as API hosting):
-    Step 1: Go to render.com. Sign up.
-    Step 2: New → Redis. Select Free plan.
-    Step 3: Copy the Internal Redis URL shown after creation.
+  Step 1: Go to console.upstash.com. Create an account.
+  Step 2: Create a Redis database.
+          Choose the region closest to your backend deployment.
+          For Render + Supabase Singapore deployments, start with Singapore.
+  Step 3: Open the database details and copy the TLS Redis connection string.
+          Use the normal Redis protocol URL, not the REST API URL/token.
+          Format: rediss://default:[password]@[host]:[port]
+  Step 4: Put this TLS connection string into REDIS_URL.
+          Celery must use the Redis protocol endpoint. Do NOT use Upstash
+          REST credentials for Celery brokers or result backends.
 
 Environment variable from this step:
-  REDIS_URL=redis://default:[password]@[host]:[port]
+  REDIS_URL=rediss://default:[password]@[host]:[port]
 
 
 4.3 SUMMARY OF ALL ENVIRONMENT VARIABLES
@@ -826,14 +837,16 @@ Environment variable from this step:
 This is the master list. Do not miss any.
 
 BACKEND (.env in backend/ root — NEVER commit to git):
+  # Firebase Authentication
+  FIREBASE_PROJECT_ID=[firebase-project-id]
+
   # Supabase
   SUPABASE_URL=https://[ref].supabase.co
   SUPABASE_SERVICE_KEY=[service_role_key]
 
-  # Google Earth Engine
-  GEE_SERVICE_ACCOUNT_EMAIL=[email]@[project].iam.gserviceaccount.com
-  GEE_SERVICE_ACCOUNT_KEY_PATH=./gee-service-account.json
-  GEE_SERVICE_ACCOUNT_JSON={...full JSON credential payload for cloud deployments...}
+  # Shared Google backend credentials
+  GOOGLE_CLOUD_PROJECT=[google-cloud-project-id]
+  GOOGLE_APPLICATION_CREDENTIALS=./backend-google-service-account.json
 
   # NASA NISAR (Alaska Satellite Facility)
   NASA_EARTHDATA_USERNAME=[username]
@@ -855,7 +868,7 @@ BACKEND (.env in backend/ root — NEVER commit to git):
 
   # App Config
   ENVIRONMENT=development              # or: production
-  REDIS_URL=redis://localhost:6379/0   # Update to cloud URL for production
+  REDIS_URL=redis://localhost:6379/0   # Use Upstash rediss:// URL in production
   WEB_CORS_ORIGINS=https://[future-web-domain]   # Optional. Not required for mobile-only RN clients.
 
   # Maharashtra LGD API (no key needed — public government API)
@@ -864,8 +877,10 @@ BACKEND (.env in backend/ root — NEVER commit to git):
 MOBILE APP (.env.development and .env.production in project root):
   API_BASE_URL=http://10.0.2.2:8000   # Android emulator → host machine
   GOOGLE_MAPS_API_KEY=[maps-api-key]  # For ZoneNavigationScreen only
-  Firebase Android config comes from android/app/google-services.json
-
+  # Firebase Android config comes from android/app/google-services.json
+  ALCHEMY_POLYGON_AMOY_URL=https://polygon-amoy.g.alchemy.com/v2/your-development-alchemy-key
+  CONTRACT_ADDRESS=your-development-contract-address
+  
   NOTE: GOOGLE_MAPS_API_KEY must also be in android/local.properties:
     GOOGLE_MAPS_API_KEY=AIzaSyBxxxxxx
   It is injected into AndroidManifest.xml via build.gradle.
@@ -873,11 +888,13 @@ MOBILE APP (.env.development and .env.production in project root):
 
 IMPORTANT SECURITY RULES:
   * Add .env to .gitignore BEFORE your first commit
-  * Add gee-service-account.json to .gitignore BEFORE your first commit
+  * Add backend-google-service-account.json to .gitignore BEFORE your first commit
   * ADMIN_WALLET_PRIVATE_KEY must NEVER appear in any source file
   * SUPABASE_SERVICE_KEY must NEVER be used in the mobile app
-  * For production: use Render.com environment variable secrets panel
-    instead of .env files
+  * For production: upload backend-google-service-account.json as a Render
+    Secret File and set
+    GOOGLE_APPLICATION_CREDENTIALS=/etc/secrets/backend-google-service-account.json
+    instead of storing raw JSON in normal env vars
 
 
 ================================================================================
@@ -1154,27 +1171,29 @@ STEP 1 — Farmer Uploads Land Document
   Processing state: Spinner with text: "Reading your document..."
 
 STEP 2 — OCR Processing (Backend)
-  OCR Engine: PaddleOCR PP-OCRv5 with devanagari_PP-OCRv5_mobile_rec
-  NOTE: The old SRS specified Tesseract. This is WRONG in v3.1.
-        PaddleOCR is the correct engine. Do not use Tesseract.
+  OCR Engine: Google Cloud Vision API (DOCUMENT_TEXT_DETECTION)
+  NOTE: The backend no longer ships a local OCR model. It sends the captured
+        document image to Cloud Vision using the shared backend Google
+        service account configured through GOOGLE_APPLICATION_CREDENTIALS.
 
-  Preprocessing (OpenCV — simplified because PaddleOCR handles orientation):
-    a) Convert to greyscale
-    b) Apply adaptive thresholding (handles uneven lighting)
-    c) Denoise (fastNlMeansDenoising)
-    NOTE: Deskew is NOT done manually. PaddleOCR's
-    use_doc_orientation_classify and use_doc_unwarping flags handle
-    rotation and perspective distortion internally.
+  Preprocessing (OpenCV + image normalisation before Vision API):
+    a) Read EXIF orientation and rotate image upright if needed
+    b) Convert to greyscale
+    c) Apply adaptive thresholding (handles uneven lighting)
+    d) Denoise and optionally upscale slightly if the image is low-resolution
+    NOTE: Keep the original image bytes available. If the processed image
+    reduces extraction quality, retry Cloud Vision with the original image
+    before returning failure.
 
-  PaddleOCR initialisation (module-level, not per-request):
-    from paddleocr import PaddleOCR
-    ocr_engine = PaddleOCR(
-        text_recognition_model_name="devanagari_PP-OCRv5_mobile_rec",
-        use_doc_orientation_classify=True,
-        use_doc_unwarping=True,
-        use_textline_orientation=True,
-        device="cpu"
-    )
+  Vision API initialisation (module-level, not per-request):
+    from google.cloud import vision
+
+    vision_client = vision.ImageAnnotatorClient()
+
+    def run_document_ocr(image_bytes: bytes) -> str:
+        image = vision.Image(content=image_bytes)
+        response = vision_client.document_text_detection(image=image)
+        return response.full_text_annotation.text
 
   Field extraction regex patterns (handle English + Marathi labels):
     Survey Number:
@@ -2785,7 +2804,7 @@ Purpose: Verified farm land with official government boundary geometry.
       -- 'SCRAPE'   = Layer 2 scraping success
       -- 'MANUAL'   = Layer 3 farmer uploaded map
       ocr_owner_name   VARCHAR(255),
-      -- Name extracted from 7/12 document by PaddleOCR
+      -- Name extracted from 7/12 document by Google Cloud Vision OCR
       doc_image_url    VARCHAR(500),
       -- Supabase Storage URL of uploaded 7/12 document scan
       lgd_district_code VARCHAR(10),
@@ -3107,10 +3126,12 @@ POST /api/v1/auth/recover-wallet
 LAND MODULE (/api/v1/land)
 ────────────────────────────────────────────────
 POST /api/v1/land/verify-document
-  Purpose:  Accept 7/12 document photo. Run PaddleOCR. Return fields.
+  Purpose:  Accept 7/12 document photo. Run Google Cloud Vision OCR.
+            Return fields.
   Request:  multipart/form-data
               image: [photo file — JPG or PNG, max 10MB]
-  Process:  Preprocess with OpenCV → PaddleOCR extraction → regex fields.
+  Process:  Preprocess with OpenCV → Cloud Vision document_text_detection
+            → regex fields.
   Response: {
               "survey_number": "47",
               "owner_name": "Ramesh Shankar Patil",
@@ -3697,17 +3718,13 @@ PROTECTION:
   SQLAlchemy ORM with bound parameters for raw queries.
   No string concatenation in SQL ever.
 
-THREAT: GEE service account key exposure
+THREAT: Backend Google service account key exposure
 PROTECTION:
-  gee-service-account.json in .gitignore from first commit.
-  In production: write JSON content to temp file from env variable.
-    import tempfile, json
-    gee_key = json.loads(os.getenv('GEE_SERVICE_ACCOUNT_JSON'))
-    with tempfile.NamedTemporaryFile(mode='w', suffix='.json',
-                                     delete=False) as f:
-        json.dump(gee_key, f)
-        key_path = f.name
-    ee.Initialize(ee.ServiceAccountCredentials(email, key_file=key_path))
+  backend-google-service-account.json in .gitignore from first commit.
+  In production: upload the same JSON as a Render Secret File and set
+  GOOGLE_APPLICATION_CREDENTIALS=/etc/secrets/backend-google-service-account.json
+  so Firebase Admin, Google Cloud Vision, and Earth Engine all read the same
+  ADC credential file.
 
 
 ================================================================================
@@ -3730,7 +3747,7 @@ Tree data saving           | YES      | Saved to Redux + MMKV immediately.
                            |          | No internet dependency for local save.
 Audit submission           | QUEUED   | react-native-background-fetch detects
                            |          | connectivity restore and auto-uploads.
-Document OCR               | NO       | Requires backend PaddleOCR server.
+Document OCR               | NO       | Requires backend Google Cloud Vision service.
                            |          | Inform farmer to retry with internet.
 Boundary API fetch         | NO       | Requires WMS API call to government server.
 Blockchain balance         | CACHED   | Last known balance shown from MMKV cache.
@@ -4142,8 +4159,8 @@ backend/
 ├── .env                              ← Environment variables (NEVER commit)
 ├── .env.example                      ← Template with all variable names
 ├── .gitignore                        ← Must include: .env, *.json keys
-├── firebase-service-account.json     ← Firebase Admin credentials (NEVER commit)
-├── gee-service-account.json          ← GEE credentials (NEVER commit)
+├── backend-google-service-account.json ← Shared Google backend credential (NEVER commit)
+├── Procfile.render                   ← Runs Uvicorn + Celery in same Render service
 │
 ├── app/
 │   ├── __init__.py
@@ -4167,7 +4184,7 @@ backend/
 │   └── credits.py                    ← GET  /api/v1/credits/balance
 │
 ├── services/
-│   ├── ocr_service.py                ← PaddleOCR PP-OCRv5 (NOT Tesseract)
+│   ├── ocr_service.py                ← Google Cloud Vision OCR (NOT Tesseract)
 │   ├── land_boundary_service.py      ← Layer 1/2/3 state router
 │   ├── zone_generation_service.py    ← Sentinel-2 NDVI zone analysis
 │   ├── fusion_engine.py              ← XGBoost biomass fusion (main engine)
@@ -4183,7 +4200,7 @@ backend/
 │   └── blockchain.py
 │
 ├── tasks/
-│   ├── celery_app.py                 ← Celery initialisation with Redis
+│   ├── celery_app.py                 ← Celery initialisation with Upstash Redis
 │   ├── fusion_task.py                ← Background satellite fusion task
 │   └── minting_task.py               ← Background blockchain minting task
 │
@@ -4229,16 +4246,14 @@ MOBILE — android/local.properties (never commit):
 BACKEND — backend/.env (never commit):
   # ── Firebase Authentication ──────────────────────────────────────────
   FIREBASE_PROJECT_ID=[firebase-project-id]
-  FIREBASE_SERVICE_ACCOUNT_PATH=./firebase-service-account.json
 
   # ── Supabase ─────────────────────────────────────────────────────────
   SUPABASE_URL=https://[ref].supabase.co
   SUPABASE_SERVICE_KEY=[service_role_key]     ← NEVER use in mobile app
 
-  # ── Google Earth Engine ──────────────────────────────────────────────
-  GEE_SERVICE_ACCOUNT_EMAIL=[sa]@[proj].iam.gserviceaccount.com
-  GEE_SERVICE_ACCOUNT_KEY_PATH=./gee-service-account.json
-  GEE_SERVICE_ACCOUNT_JSON={...full JSON credential payload for cloud deployments...}
+  # ── Shared Google backend credentials ────────────────────────────────
+  GOOGLE_CLOUD_PROJECT=[google-cloud-project-id]
+  GOOGLE_APPLICATION_CREDENTIALS=./backend-google-service-account.json
 
   # ── NASA NISAR (Alaska Satellite Facility) ───────────────────────────
   NASA_EARTHDATA_USERNAME=[earthdata-username]
@@ -4266,14 +4281,13 @@ BACKEND — backend/.env (never commit):
 
   # ── App Runtime ──────────────────────────────────────────────────────
   ENVIRONMENT=development
-  REDIS_URL=redis://localhost:6379/0   ← Update to cloud URL for production
+  REDIS_URL=redis://localhost:6379/0   ← Use Upstash rediss:// URL in production
   WEB_CORS_ORIGINS=https://[future-web-domain]   ← Optional. Not required for mobile-only RN clients.
 
 IMPORTANT: Add to .gitignore BEFORE first commit:
   .env
   .env.*
-  firebase-service-account.json
-  gee-service-account.json
+  backend-google-service-account.json
   android/local.properties
   *.keystore
 
@@ -4303,9 +4317,8 @@ Save as backend/requirements.txt:
   numpy==1.26.4
   scipy==1.13.1
 
-  # ── OCR ──────────────────────────────────────────────────────────────
-  paddlepaddle==3.3.0
-  paddleocr==3.4.0
+  # ── OCR / Google APIs ────────────────────────────────────────────────
+  google-cloud-vision==3.11.0
   opencv-python-headless==4.10.0.84
   Pillow==12.1.1
 
@@ -4317,6 +4330,7 @@ Save as backend/requirements.txt:
   celery==5.6.2
   flower==2.0.1
   redis==7.3.0
+  honcho==1.1.0                 # Runs Uvicorn + Celery in one Render service
 
   # ── Blockchain ───────────────────────────────────────────────────────
   web3==7.14.1
@@ -4334,12 +4348,12 @@ Save as backend/requirements.txt:
 Install all:
   pip install -r requirements.txt
 
-PaddleOCR first-run note:
-  When ocr_engine.predict() is called for the first time after deployment,
-  PaddleOCR automatically downloads devanagari_PP-OCRv5_mobile_rec model
-  weights (~10MB) and caches them. This one-time download happens on the
-  first request. All subsequent calls use the cached model.
-  On Render.com free tier: No GPU or special config needed. Runs on CPU.
+Cloud Vision deployment note:
+  There is no OCR model download at startup. The backend calls the managed
+  Google Cloud Vision API.
+  On Render, upload backend-google-service-account.json as a Secret File and
+  set GOOGLE_APPLICATION_CREDENTIALS=/etc/secrets/backend-google-service-account.json.
+  Ensure Cloud Vision API is enabled in the same GOOGLE_CLOUD_PROJECT.
 
 
 ================================================================================
@@ -4439,17 +4453,18 @@ APK signing (one time only — keep keystore file safe):
 SECTION 23: ERROR HANDLING STRATEGY
 ================================================================================
 
-23.1 OCR FAILURE (PaddleOCR)
-------------------------------
-Trigger:   PaddleOCR cannot extract survey number or owner name from image.
+23.1 OCR FAILURE (Google Cloud Vision API)
+-----------------------------------------
+Trigger:   Google Cloud Vision API cannot extract survey number or owner name
+           from image, or returns text too incomplete for field parsing.
 Response:  "The document photo is unclear. Please:
            - Use bright, even lighting (avoid shadows on document)
            - Hold phone steady and parallel to the document
            - Ensure all text is visible and not cut off
            Try again"
 Retry:     Allow unlimited retries. Never block farmer at this step.
-Note:      Old SRS Section 16.1 said "Tesseract cannot read" — CORRECTED
-           to PaddleOCR in v3.1.
+Note:      OCR now uses Google Cloud Vision API rather than a bundled local
+           OCR engine.
 
 23.2 LGD API FAILURE
 ---------------------
@@ -4636,40 +4651,46 @@ Backend (3 terminals):
   Terminal 3: redis-server    (if running Redis locally)
   API docs: http://localhost:8000/docs (Swagger auto-generated)
 
+Optional single-command layout matching Render deployment:
+  backend/Procfile.render
+    web: uvicorn main:app --host 0.0.0.0 --port ${PORT:-8000}
+    worker: celery -A tasks.celery_app worker --loglevel=info --concurrency=1
+
+  Run: cd backend && honcho -f Procfile.render start
+
 Mobile:
   Terminal 4: npx react-native start (Metro bundler)
   Terminal 5: npx react-native run-android (builds + installs to connected device)
   Android emulator: 10.0.2.2 maps to your host machine's localhost.
   Physical device: Use your machine's local IP (e.g., 192.168.1.x:8000).
 
-25.2 PRODUCTION — RENDER.COM (FREE HOSTING)
---------------------------------------------
+25.2 PRODUCTION — RENDER.COM + UPSTASH REDIS
+---------------------------------------------
 Push code to GitHub first. Then:
 
-Service 1 — FastAPI Web Service:
+Single Render Web Service — FastAPI + Celery in one deployment:
   1. render.com → New → Web Service
   2. Connect GitHub repo. Select backend branch.
   3. Build command: pip install -r requirements.txt
-  4. Start command: uvicorn main:app --host 0.0.0.0 --port $PORT
-    5. Environment: Add ALL variables from Section 20 backend vars.
-      On Render free tier, prefer GEE_SERVICE_ACCOUNT_JSON over
-      GEE_SERVICE_ACCOUNT_KEY_PATH because the web service and worker do not
-      share a persistent filesystem.
-  6. Plan: Free (spins down after 15 min inactivity — fine for MVP).
+  4. Add backend/Procfile.render with:
+       web: uvicorn main:app --host 0.0.0.0 --port ${PORT:-8000}
+       worker: celery -A tasks.celery_app worker --loglevel=info --concurrency=1
+  5. Start command: honcho -f Procfile.render start
+  6. Environment: Add ALL variables from Section 20 backend vars.
+     Upload backend-google-service-account.json as a Render Secret File.
+     Set GOOGLE_APPLICATION_CREDENTIALS=/etc/secrets/backend-google-service-account.json
+     and GOOGLE_CLOUD_PROJECT=[your-google-cloud-project-id].
+  7. Plan: Free (spins down after 15 min inactivity — fine for MVP).
      First request after sleep takes ~30 seconds to wake up.
+     Celery now runs inside this same backend service, so keep worker
+     concurrency modest on the free tier.
 
-Service 2 — Celery Background Worker:
-  1. render.com → New → Background Worker
-  2. Same GitHub repo, same branch.
-  3. Build command: pip install -r requirements.txt
-  4. Start command: celery -A tasks.celery_app worker --loglevel=info --concurrency=1
-  5. Same environment variables as Service 1.
-
-Service 3 — Redis (for Celery broker):
-  1. render.com → New → Redis
-  2. Plan: Free (750 hours/month)
-  3. Copy the Internal Redis URL.
-  4. Set REDIS_URL in both Service 1 and Service 2 environment variables.
+Upstash Redis (for Celery broker and result backend):
+  1. console.upstash.com → Create Redis database
+  2. Choose region closest to the Render web service
+  3. Copy the TLS Redis URL
+  4. Set REDIS_URL in Render to the rediss:// connection string
+  5. Do NOT use Upstash REST URL/token for Celery
 
 CORS Configuration (backend/main.py):
   from fastapi.middleware.cors import CORSMiddleware
@@ -4688,7 +4709,7 @@ Keep-alive (prevent Supabase 7-day inactivity pause):
        URL: https://[your-render-domain].onrender.com/health
        Method: GET
        Schedule: Every 5 days
-  3. This also prevents Render.com free service from going fully cold.
+  3. This also reduces Render.com cold starts for the single backend service.
 
 25.3 SMART CONTRACT DEPLOYMENT
 --------------------------------
@@ -4716,19 +4737,13 @@ docker-compose.yml:
   services:
     backend:
       build: ./backend
-      command: uvicorn main:app --host 0.0.0.0 --port 8000 --reload
+      command: honcho -f Procfile.render start
       ports: ["8000:8000"]
       env_file: .env
       depends_on: [redis]
       volumes:
         - ./backend:/app
-        - ./gee-service-account.json:/app/gee-service-account.json
-
-    celery_worker:
-      build: ./backend
-      command: celery -A tasks.celery_app worker --loglevel=info
-      env_file: .env
-      depends_on: [redis]
+        - ./backend-google-service-account.json:/app/backend-google-service-account.json
 
     redis:
       image: redis:7-alpine
@@ -4776,10 +4791,11 @@ Smart Contract:
 WEEKS 3-4: LAND VERIFICATION
 ────────────────────────────────────────────────
 Backend:
-  1. Install PaddleOCR:
-       pip install paddlepaddle==3.3.0 paddleocr==3.4.0
-     Run test script to trigger one-time model weight download (~10MB).
-     Verify Devanagari text is correctly recognised with a test 7/12 image.
+  1. Enable and validate Google Cloud Vision API:
+       Ensure GOOGLE_APPLICATION_CREDENTIALS points to the shared backend
+       service account JSON.
+       Run a test OCR request against a sample 7/12 image and confirm
+       Devanagari text is correctly recognised.
   2. Implement ocr_service.py (Section 19 backend services).
   3. Implement LGD API calls (all 3 endpoints).
   4. Implement BhuNaksha WMS GetFeatureInfo call.
@@ -4944,11 +4960,14 @@ APPENDIX A: ALIGNMENT CLARIFICATIONS (APRIL 2026)
    Only when calibration is approved should production set
    NISAR_PRODUCTION_READY=true and enable NISAR as the primary SAR source.
 
-11. Cloud GEE credentials
-   Local development may use GEE_SERVICE_ACCOUNT_KEY_PATH.
-   Cloud deployments that cannot share files across services must instead use
-   GEE_SERVICE_ACCOUNT_JSON containing the full JSON credential payload and
-   write it to a temp file at runtime.
+11. Cloud Google credentials
+  Local development may use
+  GOOGLE_APPLICATION_CREDENTIALS=./backend-google-service-account.json.
+  Render production should upload the same JSON as a Secret File and set
+  GOOGLE_APPLICATION_CREDENTIALS=/etc/secrets/backend-google-service-account.json.
+  Do not split Firebase and Earth Engine into separate JSON files, and do
+  not store raw JSON blobs in ordinary env vars when secret files are
+  available.
 
 12. CORS clarification
    React Native mobile requests do not rely on browser CORS enforcement.
@@ -5015,13 +5034,14 @@ WEEKS 15-16: TESTING, HARDENING, DEPLOYMENT
   3. Offline test (airplane mode full session).
   4. Mock GPS detection test.
   5. Confirm backend-only access policy is enforced for every Firebase user.
-  6. Deploy FastAPI to Render.com. Set all env vars.
-  7. Deploy Celery worker to Render.com background worker.
-  8. Deploy Redis on Render.com. Update REDIS_URL.
-  9. Set up cron-job.org keep-alive (Section 25.2).
-  10. Set CONTRACT_ADDRESS env var on Render.com after deployment.
-  11. Full end-to-end test on production environment.
-  12. If NISAR calibrated data available (~June 2026): update fusion
+    6. Deploy the single backend web service to Render.com. Set all env vars.
+    7. Upload backend-google-service-account.json as a Render Secret File and
+      verify GOOGLE_APPLICATION_CREDENTIALS resolves correctly.
+    8. Create Upstash Redis. Update REDIS_URL with the TLS redis URL.
+    9. Set up cron-job.org keep-alive (Section 25.2).
+    10. Set CONTRACT_ADDRESS env var on Render.com after deployment.
+    11. Full end-to-end test on production environment.
+    12. If NISAR calibrated data available (~June 2026): update fusion
       engine to use NISAR as primary SAR. Re-test biomass accuracy.
 
 PRODUCTION LAUNCH: Target June-July 2026.
@@ -5033,8 +5053,8 @@ PRODUCTION LAUNCH: Target June-July 2026.
 TOTAL ESTIMATED COST TO OPERATE AT MVP SCALE: Rs 0/month
   Supabase: Free (500MB DB, 1GB storage)
   GEE: Free (non-commercial)
-  Render.com: Free (web service + worker + Redis)
-  Redis Cloud: Free (30MB)
+  Render.com: Free (single web service)
+  Upstash Redis: Free tier available
   Pinata: Free tier available for MVP-scale IPFS metadata
   Alchemy: Free (300M compute units/month)
   PolygonScan: Free (API key)
@@ -5052,10 +5072,10 @@ and confirms each is fixed in this v3.1 document.
 
 1. OCR ENGINE — CORRECTED
    Old SRS: Said "Tesseract + OpenCV" everywhere (Sections 3, 6.3, 14, 16.1)
-   v3.1 Fix: PaddleOCR PP-OCRv5 with devanagari_PP-OCRv5_mobile_rec model.
-        Install: paddlepaddle==3.3.0, paddleocr==3.4.0.
-             Deskew removed from manual preprocessing — PaddleOCR handles it.
-             All Tesseract references eliminated.
+   v3.1 Fix: Google Cloud Vision API with OpenCV preprocessing.
+     Install: google-cloud-vision plus OpenCV dependencies.
+       OCR now uses DOCUMENT_TEXT_DETECTION through the shared backend
+       Google service account. All Tesseract references eliminated.
 
 2. MAPS STRATEGY — CORRECTED
    Old SRS: Said "react-native-maps (Google Maps)" for all screens.
@@ -5103,11 +5123,13 @@ and confirms each is fixed in this v3.1 document.
    Old SRS: Used ASF_USERNAME / ASF_PASSWORD for NISAR.
    v3.1 Fix: NASA_EARTHDATA_USERNAME / NASA_EARTHDATA_PASSWORD.
    Old SRS: Missing REDIS_URL from backend .env list.
-   v3.1 Fix: REDIS_URL added.
+  v3.1 Fix: REDIS_URL added and aligned to Upstash TLS Redis in production.
   Old SRS: Treated mobile CORS like a browser requirement.
   v3.1 Fix: WEB_CORS_ORIGINS documented as optional for future web clients only.
    Old SRS: Missing ADMIN_WALLET_ADDRESS.
    v3.1 Fix: ADMIN_WALLET_ADDRESS added.
+  Old SRS: Split Google backend credentials across Firebase and GEE files.
+  v3.1 Fix: one shared backend JSON via GOOGLE_APPLICATION_CREDENTIALS.
 
 10. REACT-NATIVE-VISION-CAMERA — ADDED
     Old SRS: Used react-native-image-picker for document scanning.
@@ -5244,9 +5266,8 @@ Polygon     EVM-compatible PoS sidechain / commit chain. Low gas fees.
 PostGIS     PostgreSQL extension that adds geographic objects.
             Enables spatial queries (contains, area, distance).
 
-PaddleOCR   Deep learning OCR engine by Baidu. PP-OCRv5 with Devanagari
-            support improves structured Indic-script OCR compared with the
-            older Tesseract-based design used in previous revisions.
+Google Cloud Vision API Managed Google OCR service used for 7/12 document
+            text extraction through DOCUMENT_TEXT_DETECTION.
 
 RANSAC      Random Sample Consensus. Algorithm for fitting a geometric
             model (cylinder) to noisy 3D point cloud data.
@@ -5304,7 +5325,7 @@ For deployment questions: see Section 25.
 For all account setup: see Section 4.
 For database schema: see Section 11.
 For smart contract: see Section 10.
-For OCR (PaddleOCR): see Sections 3 and 6.3.
+For OCR (Google Cloud Vision API): see Sections 3 and 6.3.
 For satellite engine: see Sections 8 and 9.
 For AR bridge: see Section 14.
 ================================================================================
