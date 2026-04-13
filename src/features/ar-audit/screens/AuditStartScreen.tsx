@@ -6,6 +6,7 @@ import {
   ScrollView,
   Alert,
   BackHandler,
+  Image,
 } from 'react-native';
 import {useNavigation, useRoute} from '@react-navigation/native';
 import type {NativeStackNavigationProp} from '@react-navigation/native-stack';
@@ -190,9 +191,33 @@ const AuditStartScreen = () => {
 
         {/* Land Info Card — from Stitch design */}
         <View className="mt-5 bg-white rounded-2xl p-5 shadow-sm">
-          <Text className="text-xl font-bold mb-4" style={{color: COLORS.DARK_SLATE}}>
-            {landName}
-          </Text>
+          <View className="mb-4 flex-row items-center">
+            {parcel?.thumbnail_url ? (
+              <Image
+                source={{uri: parcel.thumbnail_url}}
+                className="h-20 w-20 rounded-2xl"
+                resizeMode="cover"
+              />
+            ) : (
+              <View
+                className="h-20 w-20 items-center justify-center rounded-2xl"
+                style={{backgroundColor: '#D1FAE5'}}>
+                <MaterialCommunityIcons
+                  color={COLORS.FOREST_GREEN}
+                  name="sprout"
+                  size={28}
+                />
+              </View>
+            )}
+            <View className="ml-4 flex-1">
+              <Text className="text-xl font-bold" style={{color: COLORS.DARK_SLATE}}>
+                {landName}
+              </Text>
+              <Text className="mt-1 text-sm" style={{color: '#6B7280'}}>
+                Annual audit for this verified parcel
+              </Text>
+            </View>
+          </View>
 
           {/* Area row */}
           <View className="flex-row items-center justify-between py-3">

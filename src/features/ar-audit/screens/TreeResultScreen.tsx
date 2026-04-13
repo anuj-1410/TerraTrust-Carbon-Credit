@@ -1,8 +1,10 @@
-import React, {useCallback, useState} from 'react';
+import React, {useCallback, useEffect, useRef, useState} from 'react';
 import {View, Text, TouchableOpacity, ScrollView, Image} from 'react-native';
 import {CommonActions, useNavigation, useRoute} from '@react-navigation/native';
 import type {NativeStackNavigationProp} from '@react-navigation/native-stack';
 import type {RouteProp} from '@react-navigation/native';
+import LottieView from 'lottie-react-native';
+import ReactNativeHapticFeedback from 'react-native-haptic-feedback';
 import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
 import type {RootStackParamList} from '../../../types/navigation';
 import Badge from '../../../common/components/Badge';
@@ -29,6 +31,7 @@ const TreeResultScreen = () => {
   const {scannedTrees, zones, currentZoneIndex, minTreesRequired} = audit;
   const [hasSavedTree, setHasSavedTree] = useState(false);
   const [showZoneCompletionSheet, setShowZoneCompletionSheet] = useState(false);
+  const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const tree = route.params.pendingTree;
   const currentZone = zones[currentZoneIndex] ?? null;
@@ -84,13 +87,16 @@ const TreeResultScreen = () => {
 
     dispatch(addScannedTree(tree));
     setHasSavedTree(true);
+    ReactNativeHapticFeedback.trigger('notificationSuccess');
 
-    if (zoneMinReached) {
-      setShowZoneCompletionSheet(true);
-      return;
-    }
+    saveTimerRef.current = setTimeout(() => {
+      if (zoneMinReached) {
+        setShowZoneCompletionSheet(true);
+        return;
+      }
 
-    navigateBackToCamera();
+      navigateBackToCamera();
+    }, 1500);
   }, [
     zoneMinReached,
     dispatch,
@@ -98,6 +104,14 @@ const TreeResultScreen = () => {
     navigateBackToCamera,
     tree,
   ]);
+
+  useEffect(() => {
+    return () => {
+      if (saveTimerRef.current) {
+        clearTimeout(saveTimerRef.current);
+      }
+    };
+  }, []);
 
   const handleRescan = useCallback(() => {
     navigateBackToCamera();
@@ -338,6 +352,20 @@ const TreeResultScreen = () => {
           </Text>
         </TouchableOpacity>
       </BottomSheet>
+
+      {hasSavedTree ? (
+        <View className="absolute inset-0 items-center justify-center bg-[#2D6A4F]/70">
+          <LottieView
+            source={require('../../../assets/lottie/scan_success.json')}
+            autoPlay
+            loop={false}
+            style={{width: 180, height: 180}}
+          />
+          <Text className="mt-4 text-xl font-bold text-white">
+            Tree Scanned Successfully!
+          </Text>
+        </View>
+      ) : null}
     </View>
   );
 };

@@ -10,13 +10,15 @@ import {
 } from 'react-native';
 import {BarChart} from 'react-native-chart-kit';
 import LottieView from 'lottie-react-native';
-import {useNavigation} from '@react-navigation/native';
+import {useNavigation, useRoute} from '@react-navigation/native';
+import type {RouteProp} from '@react-navigation/native';
 import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
 
 import {useAppSelector, useAppDispatch} from '../../../store/hooks';
 import {fetchCreditsThunk} from '../store/creditsSlice';
 import type {AuditRecord} from '../store/creditsSlice';
 import {COLORS} from '../../../common/constants/colors';
+import type {RootStackParamList} from '../../../types/navigation';
 
 const screenWidth = Dimensions.get('window').width;
 
@@ -35,10 +37,16 @@ const chartConfig = {
 const truncateHash = (hash: string) =>
   `${hash.slice(0, 8)}…${hash.slice(-4)}`;
 
+function isOfflineError(error: unknown): boolean {
+  return Boolean(error && typeof error === 'object' && !('response' in error));
+}
+
 const CreditHistoryScreen = () => {
   const navigation = useNavigation();
+  const route = useRoute<RouteProp<RootStackParamList, 'CreditHistoryScreen'>>();
   const dispatch = useAppDispatch();
-  const canGoBack = navigation.canGoBack();
+  const canGoBack =
+    navigation.canGoBack() && (route.params?.source ?? 'history') !== 'history';
 
   const isAuthenticated = useAppSelector(s => s.auth.isAuthenticated);
   const {history, historyHasMore, historyPage, lastFetchedAt} = useAppSelector(
@@ -46,15 +54,22 @@ const CreditHistoryScreen = () => {
   );
   const [isLoading, setIsLoading] = useState(false);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
+  const [isOffline, setIsOffline] = useState(false);
 
   useEffect(() => {
     if (isAuthenticated) {
       setIsLoading(true);
-      dispatch(fetchCreditsThunk({page: 1, limit: 20})).finally(() =>
-        setIsLoading(false),
-      );
+      dispatch(fetchCreditsThunk({page: 1, limit: 20}))
+        .unwrap()
+        .then(() => setIsOffline(false))
+        .catch(error => {
+          if (isOfflineError(error) && history.length > 0) {
+            setIsOffline(true);
+          }
+        })
+        .finally(() => setIsLoading(false));
     }
-  }, [dispatch, isAuthenticated]);
+  }, [dispatch, history.length, isAuthenticated]);
 
   const loadMoreHistory = () => {
     if (!isAuthenticated || isLoading || isLoadingMore || !historyHasMore) {
@@ -68,7 +83,15 @@ const CreditHistoryScreen = () => {
         limit: 20,
         append: true,
       }),
-    ).finally(() => setIsLoadingMore(false));
+    )
+      .unwrap()
+      .then(() => setIsOffline(false))
+      .catch(error => {
+        if (isOfflineError(error) && history.length > 0) {
+          setIsOffline(true);
+        }
+      })
+      .finally(() => setIsLoadingMore(false));
   };
 
   // Bar chart data
@@ -233,6 +256,26 @@ const CreditHistoryScreen = () => {
           Credit History
         </Text>
       </View>
+
+      {isOffline && history.length > 0 ? (
+        <View
+          className="mb-4 rounded-xl px-4 py-3"
+          style={{backgroundColor: 'rgba(221,107,32,0.12)'}}>
+          <Text style={{color: COLORS.WARNING_ORANGE}}>
+            Offline mode. Showing cached history
+            {lastFetchedAt
+              ? ` from ${new Date(lastFetchedAt).toLocaleDateString('en-GB', {
+                  day: 'numeric',
+                  month: 'short',
+                  year: 'numeric',
+                })} ${new Date(lastFetchedAt).toLocaleTimeString('en-GB', {
+                  hour: '2-digit',
+                  minute: '2-digit',
+                })}`
+              : '.'}
+          </Text>
+        </View>
+      ) : null}
 
       {lastFetchedAt && !isLoading && (
         <Text

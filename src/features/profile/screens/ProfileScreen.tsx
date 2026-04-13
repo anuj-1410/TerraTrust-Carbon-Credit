@@ -1,7 +1,7 @@
 import React, {useMemo, useState} from 'react';
 import {Alert, Linking, Text, TouchableOpacity, View} from 'react-native';
 import DeviceInfo from 'react-native-device-info';
-import {useNavigation} from '@react-navigation/native';
+import {CompositeNavigationProp, useNavigation} from '@react-navigation/native';
 import type {NativeStackNavigationProp} from '@react-navigation/native-stack';
 
 import Badge from '../../../common/components/Badge';
@@ -12,9 +12,15 @@ import {clearPersistedAppStatePreserveOnboarding} from '../../../store/mmkvStora
 import {useAppDispatch, useAppSelector} from '../../../store/hooks';
 import {resetAppState} from '../../../store';
 import {signOutFirebase} from '../../../services/firebase';
-import type {RootStackParamList} from '../../../types/navigation';
+import type {
+  ProfileStackParamList,
+  RootStackParamList,
+} from '../../../types/navigation';
 
-type Nav = NativeStackNavigationProp<RootStackParamList, 'ProfileScreen'>;
+type Nav = CompositeNavigationProp<
+  NativeStackNavigationProp<ProfileStackParamList, 'ProfileScreen'>,
+  NativeStackNavigationProp<RootStackParamList>
+>;
 
 const privacyUrl = 'https://terratrust.app/privacy';
 const supportUrl = 'mailto:support@terratrust.app?subject=TerraTrust%20support';

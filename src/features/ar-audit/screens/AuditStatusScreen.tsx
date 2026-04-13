@@ -45,9 +45,13 @@ const AuditStatusScreen = () => {
       null,
   );
   const [currentResult, setCurrentResult] = useState<AuditResultResponse>(
-    auditResult ?? {status: 'CALCULATING'},
+    auditResult ?? {status: 'PROCESSING'},
   );
   const [statusHint, setStatusHint] = useState('');
+  const isInProgress =
+    currentResult.status === 'PROCESSING' ||
+    currentResult.status === 'CALCULATING' ||
+    currentResult.status === 'READY_TO_MINT';
 
   const goHome = useCallback(() => {
     navigation.reset({index: 0, routes: [{name: 'HomeScreen'}]});
@@ -55,7 +59,7 @@ const AuditStatusScreen = () => {
 
   useEffect(() => {
     const subscription = BackHandler.addEventListener('hardwareBackPress', () => {
-      if (currentResult.status === 'CALCULATING') {
+      if (isInProgress) {
         void moveAppToBackground();
         return true;
       }
@@ -65,7 +69,7 @@ const AuditStatusScreen = () => {
     });
 
     return () => subscription.remove();
-  }, [currentResult.status, goHome]);
+  }, [goHome, isInProgress]);
 
   useEffect(() => {
     let isMounted = true;
@@ -92,7 +96,11 @@ const AuditStatusScreen = () => {
         setStatusHint('');
         setCurrentResult(nextResult);
 
-        if (nextResult.status === 'CALCULATING') {
+        if (
+          nextResult.status === 'PROCESSING' ||
+          nextResult.status === 'CALCULATING' ||
+          nextResult.status === 'READY_TO_MINT'
+        ) {
           scheduleNextPoll(5000);
           return;
         }
@@ -138,6 +146,68 @@ const AuditStatusScreen = () => {
 
     return `${currentResult.tx_hash.slice(0, 8)}...${currentResult.tx_hash.slice(-4)}`;
   }, [currentResult.tx_hash]);
+  const progressHeading = useMemo(() => {
+    if (currentResult.status === 'PROCESSING') {
+      return 'Preparing your audit for satellite verification...';
+    }
+
+    if (currentResult.status === 'READY_TO_MINT') {
+      return 'Minting your tokens to the wallet...';
+    }
+
+    return 'Calculating your carbon credits...';
+  }, [currentResult.status]);
+  const progressSteps = useMemo(() => {
+    const currentStepIndex =
+      currentResult.status === 'PROCESSING'
+        ? 0
+        : currentResult.status === 'CALCULATING'
+          ? 1
+          : 3;
+
+    const steps = [
+      {
+        key: 'scan',
+        label: 'Scan data received',
+        icon: 'check-circle-outline',
+      },
+      {
+        key: 'satellite',
+        label: 'Running satellite analysis',
+        icon: 'satellite-variant',
+      },
+      {
+        key: 'credits',
+        label: 'Calculating carbon credits',
+        icon: 'calculator',
+      },
+      {
+        key: 'mint',
+        label: 'Minting tokens to your wallet',
+        icon: 'wallet-outline',
+      },
+    ];
+
+    return steps.map((step, index) => {
+      const state =
+        index < currentStepIndex
+          ? 'done'
+          : index === currentStepIndex
+            ? 'active'
+            : 'pending';
+
+      return {
+        ...step,
+        state,
+        color:
+          state === 'done'
+            ? COLORS.FOREST_GREEN
+            : state === 'active'
+              ? COLORS.TEAL
+              : COLORS.DISABLED_GREY,
+      };
+    });
+  }, [currentResult.status]);
 
   return (
     <View className="flex-1" style={{backgroundColor: COLORS.OFF_WHITE}}>
@@ -152,7 +222,7 @@ const AuditStatusScreen = () => {
           </Text>
         ) : null}
 
-        {currentResult.status === 'CALCULATING' ? (
+        {isInProgress ? (
           <View className="items-center pt-10">
             <LottieView
               source={require('../../../assets/lottie/spinning_leaf.json')}
@@ -161,33 +231,17 @@ const AuditStatusScreen = () => {
               style={{width: 180, height: 180}}
             />
             <Text className="mt-2 text-center text-xl font-semibold" style={{color: COLORS.DARK_SLATE}}>
-              Calculating your carbon credits...
+              {progressHeading}
             </Text>
             <View className="mt-8 w-full rounded-2xl bg-white px-5 py-5">
-              <View className="flex-row items-center">
-                <MaterialCommunityIcons color={COLORS.FOREST_GREEN} name="check-circle-outline" size={18} />
-                <Text className="ml-2" style={{color: COLORS.FOREST_GREEN}}>
-                  Scan data received
-                </Text>
-              </View>
-              <View className="mt-3 flex-row items-center">
-                <MaterialCommunityIcons color={COLORS.TEAL} name="satellite-variant" size={18} />
-                <Text className="ml-2" style={{color: COLORS.TEAL}}>
-                  Running satellite analysis
-                </Text>
-              </View>
-              <View className="mt-3 flex-row items-center">
-                <MaterialCommunityIcons color={COLORS.DISABLED_GREY} name="calculator" size={18} />
-                <Text className="ml-2" style={{color: COLORS.DISABLED_GREY}}>
-                  Calculating carbon credits
-                </Text>
-              </View>
-              <View className="mt-3 flex-row items-center">
-                <MaterialCommunityIcons color={COLORS.DISABLED_GREY} name="wallet-outline" size={18} />
-                <Text className="ml-2" style={{color: COLORS.DISABLED_GREY}}>
-                  Minting tokens to your wallet
-                </Text>
-              </View>
+              {progressSteps.map(step => (
+                <View key={step.key} className="mt-3 flex-row items-center first:mt-0">
+                  <MaterialCommunityIcons color={step.color} name={step.icon} size={18} />
+                  <Text className="ml-2" style={{color: step.color}}>
+                    {step.label}
+                  </Text>
+                </View>
+              ))}
             </View>
             <Text className="mt-6 text-center leading-6" style={{color: COLORS.DISABLED_GREY}}>
               This takes about 30-60 seconds. You can leave this screen.

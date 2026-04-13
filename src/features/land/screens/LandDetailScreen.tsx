@@ -263,13 +263,6 @@ const LandDetailScreen = () => {
                 <Text style={{color: COLORS.TEAL}}>View Latest Certificate</Text>
               </TouchableOpacity>
             ) : null}
-
-            <TouchableOpacity
-              className="min-h-[52px] items-center justify-center rounded-xl border"
-              style={{borderColor: COLORS.ERROR_RED}}
-              onPress={() => navigation.navigate('DocumentUploadScreen')}>
-              <Text style={{color: COLORS.ERROR_RED}}>Report Boundary Issue</Text>
-            </TouchableOpacity>
           </View>
         </View>
       </ScrollView>

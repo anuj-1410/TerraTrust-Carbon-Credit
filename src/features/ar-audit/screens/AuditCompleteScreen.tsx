@@ -147,7 +147,7 @@ const AuditCompleteScreen = () => {
       {/* Header */}
       <View className="pt-12 pb-5 px-5" style={{backgroundColor: COLORS.DARK_SLATE}}>
         <Text className="text-white text-xl font-bold text-center">
-          Audit Complete
+          Audit Summary
         </Text>
       </View>
 

@@ -383,7 +383,9 @@ const BoundaryConfirmScreen = () => {
           disabled={isLoading}
           activeOpacity={0.7}>
           <Text className="text-white font-semibold text-base">
-            {isLoading ? 'Registering your land...' : 'Yes, this is my land'}
+            {isLoading
+              ? 'Registering your land...'
+              : 'Yes, this is my land - Confirm'}
           </Text>
           {!isLoading ? (
             <MaterialCommunityIcons color="#FFFFFF" name="check" size={18} />
@@ -396,7 +398,7 @@ const BoundaryConfirmScreen = () => {
           onPress={() => setShowRetryOptions(true)}
           activeOpacity={0.7}>
           <Text style={{color: COLORS.ERROR_RED}} className="text-sm font-medium">
-            This boundary is wrong
+            This boundary looks wrong - Report and try again
           </Text>
         </TouchableOpacity>
       </View>

@@ -2,6 +2,7 @@
  * @format
  */
 
+import './global.css';
 import { AppRegistry } from 'react-native';
 import BackgroundFetch from 'react-native-background-fetch';
 import App from './src/app/App';

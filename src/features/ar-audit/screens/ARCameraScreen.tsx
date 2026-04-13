@@ -1,5 +1,6 @@
 import React, {useCallback, useEffect, useRef, useState} from 'react';
 import {
+  ScrollView,
   View,
   Text,
   TouchableOpacity,
@@ -23,9 +24,10 @@ import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityI
 
 import type {RootStackParamList} from '../../../types/navigation';
 import Badge from '../../../common/components/Badge';
+import BottomSheet from '../../../common/components/BottomSheet';
 import {isPointInsidePolygon} from '../../../common/utils/geoJson';
 import {useAppSelector} from '../../../store/hooks';
-import type {TreeSample} from '../store/auditSlice';
+import type {SpeciesSource, TreeSample} from '../store/auditSlice';
 import {
   measureTreeDiameter,
   identifySpecies,
@@ -35,6 +37,7 @@ import {
 } from '../../../services/ar-bridge';
 import {hashPhoto, readFileAsBase64} from '../../../common/utils/hash';
 import {
+  APPROVED_SPECIES,
   APPROVED_SPECIES_NAMES,
   getWoodDensity,
 } from '../../../common/constants/species';
@@ -99,6 +102,12 @@ const ARCameraScreen = () => {
   // Species
   const [speciesName, setSpeciesName] = useState<string | null>(null);
   const [speciesConfidence, setSpeciesConfidence] = useState(0);
+  const [speciesSource, setSpeciesSource] = useState<SpeciesSource | null>(null);
+  const [speciesResolutionMode, setSpeciesResolutionMode] = useState<
+    'none' | 'confirm' | 'manual'
+  >('none');
+  const [suggestedSpecies, setSuggestedSpecies] = useState<string | null>(null);
+  const [suggestedConfidence, setSuggestedConfidence] = useState(0);
   const [woodDensity, setWoodDensity] = useState(0);
 
   // Measurement
@@ -136,6 +145,10 @@ const ARCameraScreen = () => {
     setStatusText('Point camera at tree trunk');
     setSpeciesName(null);
     setSpeciesConfidence(0);
+    setSpeciesSource(null);
+    setSpeciesResolutionMode('none');
+    setSuggestedSpecies(null);
+    setSuggestedConfidence(0);
     setWoodDensity(0);
     setDiameterCm(null);
     setArHeightM(null);
@@ -219,10 +232,44 @@ const ARCameraScreen = () => {
     };
   }, []);
 
+  const applySpeciesSelection = useCallback(
+    (
+      nextSpecies: string,
+      nextConfidence: number,
+      nextSource: SpeciesSource,
+    ) => {
+      setSpeciesName(nextSpecies);
+      setSpeciesConfidence(nextConfidence);
+      setSpeciesSource(nextSource);
+      setWoodDensity(getWoodDensity(nextSpecies) ?? 0);
+      setSpeciesResolutionMode('none');
+      setSuggestedSpecies(null);
+      setSuggestedConfidence(0);
+      setPhase('species_done');
+      setStatusText('Species identified - Measure diameter');
+    },
+    [],
+  );
+
+  const openManualSpeciesPicker = useCallback((confidence: number) => {
+    setSuggestedSpecies(null);
+    setSuggestedConfidence(confidence);
+    setSpeciesResolutionMode('manual');
+    setPhase('idle');
+    setStatusText('Select the correct approved species');
+  }, []);
+
   // ──── IDENTIFY SPECIES ────
   const handleIdentifySpecies = useCallback(async () => {
     if (!cameraRef.current) return;
     try {
+      setSpeciesName(null);
+      setSpeciesConfidence(0);
+      setSpeciesSource(null);
+      setWoodDensity(0);
+      setSpeciesResolutionMode('none');
+      setSuggestedSpecies(null);
+      setSuggestedConfidence(0);
       setPhase('identifying');
       setStatusText('Identifying species...');
       const snapshot = await cameraRef.current.takeSnapshot({quality: 80});
@@ -230,36 +277,41 @@ const ARCameraScreen = () => {
 
       const result = await withTimeout(identifySpecies(imgBase64), 10000);
 
-      if (result.confidence >= 0.8) {
-        // Check if approved
-        if (!APPROVED_SPECIES_NAMES.includes(result.species)) {
-          Alert.alert(
-            'Species Not Approved',
-            'This species is not eligible for carbon credits. Please scan a different tree.',
-          );
-          setPhase('idle');
-          setStatusText('Point camera at tree trunk');
-          return;
-        }
-        setSpeciesName(result.species);
-        setSpeciesConfidence(result.confidence);
-        setWoodDensity(getWoodDensity(result.species) ?? 0);
-        setPhase('species_done');
-        setStatusText('Species identified — Measure diameter');
-      } else {
+      const isApprovedSpecies = APPROVED_SPECIES_NAMES.includes(result.species);
+
+      if (!isApprovedSpecies) {
         Alert.alert(
-          'Retake Species Photo',
-          'Species confidence is too low. Please retake the species photo and try again.',
+          'Species Not Eligible',
+          'This species is not eligible for carbon credits. Please scan a different tree.',
         );
+        setSpeciesResolutionMode('none');
         setPhase('idle');
         setStatusText('Point camera at tree trunk');
+        return;
       }
+
+      if (result.confidence >= 0.8) {
+        applySpeciesSelection(result.species, result.confidence, 'MODEL_AUTO');
+        return;
+      }
+
+      if (result.confidence >= 0.6) {
+        setSuggestedSpecies(result.species);
+        setSuggestedConfidence(result.confidence);
+        setSpeciesResolutionMode('confirm');
+        setPhase('idle');
+        setStatusText('Confirm the detected species');
+        return;
+      }
+
+      openManualSpeciesPicker(result.confidence);
     } catch {
       Alert.alert('Species ID Failed', 'Could not identify species. Please try again.');
+      setSpeciesResolutionMode('none');
       setPhase('idle');
       setStatusText('Point camera at tree trunk');
     }
-  }, []);
+  }, [applySpeciesSelection, openManualSpeciesPicker]);
 
   // ──── MEASURE DIAMETER ────
   const handleMeasureDiameter = useCallback(async () => {
@@ -422,7 +474,7 @@ const ARCameraScreen = () => {
   }, [diameterCm]);
 
   const handleAcceptSave = useCallback(async () => {
-    if (!speciesName || diameterCm === null) return;
+    if (!speciesName || !speciesSource || diameterCm === null) return;
 
     if (requiresArHeightBeforeSave && arHeightM === null) {
       Alert.alert(
@@ -467,6 +519,7 @@ const ARCameraScreen = () => {
       zone_id: zoneId,
       species: speciesName,
       species_confidence: speciesConfidence,
+      species_source: speciesSource,
       dbh_cm: Math.round(diameterCm * 10) / 10,
       wood_density: woodDensity,
       ar_height_m: needsArHeight ? arHeightM : null,
@@ -480,11 +533,7 @@ const ARCameraScreen = () => {
       scan_timestamp: new Date().toISOString(),
     };
 
-    // Show success animation then navigate to review
-    setPhase('success');
-    setTimeout(() => {
-      navigation.navigate('TreeResultScreen', {pendingTree});
-    }, 1500);
+    navigation.navigate('TreeResultScreen', {pendingTree});
   }, [
     arHeightM,
     speciesName,
@@ -503,6 +552,7 @@ const ARCameraScreen = () => {
     evidenceHash,
     zoneId,
     navigation,
+    speciesSource,
   ]);
 
   const handleRetry = useCallback(() => {
@@ -659,7 +709,8 @@ const ARCameraScreen = () => {
       )}
 
       {/* Bottom action buttons */}
-      {(phase === 'idle' || phase === 'species_done') && (
+      {speciesResolutionMode === 'none' &&
+      (phase === 'idle' || phase === 'species_done') ? (
         <View className="absolute bottom-0 left-0 right-0 px-5 pb-8 pt-6 bg-gradient-to-t from-black/80">
           <View className="flex-row items-center">
             <TouchableOpacity
@@ -716,7 +767,7 @@ const ARCameraScreen = () => {
             ) : null}
           </View>
         </View>
-      )}
+      ) : null}
 
       {(phase === 'height_base' || phase === 'height_top') && (
         <View className="absolute bottom-0 left-0 right-0 px-5 pb-8 pt-6 bg-gradient-to-t from-black/80">
@@ -849,19 +900,85 @@ const ARCameraScreen = () => {
       )}
 
       {/* Scan success Lottie overlay */}
-      {phase === 'success' && (
-        <View className="absolute inset-0 bg-[#2D6A4F]/70 items-center justify-center">
-          <LottieView
-            source={require('../../../assets/lottie/scan_success.json')}
-            autoPlay
-            loop={false}
-            style={{width: 180, height: 180}}
-          />
-          <Text className="text-white text-xl font-bold mt-4">
-            Tree Scanned Successfully!
+      <BottomSheet
+        visible={speciesResolutionMode === 'confirm'}
+        onClose={() => {
+          setSpeciesResolutionMode('none');
+          setStatusText('Point camera at tree trunk');
+        }}>
+        <Text className="text-lg font-bold" style={{color: '#191C1B'}}>
+          Is this the correct species?
+        </Text>
+        <Text className="mt-3 leading-6" style={{color: '#6B7280'}}>
+          TerraTrust detected {suggestedSpecies ?? 'this tree'} with {Math.round(suggestedConfidence * 100)}% confidence.
+        </Text>
+        <TouchableOpacity
+          className="mt-6 h-12 rounded-xl items-center justify-center"
+          style={{backgroundColor: '#2D6A4F'}}
+          onPress={() => {
+            if (!suggestedSpecies) {
+              return;
+            }
+
+            applySpeciesSelection(
+              suggestedSpecies,
+              suggestedConfidence,
+              'MODEL_CONFIRMED',
+            );
+          }}
+          activeOpacity={0.7}>
+          <Text className="text-base font-semibold text-white">Yes, continue</Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          className="mt-3 h-12 rounded-xl border items-center justify-center"
+          style={{borderColor: '#2D6A4F'}}
+          onPress={() => {
+            setSpeciesResolutionMode('manual');
+            setStatusText('Select the correct approved species');
+          }}
+          activeOpacity={0.7}>
+          <Text className="text-base font-semibold" style={{color: '#2D6A4F'}}>
+            No, choose manually
           </Text>
-        </View>
-      )}
+        </TouchableOpacity>
+      </BottomSheet>
+
+      <BottomSheet
+        visible={speciesResolutionMode === 'manual'}
+        onClose={() => {
+          setSpeciesResolutionMode('none');
+          setStatusText('Point camera at tree trunk');
+        }}>
+        <Text className="text-lg font-bold" style={{color: '#191C1B'}}>
+          Select an approved species
+        </Text>
+        <Text className="mt-3 leading-6" style={{color: '#6B7280'}}>
+          Choose the approved species that best matches this tree when the model is uncertain.
+        </Text>
+        <ScrollView className="mt-4" style={{maxHeight: 280}}>
+          {APPROVED_SPECIES.map(species => (
+            <TouchableOpacity
+              key={species.name}
+              className="mb-3 rounded-xl border px-4 py-3"
+              style={{borderColor: '#D1D5DB'}}
+              onPress={() => {
+                applySpeciesSelection(
+                  species.name,
+                  suggestedConfidence,
+                  'MANUAL_SELECTED',
+                );
+              }}
+              activeOpacity={0.7}>
+              <Text className="text-base font-semibold" style={{color: '#191C1B'}}>
+                {species.name}
+              </Text>
+              <Text className="mt-1 text-sm" style={{color: '#6B7280'}}>
+                {species.scientificName}
+              </Text>
+            </TouchableOpacity>
+          ))}
+        </ScrollView>
+      </BottomSheet>
 
     </View>
   );

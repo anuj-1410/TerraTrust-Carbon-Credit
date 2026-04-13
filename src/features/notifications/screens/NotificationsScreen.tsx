@@ -33,6 +33,38 @@ const NOTIFICATION_ICON: Record<NotificationItem['type'], NotificationIconName> 
   wallet_recovery: 'wallet-plus-outline',
 };
 
+function formatNotificationTimestamp(createdAt: string): string {
+  const timestamp = new Date(createdAt);
+
+  if (Number.isNaN(timestamp.getTime())) {
+    return createdAt;
+  }
+
+  const now = Date.now();
+  const diffMs = Math.max(0, now - timestamp.getTime());
+  const diffMinutes = Math.floor(diffMs / (1000 * 60));
+  const diffHours = Math.floor(diffMs / (1000 * 60 * 60));
+
+  if (diffMinutes < 60) {
+    const minutes = Math.max(diffMinutes, 1);
+    return `${minutes} minute${minutes === 1 ? '' : 's'} ago`;
+  }
+
+  if (diffHours < 24) {
+    return `${diffHours} hour${diffHours === 1 ? '' : 's'} ago`;
+  }
+
+  if (diffHours < 48) {
+    return 'Yesterday';
+  }
+
+  return timestamp.toLocaleDateString('en-GB', {
+    day: 'numeric',
+    month: 'short',
+    year: timestamp.getFullYear() === new Date(now).getFullYear() ? undefined : 'numeric',
+  });
+}
+
 const NotificationsScreen = () => {
   const navigation = useNavigation<Nav>();
   const dispatch = useAppDispatch();
@@ -124,7 +156,7 @@ const NotificationsScreen = () => {
                       {item.body}
                     </Text>
                     <Text className="mt-3 text-xs" style={{color: COLORS.DISABLED_GREY}}>
-                      {new Date(item.createdAt).toLocaleString('en-GB')}
+                      {formatNotificationTimestamp(item.createdAt)}
                     </Text>
                   </View>
                   {!item.read ? (

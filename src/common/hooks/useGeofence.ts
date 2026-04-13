@@ -88,7 +88,7 @@ export function useGeofence(
     );
 
     return () => Geolocation.clearWatch(watchId);
-  }, [gpsHighAccuracy]);
+  }, [boundary, gpsHighAccuracy]);
 
   const hasAccurateFix =
     currentPosition !== null && currentPosition.accuracy <= ACCURACY_THRESHOLD;

@@ -11,6 +11,7 @@ android/**/build/
 android/app/.cxx/
 android/app/src/main/assets/
 android/captures/
+android/app/google-services.json
 *.apk
 *.aab
 *.jks

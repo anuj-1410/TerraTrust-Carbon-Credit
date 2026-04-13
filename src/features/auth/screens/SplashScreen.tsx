@@ -1,5 +1,5 @@
 import React, {useEffect, useRef} from 'react';
-import {View, Text} from 'react-native';
+import {View} from 'react-native';
 import LottieView from 'lottie-react-native';
 import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
 import {useNavigation} from '@react-navigation/native';
@@ -12,19 +12,17 @@ import {
   signOutFirebase,
   type AuthBootstrapResponse,
 } from '../../../services/firebase';
-import {useAppDispatch, useAppSelector} from '../../../store/hooks';
+import {useAppDispatch} from '../../../store/hooks';
 import {setUser, setWalletAddress, setKycCompleted} from '../store/authSlice';
 import {getAuthenticatedEntryRoute} from '../../../common/utils/onboarding';
 import {showBanner} from '../../../store/uiSlice';
+import {setWalletRecoveryState} from '../../profile/store/profileSlice';
 
 type Nav = NativeStackNavigationProp<RootStackParamList, 'SplashScreen'>;
 
 const SplashScreen = () => {
   const navigation = useNavigation<Nav>();
   const dispatch = useAppDispatch();
-  const persistedAadhaarHash = useAppSelector(
-    state => state.auth.user?.aadhaar_hash ?? '',
-  );
   const hasBootstrappedRef = useRef(false);
 
   useEffect(() => {
@@ -53,7 +51,7 @@ const SplashScreen = () => {
       void resetSession();
       dispatch(
         showBanner({
-          message: 'Could not verify your session. Please sign in again.',
+          message: 'Connection issue. Please log in again.',
           type: 'offline',
         }),
       );
@@ -106,11 +104,16 @@ const SplashScreen = () => {
             firebaseUid: profile.firebase_uid,
             name: profile.full_name ?? '',
             phone: profile.phone_number,
-            aadhaar_hash: persistedAadhaarHash,
           }),
         );
         dispatch(setWalletAddress(profile.wallet_address));
         dispatch(setKycCompleted(profile.kyc_completed));
+        dispatch(
+          setWalletRecoveryState({
+            status: profile.wallet_recovery_status,
+            requestedAt: profile.wallet_recovery_requested_at,
+          }),
+        );
         navigation.replace(getAuthenticatedEntryRoute(profile.kyc_completed));
       } catch {
         redirectToLogin(
@@ -125,22 +128,18 @@ const SplashScreen = () => {
       isMounted = false;
       clearTimeout(timeoutHandle);
     };
-  }, [dispatch, navigation, persistedAadhaarHash]);
+  }, [dispatch, navigation]);
 
   return (
     <View className="flex-1 items-center justify-center bg-[#F8FAF8] px-6">
       <View className="mb-5 h-[120px] w-[120px] items-center justify-center rounded-[32px] bg-white shadow-sm">
         <MaterialCommunityIcons color="#1B4332" name="sprout" size={52} />
       </View>
-      <Text className="text-3xl font-bold text-[#1B4332]">TerraTrust</Text>
-      <Text className="mt-2 text-sm text-[#6B7280]">
-        Verifying your account...
-      </Text>
       <LottieView
         source={require('../../../assets/lottie/spinning_leaf.json')}
         autoPlay
         loop
-        style={{width: 96, height: 96, marginTop: 20}}
+        style={{width: 96, height: 96}}
       />
     </View>
   );
