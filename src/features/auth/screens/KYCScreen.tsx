@@ -16,12 +16,12 @@ import {useForm, Controller} from 'react-hook-form';
 import {zodResolver} from '@hookform/resolvers/zod';
 import {z} from 'zod';
 import type {RootStackParamList} from '../../../types/navigation';
-import {useAppSelector, useAppDispatch} from '../../../store/hooks';
+import {useAppDispatch} from '../../../store/hooks';
 import {setUser, setWalletAddress, setKycCompleted} from '../store/authSlice';
 import api from '../../../services/api';
 import {type AuthBootstrapResponse} from '../../../services/firebase';
-import {sha256} from '../../../common/utils/hash';
 import {getAuthenticatedEntryRoute} from '../../../common/utils/onboarding';
+import {setWalletRecoveryState} from '../../profile/store/profileSlice';
 
 type Nav = NativeStackNavigationProp<RootStackParamList, 'KYCScreen'>;
 
@@ -54,9 +54,6 @@ function formatAadhaarDisplay(value: string, isFocused: boolean): string {
 const KYCScreen = () => {
   const navigation = useNavigation<Nav>();
   const dispatch = useAppDispatch();
-  const existingAadhaarHash = useAppSelector(
-    state => state.auth.user?.aadhaar_hash ?? '',
-  );
   const [isLoading, setIsLoading] = useState(false);
   const [apiError, setApiError] = useState<string | null>(null);
   const [aadhaarFocused, setAadhaarFocused] = useState(false);
@@ -87,7 +84,7 @@ const KYCScreen = () => {
     return () => subscription.remove();
   }, []);
 
-  const syncProfile = async (aadhaarHash: string) => {
+  const syncProfile = async () => {
     const {data: profile} = await api.get<AuthBootstrapResponse>('/api/v1/auth/me');
 
     dispatch(
@@ -96,11 +93,16 @@ const KYCScreen = () => {
         firebaseUid: profile.firebase_uid,
         name: profile.full_name ?? '',
         phone: profile.phone_number,
-        aadhaar_hash: aadhaarHash,
       }),
     );
     dispatch(setWalletAddress(profile.wallet_address));
     dispatch(setKycCompleted(profile.kyc_completed));
+    dispatch(
+      setWalletRecoveryState({
+        status: profile.wallet_recovery_status,
+        requestedAt: profile.wallet_recovery_requested_at,
+      }),
+    );
   };
 
   const clearAadhaarInput = () => {
@@ -112,14 +114,13 @@ const KYCScreen = () => {
     setIsLoading(true);
     setApiError(null);
     try {
-      const aadhaarHash = await sha256(data.aadhaarNumber);
       const response = await api.post('/api/v1/auth/kyc', {
         full_name: data.fullName,
         aadhaar_number: data.aadhaarNumber,
       });
 
       if (response.status === 200) {
-        await syncProfile(aadhaarHash);
+        await syncProfile();
         reset({fullName: '', aadhaarNumber: ''});
         setAadhaarFocused(false);
         navigation.reset({
@@ -132,7 +133,7 @@ const KYCScreen = () => {
         const axiosErr = err as {response?: {data?: {error?: string}}};
         const message = axiosErr.response?.data?.error;
         if (message === 'KYC already completed') {
-          await syncProfile(existingAadhaarHash);
+          await syncProfile();
           reset({fullName: '', aadhaarNumber: ''});
           setAadhaarFocused(false);
           navigation.reset({
@@ -159,16 +160,23 @@ const KYCScreen = () => {
         contentContainerStyle={{flexGrow: 1}}
         keyboardShouldPersistTaps="handled">
         <View className="flex-1 px-6 pt-16">
+          <Text className="text-3xl font-bold text-gray-900">
+            Complete Your Profile
+          </Text>
+          <Text className="mt-3 text-base leading-6 text-gray-600">
+            This is a one-time setup. Your name must match your land document.
+          </Text>
+
           <View className="rounded-xl bg-[#FEF3C7] p-4">
             <Text className="text-sm font-semibold text-[#92400E]">
               Use the exact owner name printed on your land document.
             </Text>
             <Text className="mt-2 text-sm leading-6 text-[#92400E]">
-              Your Aadhaar is sent securely for KYC verification, and only a hashed value is stored on this device.
+              Your Aadhaar is used only for this KYC request and is cleared from the app immediately after submission.
             </Text>
           </View>
 
-          <Text className="text-base text-gray-700 leading-6">
+          <Text className="mt-6 text-base leading-6 text-gray-700">
             Enter your name exactly as written on your land document (7/12 Extract)
           </Text>
 

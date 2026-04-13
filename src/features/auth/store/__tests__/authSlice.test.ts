@@ -24,8 +24,6 @@ describe('authSlice', () => {
       firebaseUid: 'firebase-user-1',
       name: 'Ramesh Patil',
       phone: '+919876543210',
-      aadhaar_hash:
-        'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855',
     };
     const state = authReducer(authInitialState, setUser(user));
     expect(state.user).toEqual(user);
@@ -59,7 +57,6 @@ describe('authSlice', () => {
         firebaseUid: 'firebase-user-2',
         name: 'Test',
         phone: '+919999999999',
-        aadhaar_hash: 'abc123',
       },
       walletAddress: '0x1234',
       isAuthenticated: true,
@@ -69,20 +66,16 @@ describe('authSlice', () => {
     expect(state).toEqual(authInitialState);
   });
 
-  it('should store aadhaar_hash in user and never receive raw Aadhaar', () => {
+  it('should never receive raw Aadhaar fields in user state', () => {
     const user: AuthUser = {
       id: '123',
       firebaseUid: 'firebase-user-3',
       name: 'Test User',
       phone: '+919876543210',
-      aadhaar_hash:
-        'a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2',
     };
     const state = authReducer(authInitialState, setUser(user));
-    // aadhaar_hash is stored
-    expect(state.user?.aadhaar_hash).toBe(user.aadhaar_hash);
-    // Raw Aadhaar should never be a field
     expect('aadhaar_number' in (state.user ?? {})).toBe(false);
     expect('aadhaar' in (state.user ?? {})).toBe(false);
+    expect('aadhaar_hash' in (state.user ?? {})).toBe(false);
   });
 });

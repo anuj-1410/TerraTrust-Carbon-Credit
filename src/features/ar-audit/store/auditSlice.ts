@@ -5,6 +5,10 @@ import type {RootState} from '../../../store/index';
 import type {MainAppOriginTab} from '../../../types/navigation';
 
 export type ARTier = 1 | 2 | 3;
+export type SpeciesSource =
+  | 'MODEL_AUTO'
+  | 'MODEL_CONFIRMED'
+  | 'MANUAL_SELECTED';
 export type UploadStatus =
   | 'idle'
   | 'uploading'
@@ -14,7 +18,13 @@ export type UploadStatus =
   | 'offline';
 
 export interface AuditResultResponse {
-  status: 'CALCULATING' | 'MINTED' | 'COMPLETE_NO_CREDITS' | 'FAILED';
+  status:
+    | 'PROCESSING'
+    | 'CALCULATING'
+    | 'READY_TO_MINT'
+    | 'MINTED'
+    | 'COMPLETE_NO_CREDITS'
+    | 'FAILED';
   credits_issued?: number;
   audit_year?: number;
   total_biomass_tonnes?: number;
@@ -46,6 +56,7 @@ export interface TreeSample {
   zone_id: string;
   species: string;
   species_confidence: number;
+  species_source: SpeciesSource;
   dbh_cm: number;
   wood_density: number;
   ar_height_m: number | null;
@@ -177,6 +188,7 @@ export const submitAudit = createAsyncThunk<
       zone_id: tree.zone_id,
       species: tree.species,
       species_confidence: tree.species_confidence,
+      species_source: tree.species_source,
       dbh_cm: tree.dbh_cm,
       height_m: tree.ar_height_m,
       gps: {lat: tree.gps_lat, lng: tree.gps_lng},
@@ -316,7 +328,7 @@ const auditSlice = createSlice({
       .addCase(submitAudit.fulfilled, state => {
         state.uploadStatus = 'processing';
         state.errorMessage = null;
-        state.auditResult = {status: 'CALCULATING'};
+        state.auditResult = {status: 'PROCESSING'};
       })
       .addCase(submitAudit.rejected, (state, action) => {
         if (action.payload === '__OFFLINE__') {

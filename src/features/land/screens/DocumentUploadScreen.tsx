@@ -27,12 +27,58 @@ type Nav = NativeStackNavigationProp<RootStackParamList>;
 type ScreenState = 'capture' | 'camera' | 'preview' | 'loading' | 'ocr_result' | 'error';
 
 const MAX_FILE_SIZE = 10 * 1024 * 1024;
+const NAME_MATCH_THRESHOLD = 0.8;
 
 const normalizeName = (value: string) =>
   value
     .trim()
     .toLowerCase()
     .replace(/\s+/g, ' ');
+
+function getLevenshteinDistance(left: string, right: string): number {
+  const rows = left.length + 1;
+  const columns = right.length + 1;
+  const matrix = Array.from({length: rows}, () => Array(columns).fill(0));
+
+  for (let row = 0; row < rows; row += 1) {
+    matrix[row][0] = row;
+  }
+
+  for (let column = 0; column < columns; column += 1) {
+    matrix[0][column] = column;
+  }
+
+  for (let row = 1; row < rows; row += 1) {
+    for (let column = 1; column < columns; column += 1) {
+      const substitutionCost = left[row - 1] === right[column - 1] ? 0 : 1;
+
+      matrix[row][column] = Math.min(
+        matrix[row - 1][column] + 1,
+        matrix[row][column - 1] + 1,
+        matrix[row - 1][column - 1] + substitutionCost,
+      );
+    }
+  }
+
+  return matrix[left.length][right.length];
+}
+
+function getNameSimilarity(left: string, right: string): number {
+  const normalizedLeft = normalizeName(left).replace(/[^a-z ]/g, '');
+  const normalizedRight = normalizeName(right).replace(/[^a-z ]/g, '');
+
+  if (!normalizedLeft || !normalizedRight) {
+    return 0;
+  }
+
+  const longestLength = Math.max(normalizedLeft.length, normalizedRight.length);
+  if (longestLength === 0) {
+    return 1;
+  }
+
+  const distance = getLevenshteinDistance(normalizedLeft, normalizedRight);
+  return 1 - distance / longestLength;
+}
 
 const getGPS = (): Promise<{lat: number; lng: number} | null> =>
   new Promise(resolve => {
@@ -91,7 +137,8 @@ const DocumentUploadScreen = () => {
   const ownerNameMismatch = Boolean(
     ocrResult?.owner_name &&
       registeredOwnerName &&
-      normalizeName(ocrResult.owner_name) !== normalizeName(registeredOwnerName),
+      getNameSimilarity(ocrResult.owner_name, registeredOwnerName) <
+        NAME_MATCH_THRESHOLD,
   );
 
   // ---- Capture handlers ----

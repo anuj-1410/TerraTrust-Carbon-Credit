@@ -1,5 +1,12 @@
-import React, {useEffect, useMemo, useState} from 'react';
-import {BackHandler, View, Text, TouchableOpacity} from 'react-native';
+import React, {useEffect, useRef, useState} from 'react';
+import {
+  BackHandler,
+  Dimensions,
+  ScrollView,
+  Text,
+  TouchableOpacity,
+  View,
+} from 'react-native';
 import {useNavigation} from '@react-navigation/native';
 import type {NativeStackNavigationProp} from '@react-navigation/native-stack';
 import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
@@ -13,6 +20,7 @@ import {setOnboardingComplete} from '../../profile/store/profileSlice';
 import type {RootStackParamList} from '../../../types/navigation';
 
 type Nav = NativeStackNavigationProp<RootStackParamList, 'OnboardingScreen'>;
+const SCREEN_WIDTH = Dimensions.get('window').width;
 
 const ONBOARDING_CARDS = [
   {
@@ -36,8 +44,7 @@ const OnboardingScreen = () => {
   const navigation = useNavigation<Nav>();
   const dispatch = useAppDispatch();
   const [activeIndex, setActiveIndex] = useState(0);
-
-  const currentCard = useMemo(() => ONBOARDING_CARDS[activeIndex], [activeIndex]);
+  const scrollRef = useRef<ScrollView>(null);
 
   useEffect(() => {
     const subscription = BackHandler.addEventListener(
@@ -54,12 +61,20 @@ const OnboardingScreen = () => {
     navigation.reset({index: 0, routes: [{name: 'HomeScreen'}]});
   };
 
+  const scrollToIndex = (nextIndex: number) => {
+    scrollRef.current?.scrollTo({
+      x: SCREEN_WIDTH * nextIndex,
+      animated: true,
+    });
+    setActiveIndex(nextIndex);
+  };
+
   return (
-    <View className="flex-1 px-6 pt-16 pb-10" style={{backgroundColor: COLORS.OFF_WHITE}}>
+    <View className="flex-1 pt-16 pb-10" style={{backgroundColor: COLORS.OFF_WHITE}}>
       <View className="items-end">
         {activeIndex < ONBOARDING_CARDS.length - 1 && (
           <TouchableOpacity
-            className="min-h-[48px] min-w-[48px] items-center justify-center"
+            className="min-h-[48px] min-w-[48px] items-center justify-center px-6"
             onPress={finishOnboarding}
             activeOpacity={0.7}>
             <Text style={{color: COLORS.DISABLED_GREY}}>Skip</Text>
@@ -68,22 +83,41 @@ const OnboardingScreen = () => {
       </View>
 
       <View className="flex-1 justify-center">
-        <Card className="rounded-[24px] px-6 py-8">
-          <View className="h-24 w-24 items-center justify-center self-center rounded-full" style={{backgroundColor: 'rgba(47,133,90,0.12)'}}>
-            <MaterialCommunityIcons
-              color={COLORS.FOREST_GREEN}
-              name={currentCard.accentIcon}
-              size={46}
-            />
-          </View>
+        <ScrollView
+          ref={scrollRef}
+          horizontal
+          pagingEnabled
+          showsHorizontalScrollIndicator={false}
+          onMomentumScrollEnd={event => {
+            const nextIndex = Math.round(
+              event.nativeEvent.contentOffset.x / SCREEN_WIDTH,
+            );
+            setActiveIndex(nextIndex);
+          }}>
+          {ONBOARDING_CARDS.map(card => (
+            <View
+              key={card.title}
+              style={{width: SCREEN_WIDTH, paddingHorizontal: 24}}
+              className="justify-center">
+              <Card className="rounded-[24px] px-6 py-8">
+                <View className="h-24 w-24 items-center justify-center self-center rounded-full" style={{backgroundColor: 'rgba(47,133,90,0.12)'}}>
+                  <MaterialCommunityIcons
+                    color={COLORS.FOREST_GREEN}
+                    name={card.accentIcon}
+                    size={46}
+                  />
+                </View>
 
-          <Text className="mt-8 text-center text-3xl font-bold" style={{color: COLORS.DARK_SLATE}}>
-            {currentCard.title}
-          </Text>
-          <Text className="mt-4 text-center text-base leading-7" style={{color: COLORS.DISABLED_GREY}}>
-            {currentCard.body}
-          </Text>
-        </Card>
+                <Text className="mt-8 text-center text-3xl font-bold" style={{color: COLORS.DARK_SLATE}}>
+                  {card.title}
+                </Text>
+                <Text className="mt-4 text-center text-base leading-7" style={{color: COLORS.DISABLED_GREY}}>
+                  {card.body}
+                </Text>
+              </Card>
+            </View>
+          ))}
+        </ScrollView>
 
         <View className="mt-8 flex-row justify-center gap-2">
           {ONBOARDING_CARDS.map((_, index) => (
@@ -108,7 +142,7 @@ const OnboardingScreen = () => {
             return;
           }
 
-          setActiveIndex(index => index + 1);
+          scrollToIndex(activeIndex + 1);
         }}
       />
     </View>

@@ -6,6 +6,9 @@ buildscript {
         targetSdkVersion = 36
         ndkVersion = "27.1.12297006"
         kotlinVersion = "2.1.20"
+        // Keep geolocation-service compiling against the same Location SDK
+        // version that resolves into the app to avoid SettingsClient ABI crashes.
+        playServicesLocationVersion = "21.3.0"
     }
     repositories {
         google()

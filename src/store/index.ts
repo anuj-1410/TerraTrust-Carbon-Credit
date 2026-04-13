@@ -47,7 +47,6 @@ async function migrateProfileState(state: any): Promise<any> {
 
   return {
     ...profileInitialState,
-    ...legacyState,
     settingsNotificationsEnabled:
       legacyState.settingsNotificationsEnabled ??
       legacyState.notificationsEnabled ??
@@ -59,6 +58,12 @@ async function migrateProfileState(state: any): Promise<any> {
     onboardingComplete:
       legacyState.onboardingComplete ??
       profileInitialState.onboardingComplete,
+    walletRecoveryStatus:
+      legacyState.walletRecoveryStatus ??
+      (legacyState.walletRecoveryPending ? 'PENDING' : null),
+    walletRecoveryRequestedAt:
+      legacyState.walletRecoveryRequestedAt ??
+      profileInitialState.walletRecoveryRequestedAt,
   };
 }
 
@@ -114,7 +119,7 @@ const auditPersistConfig: PersistConfig<AuditState> = {
 
 const profilePersistConfig: PersistConfig<ProfileState> = {
   key: 'profile',
-  version: 2,
+  version: 3,
   storage: mmkvStorage,
   migrate: migrateProfileState,
   stateReconciler: autoMergeLevel2,

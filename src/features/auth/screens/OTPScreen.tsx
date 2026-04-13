@@ -19,9 +19,10 @@ import {
   type AuthBootstrapResponse,
 } from '../../../services/firebase';
 import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
-import {useAppDispatch, useAppSelector} from '../../../store/hooks';
+import {useAppDispatch} from '../../../store/hooks';
 import {setUser, setWalletAddress, setKycCompleted} from '../store/authSlice';
 import {getAuthenticatedEntryRoute} from '../../../common/utils/onboarding';
+import {setWalletRecoveryState} from '../../profile/store/profileSlice';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'OTPScreen'>;
 
@@ -31,9 +32,6 @@ const COUNTDOWN_SECONDS = 28;
 const OTPScreen = ({route, navigation}: Props) => {
   const {phone} = route.params;
   const dispatch = useAppDispatch();
-  const existingAadhaarHash = useAppSelector(
-    state => state.auth.user?.aadhaar_hash ?? '',
-  );
 
   const [digits, setDigits] = useState<string[]>(Array(OTP_LENGTH).fill(''));
   const [isLoading, setIsLoading] = useState(false);
@@ -92,13 +90,18 @@ const OTPScreen = ({route, navigation}: Props) => {
           firebaseUid: profile.firebase_uid,
           name: profile.full_name ?? '',
           phone: profile.phone_number,
-          aadhaar_hash: existingAadhaarHash,
         }),
       );
       dispatch(setWalletAddress(profile.wallet_address));
       dispatch(setKycCompleted(profile.kyc_completed));
+      dispatch(
+        setWalletRecoveryState({
+          status: profile.wallet_recovery_status,
+          requestedAt: profile.wallet_recovery_requested_at,
+        }),
+      );
     },
-    [dispatch, existingAadhaarHash],
+    [dispatch],
   );
 
   const bootstrapProfile = useCallback(async () => {

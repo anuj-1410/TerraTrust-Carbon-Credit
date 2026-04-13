@@ -26,6 +26,7 @@ export type HistoryStackParamList = {
 export type ProfileStackParamList = {
   ProfileScreen: undefined;
   SettingsScreen: undefined;
+  WalletRecoveryScreen: undefined;
 };
 
 export type MainTabParamList = {
@@ -53,7 +54,6 @@ export type RootStackParamList = {
   EditLandNameScreen: {landId: string};
   ProfileScreen: undefined;
   SettingsScreen: undefined;
-  WalletRecoveryScreen: undefined;
 
   DocumentUploadScreen: undefined;
   BoundaryConfirmScreen: undefined;

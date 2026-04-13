@@ -10,6 +10,13 @@ export interface AuthBootstrapResponse {
   full_name: string | null;
   kyc_completed: boolean;
   wallet_address: string | null;
+  wallet_recovery_status:
+    | 'PENDING'
+    | 'APPROVED'
+    | 'REJECTED'
+    | 'COMPLETED'
+    | null;
+  wallet_recovery_requested_at: string | null;
 }
 
 export async function sendPhoneOtp(phoneNumber: string): Promise<void> {

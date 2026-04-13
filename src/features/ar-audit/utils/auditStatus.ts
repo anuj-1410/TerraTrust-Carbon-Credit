@@ -29,7 +29,11 @@ export async function syncAuditStatus({
   dispatch(setAuditResult(result));
   dispatch(setLastPolledAt(new Date().toISOString()));
 
-  if (result.status === 'CALCULATING') {
+  if (
+    result.status === 'PROCESSING' ||
+    result.status === 'CALCULATING' ||
+    result.status === 'READY_TO_MINT'
+  ) {
     dispatch(setUploadStatus('processing'));
     dispatch(setPendingMint(true));
     return result;

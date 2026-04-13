@@ -31,7 +31,7 @@ const MaintenanceScreen = () => {
           navigation.reset({index: 0, routes: [{name: 'SplashScreen'}]});
         }
       }).catch(() => undefined);
-    }, 30000);
+    }, 10000);
 
     return () => {
       backSubscription.remove();
@@ -41,14 +41,14 @@ const MaintenanceScreen = () => {
 
   return (
     <View className="flex-1 items-center justify-center px-6" style={{backgroundColor: COLORS.OFF_WHITE}}>
-      <MaterialCommunityIcons color={COLORS.FOREST_GREEN} name="sprout" size={52} />
-      <Text className="mt-5 text-3xl font-bold" style={{color: COLORS.DARK_SLATE}}>
-        TerraTrust Maintenance
+      <MaterialCommunityIcons color={COLORS.WARNING_ORANGE} name="wrench-outline" size={52} />
+      <Text className="mt-5 text-center text-3xl font-bold" style={{color: COLORS.DARK_SLATE}}>
+        We're making TerraTrust better
       </Text>
 
       <Card className="mt-8 w-full">
         <Text className="text-center leading-7" style={{color: COLORS.DARK_SLATE}}>
-          {maintenanceMessage ?? 'Scheduled maintenance in progress.'}
+          {maintenanceMessage ?? 'The app will be back shortly.'}
         </Text>
         <Text className="mt-4 text-center leading-6" style={{color: COLORS.DISABLED_GREY}}>
           Your data is safe. TerraTrust will reopen automatically when service is restored.
@@ -57,7 +57,7 @@ const MaintenanceScreen = () => {
 
       <View className="mt-8 w-full">
         <Button
-          label="Open Play Store"
+          label="Check for Updates"
           onPress={() => void Linking.openURL(playStoreUrl)}
         />
       </View>

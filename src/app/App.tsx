@@ -9,7 +9,10 @@ import {
 } from 'react-native';
 import {Provider} from 'react-redux';
 import {PersistGate} from 'redux-persist/integration/react';
-import {NavigationContainer} from '@react-navigation/native';
+import {
+  NavigationContainer,
+  getFocusedRouteNameFromRoute,
+} from '@react-navigation/native';
 import {createNativeStackNavigator} from '@react-navigation/native-stack';
 import {createBottomTabNavigator} from '@react-navigation/bottom-tabs';
 import {useSafeAreaInsets} from 'react-native-safe-area-context';
@@ -147,13 +150,17 @@ function shouldSyncActiveAudit(
     return true;
   }
 
-  return auditState.auditResult?.status === 'CALCULATING';
+  return (
+    auditState.auditResult?.status === 'PROCESSING' ||
+    auditState.auditResult?.status === 'CALCULATING' ||
+    auditState.auditResult?.status === 'READY_TO_MINT'
+  );
 }
 
 function primeAuditProcessingState(dispatch: typeof store.dispatch) {
   dispatch(setUploadStatus('processing'));
   dispatch(setPendingMint(true));
-  dispatch(setAuditResult({status: 'CALCULATING'}));
+  dispatch(setAuditResult({status: 'PROCESSING'}));
 }
 
 function TabIcon({
@@ -227,6 +234,10 @@ function ProfileStackNavigator() {
     <ProfileStack.Navigator screenOptions={{headerShown: false}}>
       <ProfileStack.Screen name="ProfileScreen" component={ProfileScreen} />
       <ProfileStack.Screen name="SettingsScreen" component={SettingsScreen} />
+      <ProfileStack.Screen
+        name="WalletRecoveryScreen"
+        component={WalletRecoveryScreen}
+      />
     </ProfileStack.Navigator>
   );
 }
@@ -237,6 +248,14 @@ function MainTabs() {
   const walletRecoveryPending = useAppSelector(
     state => state.profile.walletRecoveryPending,
   );
+  const baseTabBarStyle = {
+    backgroundColor: COLORS.CARD_WHITE,
+    borderTopColor: '#E2E8F0',
+    borderTopWidth: 1,
+    height: 56 + insets.bottom,
+    paddingBottom: Math.max(insets.bottom, 8),
+    paddingTop: 6,
+  };
 
   return (
     <Tab.Navigator
@@ -255,14 +274,7 @@ function MainTabs() {
         tabBarIconStyle: {
           marginTop: 2,
         },
-        tabBarStyle: {
-          backgroundColor: COLORS.CARD_WHITE,
-          borderTopColor: '#E2E8F0',
-          borderTopWidth: 1,
-          height: 56 + insets.bottom,
-          paddingBottom: Math.max(insets.bottom, 8),
-          paddingTop: 6,
-        },
+        tabBarStyle: baseTabBarStyle,
       }}>
       <Tab.Screen
         name="HomeTab"
@@ -302,16 +314,25 @@ function MainTabs() {
       <Tab.Screen
         name="ProfileTab"
         component={ProfileStackNavigator}
-        options={{
-          title: 'Profile',
-          tabBarIcon: ({color, size}) => (
-            <TabIcon
-              color={color}
-              name="account-outline"
-              showDot={walletRecoveryPending}
-              size={size}
-            />
-          ),
+        options={({route}) => {
+          const focusedRoute =
+            getFocusedRouteNameFromRoute(route) ?? 'ProfileScreen';
+          const shouldHideTabBar = focusedRoute === 'WalletRecoveryScreen';
+
+          return {
+            title: 'Profile',
+            tabBarStyle: shouldHideTabBar
+              ? {...baseTabBarStyle, display: 'none'}
+              : baseTabBarStyle,
+            tabBarIcon: ({color, size}) => (
+              <TabIcon
+                color={color}
+                name="account-outline"
+                showDot={walletRecoveryPending}
+                size={size}
+              />
+            ),
+          };
         }}
       />
     </Tab.Navigator>
@@ -704,11 +725,6 @@ const App = () => {
             <RootStack.Screen
               name="NotificationsScreen"
               component={NotificationsScreen}
-              options={{presentation: 'fullScreenModal'}}
-            />
-            <RootStack.Screen
-              name="WalletRecoveryScreen"
-              component={WalletRecoveryScreen}
               options={{presentation: 'fullScreenModal'}}
             />
             <RootStack.Screen

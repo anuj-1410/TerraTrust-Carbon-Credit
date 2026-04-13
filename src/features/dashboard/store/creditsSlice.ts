@@ -1,7 +1,6 @@
 import {createSlice, createAsyncThunk, type PayloadAction} from '@reduxjs/toolkit';
 import type {RootState} from '../../../store';
 import api from '../../../services/api';
-import {getCTTBalance} from '../../../services/blockchain';
 
 export interface AuditRecord {
   audit_year: number;
@@ -78,7 +77,6 @@ export const fetchCreditsThunk = createAsyncThunk<
   const response = await api.get('/api/v1/credits/balance', {
     params: {page, limit},
   });
-  const walletAddress = getState().auth.walletAddress;
   const responseData = response.data as {
     balance_ctt?: number;
     history?: AuditRecord[];
@@ -121,19 +119,7 @@ export const fetchCreditsThunk = createAsyncThunk<
     dispatch(setHistoryPreview(nextHistory.slice(0, 2)));
   }
 
-  if (!walletAddress) {
-    dispatch(setBalance(apiBalance));
-    dispatch(setLastFetchedAt(new Date().toISOString()));
-    return;
-  }
-
-  try {
-    const blockchainBalance = await getCTTBalance(walletAddress);
-    dispatch(setBalance(blockchainBalance));
-  } catch {
-    dispatch(setBalance(apiBalance));
-  }
-
+  dispatch(setBalance(apiBalance));
   dispatch(setLastFetchedAt(new Date().toISOString()));
 });
 

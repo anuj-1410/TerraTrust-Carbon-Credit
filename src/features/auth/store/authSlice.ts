@@ -5,7 +5,6 @@ export interface AuthUser {
   firebaseUid: string;
   name: string;
   phone: string;
-  aadhaar_hash: string;
 }
 
 export interface AuthState {

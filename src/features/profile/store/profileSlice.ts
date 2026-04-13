@@ -1,11 +1,19 @@
 import {createSlice, type PayloadAction} from '@reduxjs/toolkit';
 
+export type WalletRecoveryStatus =
+  | 'PENDING'
+  | 'APPROVED'
+  | 'REJECTED'
+  | 'COMPLETED'
+  | null;
+
 export interface ProfileState {
   settingsNotificationsEnabled: boolean;
   settingsHighAccuracyGPS: boolean;
   onboardingComplete: boolean;
   walletRecoveryPending: boolean;
-  pendingWalletAddress: string | null;
+  walletRecoveryStatus: WalletRecoveryStatus;
+  walletRecoveryRequestedAt: string | null;
 }
 
 export const profileInitialState: ProfileState = {
@@ -13,7 +21,8 @@ export const profileInitialState: ProfileState = {
   settingsHighAccuracyGPS: true,
   onboardingComplete: false,
   walletRecoveryPending: false,
-  pendingWalletAddress: null,
+  walletRecoveryStatus: null,
+  walletRecoveryRequestedAt: null,
 };
 
 const profileSlice = createSlice({
@@ -29,11 +38,16 @@ const profileSlice = createSlice({
     setOnboardingComplete(state, action: PayloadAction<boolean>) {
       state.onboardingComplete = action.payload;
     },
-    setWalletRecoveryPending(state, action: PayloadAction<boolean>) {
-      state.walletRecoveryPending = action.payload;
-    },
-    setPendingWalletAddress(state, action: PayloadAction<string | null>) {
-      state.pendingWalletAddress = action.payload;
+    setWalletRecoveryState(
+      state,
+      action: PayloadAction<{
+        status: WalletRecoveryStatus;
+        requestedAt?: string | null;
+      }>,
+    ) {
+      state.walletRecoveryStatus = action.payload.status;
+      state.walletRecoveryPending = action.payload.status === 'PENDING';
+      state.walletRecoveryRequestedAt = action.payload.requestedAt ?? null;
     },
   },
 });
@@ -42,7 +56,6 @@ export const {
   setNotificationsEnabled,
   setGpsHighAccuracy,
   setOnboardingComplete,
-  setWalletRecoveryPending,
-  setPendingWalletAddress,
+  setWalletRecoveryState,
 } = profileSlice.actions;
 export default profileSlice.reducer;

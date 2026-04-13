@@ -134,6 +134,16 @@ api.interceptors.response.use(
       return Promise.reject(error);
     }
 
+    if (error.response?.status === 429) {
+      store.dispatch(
+        showBanner({
+          message: 'Too many requests. Please wait a moment and try again.',
+          type: 'info',
+        }),
+      );
+      return Promise.reject(error);
+    }
+
     // 500+: server error → show maintenance banner
     if (error.response?.status >= 500) {
       store.dispatch(

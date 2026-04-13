@@ -18,5 +18,7 @@ export async function getCTTBalance(walletAddress: string): Promise<number> {
   );
 
   const balance: bigint = await contract.balanceOf(walletAddress, CTT_TOKEN_ID);
-  return Number(balance);
+  // The mobile UI works in human-readable CTT while on-chain balanceOf returns
+  // deci-CTT units for token id 1.
+  return Number(balance) / 10;
 }

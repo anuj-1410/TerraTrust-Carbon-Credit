@@ -37,9 +37,10 @@ const HomeScreen = () => {
   const dispatch = useAppDispatch();
 
   const walletAddress = useAppSelector(s => s.auth.walletAddress);
-  const firstName = useAppSelector(
-    s => s.auth.user?.name?.trim().split(/\s+/)[0] ?? 'Farmer',
-  );
+  const firstName = useAppSelector(s => {
+    const fullName = s.auth.user?.name?.trim();
+    return fullName ? fullName.split(/\s+/)[0] : 'Farmer';
+  });
   const isAuthenticated = useAppSelector(s => s.auth.isAuthenticated);
   const {balance, history, historyPreview, pendingMint, lastFetchedAt} =
     useAppSelector(s => s.credits);
@@ -137,7 +138,10 @@ const HomeScreen = () => {
     () => {
       const source = historyPreview.length > 0 ? historyPreview : history;
       return [...source]
-        .sort((a, b) => b.audit_year - a.audit_year)
+        .sort(
+          (a, b) =>
+            new Date(b.minted_at).getTime() - new Date(a.minted_at).getTime(),
+        )
         .slice(0, 2);
     },
     [history, historyPreview],
@@ -191,7 +195,12 @@ const HomeScreen = () => {
         <View className="flex-row items-center justify-between mb-6">
           <View>
             <Text
-              className="text-2xl font-bold font-[Roboto]"
+              className="text-sm font-semibold uppercase tracking-[1.5px] font-[Roboto]"
+              style={{color: COLORS.FOREST_GREEN}}>
+              TerraTrust
+            </Text>
+            <Text
+              className="mt-1 text-2xl font-bold font-[Roboto]"
               style={{color: COLORS.DARK_SLATE}}>
               Hello, {firstName}
             </Text>
@@ -211,12 +220,9 @@ const HomeScreen = () => {
               />
               {unreadNotifications > 0 ? (
                 <View
-                  className="absolute -right-2 -top-1 min-h-[20px] min-w-[20px] items-center justify-center rounded-full px-1"
-                  style={{backgroundColor: COLORS.ERROR_RED}}>
-                  <Text className="text-xs font-bold text-white">
-                    {unreadNotifications > 9 ? '9+' : unreadNotifications}
-                  </Text>
-                </View>
+                  className="absolute -right-1 top-0 h-2.5 w-2.5 rounded-full"
+                  style={{backgroundColor: COLORS.ERROR_RED}}
+                />
               ) : null}
             </View>
           </TouchableOpacity>
@@ -418,11 +424,28 @@ const HomeScreen = () => {
 
         {/* Credit History Preview */}
         <View className="mb-8">
-          <Text
-            className="mb-3 text-lg font-bold font-[Roboto]"
-            style={{color: COLORS.DARK_SLATE}}>
-            Credit History
-          </Text>
+          <View className="mb-3 flex-row items-center justify-between">
+            <Text
+              className="text-lg font-bold font-[Roboto]"
+              style={{color: COLORS.DARK_SLATE}}>
+              Credit History
+            </Text>
+            <TouchableOpacity
+              className="min-h-[48px] min-w-[48px] items-center justify-center"
+              onPress={() =>
+                navigation.navigate('HomeScreen', {
+                  screen: 'HistoryTab',
+                  params: {
+                    screen: 'CreditHistoryScreen',
+                    params: {source: 'history'},
+                  },
+                })
+              }>
+              <Text className="font-[Roboto]" style={{color: COLORS.TEAL}}>
+                View All
+              </Text>
+            </TouchableOpacity>
+          </View>
           {previewHistory.length === 0 ? (
             <View
               className="rounded-xl p-4 shadow-sm"
@@ -450,28 +473,6 @@ const HomeScreen = () => {
               </Text>
             </TouchableOpacity>
           ))}
-          {history.length > 0 && (
-            <TouchableOpacity
-              className="mt-1 min-h-[48px] min-w-[48px] flex-row items-center justify-center"
-              onPress={() =>
-                navigation.navigate('HomeScreen', {
-                  screen: 'HistoryTab',
-                  params: {
-                    screen: 'CreditHistoryScreen',
-                    params: {source: 'history'},
-                  },
-                })
-              }>
-              <Text className="text-sm font-bold font-[Roboto]" style={{color: COLORS.TEAL}}>
-                View All History
-              </Text>
-              <MaterialCommunityIcons
-                color={COLORS.TEAL}
-                name="arrow-right"
-                size={18}
-              />
-            </TouchableOpacity>
-          )}
         </View>
       </ScrollView>
 
