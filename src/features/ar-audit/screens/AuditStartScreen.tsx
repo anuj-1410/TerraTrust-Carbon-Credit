@@ -22,6 +22,7 @@ import {isMockLocationEnabled} from '../../../services/ar-bridge';
 import {hectaresToAcres} from '../../../common/utils/units';
 import {ensureLocationPermission} from '../../../common/utils/permissions';
 import {COLORS} from '../../../common/constants/colors';
+import {IS_AUDIT_DEMO_MODE} from '../utils/demoMode';
 
 type NavProp = NativeStackNavigationProp<RootStackParamList, 'AuditStartScreen'>;
 type RouteType = RouteProp<RootStackParamList, 'AuditStartScreen'>;
@@ -88,22 +89,24 @@ const AuditStartScreen = () => {
     try {
       setLoading(true);
 
-      const hasLocationPermission = await ensureLocationPermission();
-      if (!hasLocationPermission) {
-        Alert.alert(
-          'Location Permission Required',
-          'TerraTrust needs location access to navigate to your audit zones.',
-        );
-        setLoading(false);
-        return;
-      }
+      if (!IS_AUDIT_DEMO_MODE) {
+        const hasLocationPermission = await ensureLocationPermission();
+        if (!hasLocationPermission) {
+          Alert.alert(
+            'Location Permission Required',
+            'TerraTrust needs location access to navigate to your audit zones.',
+          );
+          setLoading(false);
+          return;
+        }
 
-      // FR-012: Mock GPS check — full blocking screen
-      const isMock = await isMockLocationEnabled();
-      if (isMock) {
-        setMockBlocked(true);
-        setLoading(false);
-        return;
+        // FR-012: Mock GPS check — full blocking screen
+        const isMock = await isMockLocationEnabled();
+        if (isMock) {
+          setMockBlocked(true);
+          setLoading(false);
+          return;
+        }
       }
 
       dispatch(setOriginTab(originTab));

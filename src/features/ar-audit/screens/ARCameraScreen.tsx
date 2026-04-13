@@ -43,6 +43,11 @@ import {
 } from '../../../common/constants/species';
 import {v4 as uuidv4} from 'uuid';
 import {ensureCameraPermission} from '../../../common/utils/permissions';
+import {
+  IS_AUDIT_DEMO_MODE,
+  IS_AUDIT_SPECIES_DETECTION_DISABLED,
+  resolveTreeCaptureLocation,
+} from '../utils/demoMode';
 
 type NavProp = NativeStackNavigationProp<RootStackParamList, 'ARCameraScreen'>;
 type RouteType = RouteProp<RootStackParamList, 'ARCameraScreen'>;
@@ -56,6 +61,11 @@ type MeasurePhase =
   | 'height_top'
   | 'result'
   | 'success';
+
+const DEFAULT_STATUS_TEXT = 'Point camera at tree trunk';
+const DIRECT_MEASUREMENT_STATUS_TEXT =
+  'Point camera at tree trunk and measure directly';
+const DIRECT_MEASUREMENT_SPECIES = APPROVED_SPECIES[0]!;
 
 function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
   return new Promise((resolve, reject) => {
@@ -97,7 +107,11 @@ const ARCameraScreen = () => {
 
   // State
   const [phase, setPhase] = useState<MeasurePhase>('idle');
-  const [statusText, setStatusText] = useState('Point camera at tree trunk');
+  const [statusText, setStatusText] = useState(
+    IS_AUDIT_SPECIES_DETECTION_DISABLED
+      ? DIRECT_MEASUREMENT_STATUS_TEXT
+      : DEFAULT_STATUS_TEXT,
+  );
 
   // Species
   const [speciesName, setSpeciesName] = useState<string | null>(null);
@@ -142,7 +156,11 @@ const ARCameraScreen = () => {
   const resetScanState = useCallback(() => {
     void cancelHeightMeasurement().catch(() => undefined);
     setPhase('idle');
-    setStatusText('Point camera at tree trunk');
+    setStatusText(
+      IS_AUDIT_SPECIES_DETECTION_DISABLED
+        ? DIRECT_MEASUREMENT_STATUS_TEXT
+        : DEFAULT_STATUS_TEXT,
+    );
     setSpeciesName(null);
     setSpeciesConfidence(0);
     setSpeciesSource(null);
@@ -220,11 +238,23 @@ const ARCameraScreen = () => {
   ).length;
   const zoneProgressLabel = currentZone?.label ?? `Zone ${zoneIndex + 1}`;
   const maxTreesPerZone = 5;
+  const resolvedSpeciesName = IS_AUDIT_SPECIES_DETECTION_DISABLED
+    ? DIRECT_MEASUREMENT_SPECIES.name
+    : speciesName;
+  const resolvedSpeciesConfidence = IS_AUDIT_SPECIES_DETECTION_DISABLED
+    ? 1
+    : speciesConfidence;
+  const resolvedSpeciesSource = IS_AUDIT_SPECIES_DETECTION_DISABLED
+    ? ('MANUAL_SELECTED' as const)
+    : speciesSource;
+  const resolvedWoodDensity = IS_AUDIT_SPECIES_DETECTION_DISABLED
+    ? DIRECT_MEASUREMENT_SPECIES.woodDensity
+    : woodDensity;
   const needsArHeight = Boolean(currentZone && !currentZone.gedi_available);
   const canMeasureArHeight = needsArHeight && arTier !== 3;
   const requiresArHeightBeforeSave = needsArHeight && canMeasureArHeight;
-  const canStartDiameterMeasurement = Boolean(speciesName);
-  const canStartHeightMeasurement = Boolean(speciesName) && canMeasureArHeight;
+  const canStartDiameterMeasurement = Boolean(resolvedSpeciesName);
+  const canStartHeightMeasurement = canStartDiameterMeasurement && canMeasureArHeight;
 
   useEffect(() => {
     return () => {
@@ -261,6 +291,10 @@ const ARCameraScreen = () => {
 
   // ──── IDENTIFY SPECIES ────
   const handleIdentifySpecies = useCallback(async () => {
+    if (IS_AUDIT_SPECIES_DETECTION_DISABLED) {
+      return;
+    }
+
     if (!cameraRef.current) return;
     try {
       setSpeciesName(null);
@@ -286,7 +320,7 @@ const ARCameraScreen = () => {
         );
         setSpeciesResolutionMode('none');
         setPhase('idle');
-        setStatusText('Point camera at tree trunk');
+        setStatusText(DEFAULT_STATUS_TEXT);
         return;
       }
 
@@ -309,7 +343,7 @@ const ARCameraScreen = () => {
       Alert.alert('Species ID Failed', 'Could not identify species. Please try again.');
       setSpeciesResolutionMode('none');
       setPhase('idle');
-      setStatusText('Point camera at tree trunk');
+      setStatusText(DEFAULT_STATUS_TEXT);
     }
   }, [applySpeciesSelection, openManualSpeciesPicker]);
 
@@ -474,7 +508,9 @@ const ARCameraScreen = () => {
   }, [diameterCm]);
 
   const handleAcceptSave = useCallback(async () => {
-    if (!speciesName || !speciesSource || diameterCm === null) return;
+    if (!resolvedSpeciesName || !resolvedSpeciesSource || diameterCm === null) {
+      return;
+    }
 
     if (requiresArHeightBeforeSave && arHeightM === null) {
       Alert.alert(
@@ -484,7 +520,7 @@ const ARCameraScreen = () => {
       return;
     }
 
-    if (gpsAccuracy > 30) {
+    if (!IS_AUDIT_DEMO_MODE && gpsAccuracy > 30) {
       Alert.alert(
         'Weak GPS Signal',
         'GPS accuracy is too weak to save this tree. Move to an open area and try again.',
@@ -493,6 +529,7 @@ const ARCameraScreen = () => {
     }
 
     if (
+      !IS_AUDIT_DEMO_MODE &&
       boundary &&
       !isPointInsidePolygon({lat: gpsLat, lng: gpsLng}, boundary)
     ) {
@@ -514,20 +551,27 @@ const ARCameraScreen = () => {
       setEvidenceHash(nextEvidenceHash);
     }
 
+    const resolvedLocation = resolveTreeCaptureLocation(
+      currentZone,
+      gpsLat,
+      gpsLng,
+      gpsAccuracy,
+    );
+
     const pendingTree: TreeSample = {
       tree_id: uuidv4(),
       zone_id: zoneId,
-      species: speciesName,
-      species_confidence: speciesConfidence,
-      species_source: speciesSource,
+      species: resolvedSpeciesName,
+      species_confidence: resolvedSpeciesConfidence,
+      species_source: resolvedSpeciesSource,
       dbh_cm: Math.round(diameterCm * 10) / 10,
-      wood_density: woodDensity,
+      wood_density: resolvedWoodDensity,
       ar_height_m: needsArHeight ? arHeightM : null,
       measurement_tier: tierUsed,
       confidence_score: measureConfidence,
-      gps_lat: gpsLat,
-      gps_lng: gpsLng,
-      gps_accuracy_m: gpsAccuracy,
+      gps_lat: resolvedLocation.gpsLat,
+      gps_lng: resolvedLocation.gpsLng,
+      gps_accuracy_m: resolvedLocation.gpsAccuracy,
       evidence_photo_base64: nextEvidenceBase64 ?? '',
       evidence_photo_hash: nextEvidenceHash ?? '',
       scan_timestamp: new Date().toISOString(),
@@ -536,10 +580,7 @@ const ARCameraScreen = () => {
     navigation.navigate('TreeResultScreen', {pendingTree});
   }, [
     arHeightM,
-    speciesName,
     diameterCm,
-    speciesConfidence,
-    woodDensity,
     needsArHeight,
     requiresArHeightBeforeSave,
     tierUsed,
@@ -552,7 +593,11 @@ const ARCameraScreen = () => {
     evidenceHash,
     zoneId,
     navigation,
-    speciesSource,
+    currentZone,
+    resolvedSpeciesName,
+    resolvedSpeciesConfidence,
+    resolvedSpeciesSource,
+    resolvedWoodDensity,
   ]);
 
   const handleRetry = useCallback(() => {
@@ -713,22 +758,24 @@ const ARCameraScreen = () => {
       (phase === 'idle' || phase === 'species_done') ? (
         <View className="absolute bottom-0 left-0 right-0 px-5 pb-8 pt-6 bg-gradient-to-t from-black/80">
           <View className="flex-row items-center">
-            <TouchableOpacity
-              onPress={handleIdentifySpecies}
-              className="mx-1 flex-1 rounded-xl border-2 items-center justify-center px-3 py-3"
-              style={{
-                borderColor: speciesName ? 'rgba(74, 222, 128, 0.85)' : 'rgba(255,255,255,0.6)',
-                backgroundColor: speciesName ? 'rgba(34, 197, 94, 0.18)' : 'transparent',
-              }}>
-              <MaterialCommunityIcons
-                color="#FFFFFF"
-                name={speciesName ? 'check-circle-outline' : 'magnify'}
-                size={18}
-              />
-              <Text className="mt-1 text-center text-xs font-semibold text-white">
-                {speciesName ? 'Species Ready' : 'Identify Species'}
-              </Text>
-            </TouchableOpacity>
+            {!IS_AUDIT_SPECIES_DETECTION_DISABLED ? (
+              <TouchableOpacity
+                onPress={handleIdentifySpecies}
+                className="mx-1 flex-1 rounded-xl border-2 items-center justify-center px-3 py-3"
+                style={{
+                  borderColor: speciesName ? 'rgba(74, 222, 128, 0.85)' : 'rgba(255,255,255,0.6)',
+                  backgroundColor: speciesName ? 'rgba(34, 197, 94, 0.18)' : 'transparent',
+                }}>
+                <MaterialCommunityIcons
+                  color="#FFFFFF"
+                  name={speciesName ? 'check-circle-outline' : 'magnify'}
+                  size={18}
+                />
+                <Text className="mt-1 text-center text-xs font-semibold text-white">
+                  {speciesName ? 'Species Ready' : 'Identify Species'}
+                </Text>
+              </TouchableOpacity>
+            ) : null}
 
             <TouchableOpacity
               onPress={() => {
@@ -904,7 +951,7 @@ const ARCameraScreen = () => {
         visible={speciesResolutionMode === 'confirm'}
         onClose={() => {
           setSpeciesResolutionMode('none');
-          setStatusText('Point camera at tree trunk');
+          setStatusText(DEFAULT_STATUS_TEXT);
         }}>
         <Text className="text-lg font-bold" style={{color: '#191C1B'}}>
           Is this the correct species?
@@ -947,7 +994,7 @@ const ARCameraScreen = () => {
         visible={speciesResolutionMode === 'manual'}
         onClose={() => {
           setSpeciesResolutionMode('none');
-          setStatusText('Point camera at tree trunk');
+          setStatusText(DEFAULT_STATUS_TEXT);
         }}>
         <Text className="text-lg font-bold" style={{color: '#191C1B'}}>
           Select an approved species

@@ -1,6 +1,10 @@
 import {useEffect, useState} from 'react';
 import Geolocation from 'react-native-geolocation-service';
 import type {GPS, SamplingZone} from '../../features/ar-audit/store/auditSlice';
+import {
+  getDemoZonePosition,
+  IS_AUDIT_DEMO_MODE,
+} from '../../features/ar-audit/utils/demoMode';
 import type {GeoJSONPolygon} from '../../features/land/store/landSlice';
 import {useAppSelector} from '../../store/hooks';
 import {isPointInsidePolygon} from '../utils/geoJson';
@@ -92,29 +96,40 @@ export function useGeofence(
 
   const hasAccurateFix =
     currentPosition !== null && currentPosition.accuracy <= ACCURACY_THRESHOLD;
+  const demoZonePosition = IS_AUDIT_DEMO_MODE
+    ? getDemoZonePosition(currentZone)
+    : null;
+  const effectivePosition = demoZonePosition ?? currentPosition;
+  const hasReliableEffectiveFix =
+    effectivePosition !== null &&
+    effectivePosition.accuracy <= ACCURACY_THRESHOLD;
 
   // Local client-side check (fast, preliminary)
-  const isInsideBoundary = Boolean(
-    currentPosition &&
-      boundary &&
-      (hasAccurateFix
-        ? isPointInsidePolygon(currentPosition, boundary)
-        : lastReliableInsideBoundary),
-  );
+  const isInsideBoundary = demoZonePosition
+    ? true
+    : Boolean(
+        effectivePosition &&
+          boundary &&
+          (hasReliableEffectiveFix
+            ? isPointInsidePolygon(effectivePosition, boundary)
+            : lastReliableInsideBoundary),
+      );
 
-  const isAtZoneCentre =
-    hasAccurateFix && currentPosition && currentZone
-      ? haversineDistance(currentPosition, currentZone.centre_gps) <=
+  const isAtZoneCentre = demoZonePosition
+    ? true
+    : hasReliableEffectiveFix && effectivePosition && currentZone
+      ? haversineDistance(effectivePosition, currentZone.centre_gps) <=
         ZONE_ARRIVAL_METRES
       : false;
 
   return {
     isInsideBoundary,
     isAtZoneCentre,
-    currentPosition,
-    gpsAccuracy: currentPosition?.accuracy ?? null,
-    hasWeakSignal:
-      currentPosition !== null && currentPosition.accuracy > ACCURACY_THRESHOLD,
+    currentPosition: effectivePosition,
+    gpsAccuracy: effectivePosition?.accuracy ?? null,
+    hasWeakSignal: demoZonePosition
+      ? false
+      : currentPosition !== null && currentPosition.accuracy > ACCURACY_THRESHOLD,
     error,
   };
 }
