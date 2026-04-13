@@ -17,6 +17,7 @@ import {useAppSelector} from '../../../store/hooks';
 import {useGeofence} from '../../../common/hooks/useGeofence';
 import {ensureLocationPermission} from '../../../common/utils/permissions';
 import {COLORS} from '../../../common/constants/colors';
+import {IS_AUDIT_DEMO_MODE} from '../utils/demoMode';
 
 type NavProp = NativeStackNavigationProp<RootStackParamList, 'ZoneNavigationScreen'>;
 type RouteType = RouteProp<RootStackParamList, 'ZoneNavigationScreen'>;
@@ -52,6 +53,11 @@ const ZoneNavigationScreen = () => {
   );
 
   useEffect(() => {
+    if (IS_AUDIT_DEMO_MODE) {
+      setHasLocationPermission(true);
+      return;
+    }
+
     void ensureLocationPermission().then(setHasLocationPermission);
   }, []);
 
@@ -88,6 +94,10 @@ const ZoneNavigationScreen = () => {
     3,
     Math.floor(minTreesRequired / Math.max(zones.length, 1)),
   );
+  const canStartScanning =
+    (IS_AUDIT_DEMO_MODE || hasLocationPermission !== false) &&
+    isAtZoneCentre &&
+    (isInsideBoundary || !currentPosition || hasWeakSignal);
 
   const handleStartScanning = () => {
     if (!currentZone) return;
@@ -309,7 +319,7 @@ const ZoneNavigationScreen = () => {
         </View>
       )}
 
-      {hasLocationPermission === false && (
+      {hasLocationPermission === false && !IS_AUDIT_DEMO_MODE && (
         <View className="mx-4 mt-2 rounded-2xl px-4 py-3 flex-row items-center" style={{backgroundColor: '#FEF3C7'}}>
           <MaterialCommunityIcons color="#92400E" name="map-marker-outline" size={20} />
           <Text className="flex-1 text-sm leading-5" style={{color: '#92400E'}}>
@@ -394,15 +404,9 @@ const ZoneNavigationScreen = () => {
       <View className="px-4 pb-8 pt-3">
         <TouchableOpacity
           onPress={handleStartScanning}
-          disabled={
-            hasLocationPermission === false ||
-            !isAtZoneCentre ||
-            (currentPosition != null && !hasWeakSignal && !isInsideBoundary)
-          }
+          disabled={!canStartScanning}
           className={`h-14 rounded-xl items-center justify-center flex-row ${
-            hasLocationPermission !== false &&
-            isAtZoneCentre &&
-            (isInsideBoundary || !currentPosition || hasWeakSignal)
+            canStartScanning
               ? 'bg-[#2D6A4F]'
               : 'bg-[#9CA3AF]'
           }`}
