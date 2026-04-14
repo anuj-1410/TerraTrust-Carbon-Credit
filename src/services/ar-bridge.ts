@@ -19,6 +19,10 @@ export interface HeightMeasurementResult {
   height_m?: number;
 }
 
+export interface HeightMeasurementCompleteResult {
+  height_m: number;
+}
+
 const {ARModule} = NativeModules;
 
 export async function detectARTier(): Promise<ARTier> {
@@ -32,9 +36,16 @@ export async function detectARTier(): Promise<ARTier> {
   }
 }
 
-export async function measureTreeDiameter(): Promise<ARMeasurementResult> {
-  const raw: string = await ARModule.measureCylinder();
+export async function measureTreeDiameter(
+  tier: 1 | 2,
+): Promise<ARMeasurementResult> {
+  const raw: string = await ARModule.launchDiameterMeasurement(tier);
   return JSON.parse(raw) as ARMeasurementResult;
+}
+
+export async function measureTreeHeight(): Promise<HeightMeasurementCompleteResult> {
+  const raw: string = await ARModule.launchHeightMeasurement();
+  return JSON.parse(raw) as HeightMeasurementCompleteResult;
 }
 
 export async function beginHeightMeasurement(): Promise<void> {

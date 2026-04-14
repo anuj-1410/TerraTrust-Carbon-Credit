@@ -98,6 +98,7 @@ export interface AuditState {
   currentZoneIndex: number;
   scannedTrees: TreeSample[];
   arTier: ARTier;
+  arTierResolved: boolean;
   sessionComplete: boolean;
   uploadStatus: UploadStatus;
   walkingPathMetres: number;
@@ -115,6 +116,7 @@ export const auditInitialState: AuditState = {
   currentZoneIndex: 0,
   scannedTrees: [],
   arTier: 3,
+  arTierResolved: false,
   sessionComplete: false,
   uploadStatus: 'idle',
   walkingPathMetres: 0,
@@ -265,6 +267,7 @@ const auditSlice = createSlice({
     },
     setArTier(state, action: PayloadAction<ARTier>) {
       state.arTier = action.payload;
+      state.arTierResolved = true;
     },
     setUploadStatus(state, action: PayloadAction<UploadStatus>) {
       state.uploadStatus = action.payload;
@@ -319,6 +322,7 @@ const auditSlice = createSlice({
       // detectAndSetARTier
       .addCase(detectAndSetARTier.fulfilled, (state, action) => {
         state.arTier = action.payload;
+        state.arTierResolved = true;
       })
       // submitAudit
       .addCase(submitAudit.pending, state => {
