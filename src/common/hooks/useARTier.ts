@@ -5,11 +5,13 @@ import type {ARTier} from '../../features/ar-audit/store/auditSlice';
 
 export function useARTier(): ARTier {
   const dispatch = useAppDispatch();
-  const arTier = useAppSelector(state => state.audit.arTier);
+  const {arTier, arTierResolved} = useAppSelector(state => state.audit);
 
   useEffect(() => {
-    dispatch(detectAndSetARTier());
-  }, [dispatch]);
+    if (!arTierResolved) {
+      dispatch(detectAndSetARTier());
+    }
+  }, [arTierResolved, dispatch]);
 
   return arTier;
 }

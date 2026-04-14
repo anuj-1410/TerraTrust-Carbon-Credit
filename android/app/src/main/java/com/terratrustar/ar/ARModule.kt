@@ -1,11 +1,14 @@
 package com.terratrustar.ar
 
+import android.app.Activity
+import android.content.Intent
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.os.Handler
 import android.os.HandlerThread
 import android.provider.Settings
 import android.util.Base64
+import com.facebook.react.bridge.BaseActivityEventListener
 import com.facebook.react.bridge.Promise
 import com.facebook.react.bridge.ReactApplicationContext
 import com.facebook.react.bridge.ReactContextBaseJavaModule
@@ -32,6 +35,11 @@ import java.util.Locale
 class ARModule(private val reactContext: ReactApplicationContext) :
     ReactContextBaseJavaModule(reactContext) {
 
+    companion object {
+        private const val DIAMETER_MEASUREMENT_REQUEST_CODE = 44001
+        private const val HEIGHT_MEASUREMENT_REQUEST_CODE = 44002
+    }
+
     override fun getName(): String = "ARModule"
 
     private val tfliteInterpreter: Interpreter by lazy {
@@ -48,6 +56,66 @@ class ARModule(private val reactContext: ReactApplicationContext) :
     private var heightSession: Session? = null
     private var heightBaseAnchor: Anchor? = null
     private var heightTopAnchor: Anchor? = null
+    private var pendingDiameterPromise: Promise? = null
+    private var pendingHeightPromise: Promise? = null
+
+    private val activityEventListener = object : BaseActivityEventListener() {
+        override fun onActivityResult(
+            activity: Activity,
+            requestCode: Int,
+            resultCode: Int,
+            data: Intent?
+        ) {
+            when (requestCode) {
+                DIAMETER_MEASUREMENT_REQUEST_CODE -> {
+                    val promise = pendingDiameterPromise ?: return
+                    pendingDiameterPromise = null
+                    if (resultCode == Activity.RESULT_OK) {
+                        val measurementJson = data?.getStringExtra(ARMeasurementActivity.EXTRA_MEASUREMENT_JSON)
+                        if (measurementJson.isNullOrBlank()) {
+                            promise.reject("MEASUREMENT_ERROR", "AR diameter measurement returned no result.")
+                        } else {
+                            promise.resolve(measurementJson)
+                        }
+                    } else {
+                        promise.reject(
+                            "MEASUREMENT_CANCELLED",
+                            data?.getStringExtra(ARMeasurementActivity.EXTRA_ERROR_MESSAGE)
+                                ?: "AR diameter measurement was cancelled.",
+                        )
+                    }
+                }
+
+                HEIGHT_MEASUREMENT_REQUEST_CODE -> {
+                    val promise = pendingHeightPromise ?: return
+                    pendingHeightPromise = null
+                    if (resultCode == Activity.RESULT_OK) {
+                        val heightMetres = data?.getDoubleExtra(
+                            ARMeasurementActivity.EXTRA_HEIGHT_METRES,
+                            Double.NaN,
+                        ) ?: Double.NaN
+                        if (heightMetres.isNaN()) {
+                            promise.reject("HEIGHT_CAPTURE_FAILED", "AR height measurement returned no result.")
+                        } else {
+                            promise.resolve(
+                                """{"height_m":${String.format(Locale.US, "%.2f", heightMetres)}}"""
+                            )
+                        }
+                    } else {
+                        promise.reject(
+                            "HEIGHT_CAPTURE_CANCELLED",
+                            data?.getStringExtra(ARMeasurementActivity.EXTRA_ERROR_MESSAGE)
+                                ?: "AR height measurement was cancelled.",
+                        )
+                    }
+                }
+            }
+        }
+    }
+
+    init {
+        reactContext.addActivityEventListener(activityEventListener)
+    }
 
     private fun loadModelFromAssets(filename: String): MappedByteBuffer {
         val fileDescriptor = reactContext.assets.openFd(filename)
@@ -111,6 +179,69 @@ class ARModule(private val reactContext: ReactApplicationContext) :
             promise.resolve(activity.moveTaskToBack(true))
         } catch (e: Exception) {
             promise.resolve(false)
+        }
+    }
+
+    @ReactMethod
+    fun launchDiameterMeasurement(tier: Int, promise: Promise) {
+        val activity = reactApplicationContext.currentActivity
+        if (activity == null) {
+            promise.reject("NO_ACTIVITY", "AR diameter measurement requires an active screen.")
+            return
+        }
+
+        if (pendingDiameterPromise != null || pendingHeightPromise != null) {
+            promise.reject("MEASUREMENT_IN_PROGRESS", "Another AR measurement is already running.")
+            return
+        }
+
+        pendingDiameterPromise = promise
+        val intent = Intent(activity, ARMeasurementActivity::class.java).apply {
+            putExtra(ARMeasurementActivity.EXTRA_MODE, ARMeasurementActivity.MODE_DIAMETER)
+            putExtra(ARMeasurementActivity.EXTRA_TIER, tier)
+        }
+
+        activity.runOnUiThread {
+            try {
+                activity.startActivityForResult(intent, DIAMETER_MEASUREMENT_REQUEST_CODE)
+            } catch (exception: Exception) {
+                pendingDiameterPromise = null
+                promise.reject(
+                    "MEASUREMENT_ERROR",
+                    exception.message ?: "Unable to open AR diameter measurement.",
+                )
+            }
+        }
+    }
+
+    @ReactMethod
+    fun launchHeightMeasurement(promise: Promise) {
+        val activity = reactApplicationContext.currentActivity
+        if (activity == null) {
+            promise.reject("NO_ACTIVITY", "AR height measurement requires an active screen.")
+            return
+        }
+
+        if (pendingDiameterPromise != null || pendingHeightPromise != null) {
+            promise.reject("MEASUREMENT_IN_PROGRESS", "Another AR measurement is already running.")
+            return
+        }
+
+        pendingHeightPromise = promise
+        val intent = Intent(activity, ARMeasurementActivity::class.java).apply {
+            putExtra(ARMeasurementActivity.EXTRA_MODE, ARMeasurementActivity.MODE_HEIGHT)
+        }
+
+        activity.runOnUiThread {
+            try {
+                activity.startActivityForResult(intent, HEIGHT_MEASUREMENT_REQUEST_CODE)
+            } catch (exception: Exception) {
+                pendingHeightPromise = null
+                promise.reject(
+                    "HEIGHT_INIT_FAILED",
+                    exception.message ?: "Unable to open AR height measurement.",
+                )
+            }
         }
     }
 
@@ -347,6 +478,13 @@ class ARModule(private val reactContext: ReactApplicationContext) :
         heightSession = null
     }
 
+    private fun pauseSessionQuietly(session: Session?) {
+        try {
+            session?.pause()
+        } catch (_: Exception) {
+        }
+    }
+
     private fun acquireCenterAnchor(session: Session): Anchor? {
         repeat(15) {
             val frame = session.update()
@@ -399,8 +537,6 @@ class ARModule(private val reactContext: ReactApplicationContext) :
             }
 
             session.configure(config)
-            session.resume()
-            Thread.sleep(750)
 
             heightSession = session
             promise.resolve("READY")
@@ -419,7 +555,15 @@ class ARModule(private val reactContext: ReactApplicationContext) :
                 return
             }
 
-            val anchor = acquireCenterAnchor(session)
+            session.resume()
+            Thread.sleep(250)
+
+            val anchor = try {
+                acquireCenterAnchor(session)
+            } finally {
+                pauseSessionQuietly(session)
+            }
+
             if (anchor == null) {
                 promise.reject("HEIGHT_TRACKING_FAILED", "Point at the tree and hold steady, then try again.")
                 return

@@ -30,6 +30,7 @@ import {useAppSelector} from '../../../store/hooks';
 import type {SpeciesSource, TreeSample} from '../store/auditSlice';
 import {
   measureTreeDiameter,
+  measureTreeHeight,
   identifySpecies,
   beginHeightMeasurement,
   captureHeightPoint,
@@ -62,6 +63,8 @@ type MeasurePhase =
   | 'result'
   | 'success';
 
+type VisionCameraState = 'starting' | 'active' | 'inactive';
+
 const DEFAULT_STATUS_TEXT = 'Point camera at tree trunk';
 const DIRECT_MEASUREMENT_STATUS_TEXT =
   'Point camera at tree trunk and measure directly';
@@ -90,6 +93,9 @@ const ARCameraScreen = () => {
   const route = useRoute<RouteType>();
   const {zoneId, zoneIndex} = route.params;
   const cameraRef = useRef<Camera>(null);
+  const visionCameraStateRef = useRef<VisionCameraState>('starting');
+  const visionCameraActiveWaitersRef = useRef<Array<() => void>>([]);
+  const visionCameraInactiveWaitersRef = useRef<Array<() => void>>([]);
   const device = useCameraDevice('back');
 
   const audit = useAppSelector(state => state.audit);
@@ -140,6 +146,7 @@ const ARCameraScreen = () => {
   const [gpsLng, setGpsLng] = useState(0);
   const [gpsAccuracy, setGpsAccuracy] = useState(0);
   const [hasCameraPermission, setHasCameraPermission] = useState<boolean | null>(null);
+  const [isVisionCameraActive, setIsVisionCameraActive] = useState(true);
 
   // Timer animation
   const timerProgress = useSharedValue(0);
@@ -153,8 +160,126 @@ const ARCameraScreen = () => {
     transform: [{translateX: slamArrowX.value}],
   }));
 
+  const resolveVisionCameraWaiters = useCallback(
+    (nextState: Extract<VisionCameraState, 'active' | 'inactive'>) => {
+      visionCameraStateRef.current = nextState;
+      const waitersRef =
+        nextState === 'active'
+          ? visionCameraActiveWaitersRef
+          : visionCameraInactiveWaitersRef;
+      const pendingWaiters = waitersRef.current;
+      waitersRef.current = [];
+      pendingWaiters.forEach(resolve => resolve());
+    },
+    [],
+  );
+
+  const waitForVisionCameraState = useCallback(
+    (
+      targetState: Extract<VisionCameraState, 'active' | 'inactive'>,
+      timeoutMs = 4000,
+    ) =>
+      new Promise<void>((resolve, reject) => {
+        if (visionCameraStateRef.current === targetState) {
+          resolve();
+          return;
+        }
+
+        const waitersRef =
+          targetState === 'active'
+            ? visionCameraActiveWaitersRef
+            : visionCameraInactiveWaitersRef;
+
+        let timeoutId: ReturnType<typeof setTimeout>;
+        const resolveWaiter = () => {
+          clearTimeout(timeoutId);
+          waitersRef.current = waitersRef.current.filter(
+            waiter => waiter !== resolveWaiter,
+          );
+          resolve();
+        };
+
+        timeoutId = setTimeout(() => {
+          waitersRef.current = waitersRef.current.filter(
+            waiter => waiter !== resolveWaiter,
+          );
+          reject(new Error(`VisionCamera did not become ${targetState} in time.`));
+        }, timeoutMs);
+
+        waitersRef.current.push(resolveWaiter);
+      }),
+    [],
+  );
+
+  const setVisionCameraDesiredActive = useCallback((nextActive: boolean) => {
+    if (nextActive && visionCameraStateRef.current === 'inactive') {
+      visionCameraStateRef.current = 'starting';
+    }
+
+    setIsVisionCameraActive(nextActive);
+  }, []);
+
+  const ensureVisionCameraActive = useCallback(async () => {
+    if (visionCameraStateRef.current === 'active' && isVisionCameraActive) {
+      return;
+    }
+
+    setVisionCameraDesiredActive(true);
+    await waitForVisionCameraState('active');
+  }, [isVisionCameraActive, setVisionCameraDesiredActive, waitForVisionCameraState]);
+
+  const ensureVisionCameraInactive = useCallback(async () => {
+    if (visionCameraStateRef.current === 'inactive' && !isVisionCameraActive) {
+      return;
+    }
+
+    setVisionCameraDesiredActive(false);
+    await waitForVisionCameraState('inactive');
+  }, [isVisionCameraActive, setVisionCameraDesiredActive, waitForVisionCameraState]);
+
+  const runWithExclusiveArCameraAccess = useCallback(
+    async function <T>(
+      operation: () => Promise<T>,
+      options?: {resumeVisionCamera?: boolean},
+    ): Promise<T> {
+      await ensureVisionCameraInactive();
+
+      try {
+        return await operation();
+      } finally {
+        if (options?.resumeVisionCamera !== false) {
+          await ensureVisionCameraActive().catch(() => undefined);
+        }
+      }
+    },
+    [ensureVisionCameraActive, ensureVisionCameraInactive],
+  );
+
+  const takeVisionCameraSnapshot = useCallback(async () => {
+    await ensureVisionCameraActive();
+
+    if (!cameraRef.current) {
+      throw new Error('Camera preview is not ready yet.');
+    }
+
+    return cameraRef.current.takeSnapshot({quality: 80});
+  }, [ensureVisionCameraActive]);
+
+  const captureEvidencePhoto = useCallback(async () => {
+    const snapshot = await takeVisionCameraSnapshot();
+    const nextEvidenceBase64 = await readFileAsBase64(snapshot.path);
+    const nextEvidenceHash = await hashPhoto(nextEvidenceBase64);
+    setEvidenceBase64(nextEvidenceBase64);
+    setEvidenceHash(nextEvidenceHash);
+    return {
+      base64: nextEvidenceBase64,
+      hash: nextEvidenceHash,
+    };
+  }, [takeVisionCameraSnapshot]);
+
   const resetScanState = useCallback(() => {
     void cancelHeightMeasurement().catch(() => undefined);
+    setVisionCameraDesiredActive(true);
     setPhase('idle');
     setStatusText(
       IS_AUDIT_SPECIES_DETECTION_DISABLED
@@ -176,7 +301,7 @@ const ARCameraScreen = () => {
     setEvidenceHash(null);
     timerProgress.value = 0;
     slamArrowX.value = 0;
-  }, [arTier, slamArrowX, timerProgress]);
+  }, [arTier, setVisionCameraDesiredActive, slamArrowX, timerProgress]);
 
   useEffect(() => {
     let mounted = true;
@@ -306,7 +431,7 @@ const ARCameraScreen = () => {
       setSuggestedConfidence(0);
       setPhase('identifying');
       setStatusText('Identifying species...');
-      const snapshot = await cameraRef.current.takeSnapshot({quality: 80});
+      const snapshot = await takeVisionCameraSnapshot();
       const imgBase64 = await readFileAsBase64(snapshot.path);
 
       const result = await withTimeout(identifySpecies(imgBase64), 10000);
@@ -345,7 +470,7 @@ const ARCameraScreen = () => {
       setPhase('idle');
       setStatusText(DEFAULT_STATUS_TEXT);
     }
-  }, [applySpeciesSelection, openManualSpeciesPicker]);
+  }, [applySpeciesSelection, openManualSpeciesPicker, takeVisionCameraSnapshot]);
 
   // ──── MEASURE DIAMETER ────
   const handleMeasureDiameter = useCallback(async () => {
@@ -374,7 +499,9 @@ const ARCameraScreen = () => {
         );
       }
 
-      const result = await withTimeout(measureTreeDiameter(), 10000);
+      const result = await runWithExclusiveArCameraAccess(() =>
+        measureTreeDiameter(arTier as 1 | 2),
+      );
 
       // FR-021: confidence < 0.7 → retry
       if (result.confidence < 0.7) {
@@ -416,12 +543,7 @@ const ARCameraScreen = () => {
       setTierUsed(result.tier_used);
 
       // Evidence photo + hash
-      if (cameraRef.current) {
-        const snap = await cameraRef.current.takeSnapshot({quality: 80});
-        const b64 = await readFileAsBase64(snap.path);
-        setEvidenceBase64(b64);
-        setEvidenceHash(await hashPhoto(b64));
-      }
+      await captureEvidencePhoto();
 
       ReactNativeHapticFeedback.trigger('impactMedium');
       setPhase('result');
@@ -439,7 +561,17 @@ const ARCameraScreen = () => {
       setPhase('species_done');
       setStatusText('Try again — Measure diameter');
     }
-  }, [arTier, consecutiveFailures, navigation, slamArrowX, timerProgress, zoneId, zoneIndex]);
+  }, [
+    arTier,
+    captureEvidencePhoto,
+    consecutiveFailures,
+    navigation,
+    runWithExclusiveArCameraAccess,
+    slamArrowX,
+    timerProgress,
+    zoneId,
+    zoneIndex,
+  ]);
 
   const handleStartHeightMeasurement = useCallback(async () => {
     if (!canMeasureArHeight) {
@@ -451,22 +583,38 @@ const ARCameraScreen = () => {
     }
 
     try {
-      await withTimeout(beginHeightMeasurement(), 5000);
-      setPhase('height_base');
-      setStatusText(
-        'GEDI satellite data not available. Point at the base of the tree, then tap Base.',
+      setStatusText('Opening AR height measurement...');
+      const result = await runWithExclusiveArCameraAccess(() =>
+        measureTreeHeight(),
       );
+      const heightM = result.height_m ?? null;
+      setArHeightM(heightM);
+      ReactNativeHapticFeedback.trigger('impactMedium');
+      setStatusText(
+        heightM !== null
+          ? `Height measured: ${heightM.toFixed(1)} m`
+          : 'Height measured',
+      );
+      setPhase(diameterCm !== null ? 'result' : 'species_done');
     } catch {
       Alert.alert(
         'Height Measurement Unavailable',
-        'Could not start AR height measurement. Hold the phone steady and try again.',
+        'Could not measure tree height. Point at the tree and try again.',
       );
+      setStatusText(
+        diameterCm !== null
+          ? 'Measurement complete'
+          : 'Species identified — Measure diameter',
+      );
+      setPhase(diameterCm !== null ? 'result' : 'species_done');
     }
-  }, [canMeasureArHeight]);
+  }, [canMeasureArHeight, diameterCm, runWithExclusiveArCameraAccess]);
 
   const handleCaptureHeightBase = useCallback(async () => {
     try {
-      await withTimeout(captureHeightPoint('base'), 5000);
+      await runWithExclusiveArCameraAccess(() =>
+        withTimeout(captureHeightPoint('base'), 5000),
+      );
       setPhase('height_top');
       setStatusText('Base marked. Tilt to the top of the tree, then tap Top.');
     } catch {
@@ -475,11 +623,13 @@ const ARCameraScreen = () => {
         'Point at the base of the tree and hold steady, then try again.',
       );
     }
-  }, []);
+  }, [runWithExclusiveArCameraAccess]);
 
   const handleCaptureHeightTop = useCallback(async () => {
     try {
-      const result = await withTimeout(captureHeightPoint('top'), 5000);
+      const result = await runWithExclusiveArCameraAccess(() =>
+        withTimeout(captureHeightPoint('top'), 5000),
+      );
       const heightM = result.height_m ?? null;
       setArHeightM(heightM);
       ReactNativeHapticFeedback.trigger('impactMedium');
@@ -495,17 +645,18 @@ const ARCameraScreen = () => {
         'Point at the top of the tree and hold steady, then try again.',
       );
     }
-  }, [diameterCm]);
+  }, [diameterCm, runWithExclusiveArCameraAccess]);
 
   const handleCancelHeightMeasurement = useCallback(() => {
     void cancelHeightMeasurement().catch(() => undefined);
+    void ensureVisionCameraActive().catch(() => undefined);
     setStatusText(
       diameterCm !== null
         ? 'Measurement complete'
         : 'Species identified — Measure diameter',
     );
     setPhase(diameterCm !== null ? 'result' : 'species_done');
-  }, [diameterCm]);
+  }, [diameterCm, ensureVisionCameraActive]);
 
   const handleAcceptSave = useCallback(async () => {
     if (!resolvedSpeciesName || !resolvedSpeciesSource || diameterCm === null) {
@@ -543,12 +694,10 @@ const ARCameraScreen = () => {
     let nextEvidenceBase64 = evidenceBase64;
     let nextEvidenceHash = evidenceHash;
 
-    if ((!nextEvidenceBase64 || !nextEvidenceHash) && cameraRef.current) {
-      const snapshot = await cameraRef.current.takeSnapshot({quality: 80});
-      nextEvidenceBase64 = await readFileAsBase64(snapshot.path);
-      nextEvidenceHash = await hashPhoto(nextEvidenceBase64);
-      setEvidenceBase64(nextEvidenceBase64);
-      setEvidenceHash(nextEvidenceHash);
+    if (!nextEvidenceBase64 || !nextEvidenceHash) {
+      const evidencePhoto = await captureEvidencePhoto();
+      nextEvidenceBase64 = evidencePhoto.base64;
+      nextEvidenceHash = evidencePhoto.hash;
     }
 
     const resolvedLocation = resolveTreeCaptureLocation(
@@ -593,6 +742,7 @@ const ARCameraScreen = () => {
     evidenceHash,
     zoneId,
     navigation,
+    captureEvidencePhoto,
     currentZone,
     resolvedSpeciesName,
     resolvedSpeciesConfidence,
@@ -660,7 +810,11 @@ const ARCameraScreen = () => {
         ref={cameraRef}
         style={{flex: 1, position: 'absolute', top: 0, left: 0, right: 0, bottom: 0}}
         device={device}
-        isActive={phase !== 'success'}
+        isActive={isVisionCameraActive && phase !== 'success'}
+        onStarted={() => resolveVisionCameraWaiters('active')}
+        onStopped={() => resolveVisionCameraWaiters('inactive')}
+        onPreviewStarted={() => resolveVisionCameraWaiters('active')}
+        onPreviewStopped={() => resolveVisionCameraWaiters('inactive')}
         photo
       />
 
