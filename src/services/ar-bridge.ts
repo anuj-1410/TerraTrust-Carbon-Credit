@@ -6,6 +6,9 @@ export interface ARMeasurementResult {
   confidence: number;
   tier_used: 1 | 2;
   point_count: number;
+  raw_point_count?: number;
+  filtered_point_count?: number;
+  fit_method?: string;
 }
 
 export interface SpeciesInferenceResult {

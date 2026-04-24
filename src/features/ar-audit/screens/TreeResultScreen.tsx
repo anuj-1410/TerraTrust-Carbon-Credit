@@ -75,6 +75,7 @@ const TreeResultScreen = () => {
           zoneId: currentZone?.zone_id ?? tree.zone_id,
           zoneIndex: currentZoneIndex,
           returnDiameter: undefined,
+          returnHeight: undefined,
           resetScanToken: `${Date.now()}`,
         },
         merge: true,
