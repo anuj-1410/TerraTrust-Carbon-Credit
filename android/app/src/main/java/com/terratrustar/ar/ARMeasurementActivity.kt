@@ -8,8 +8,12 @@ import android.graphics.drawable.GradientDrawable
 import android.opengl.GLES11Ext
 import android.opengl.GLES20
 import android.opengl.GLSurfaceView
+import android.opengl.Matrix
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.os.SystemClock
+import android.util.Log
 import android.view.Gravity
 import android.view.MotionEvent
 import android.view.Surface
@@ -40,12 +44,17 @@ import java.util.Locale
 import javax.microedition.khronos.egl.EGLConfig
 import javax.microedition.khronos.opengles.GL10
 import kotlin.math.abs
+import kotlin.math.max
 import kotlin.math.sqrt
-import kotlin.random.Random
 
 class ARMeasurementActivity : AppCompatActivity(), GLSurfaceView.Renderer {
 
     companion object {
+        private const val TAG = "TerraTrustAR"
+        private const val MAX_ACCUMULATED_POINTS = 16000
+        private const val MIN_DEPTH_TRUNK_POINTS = 120
+        private const val MIN_SLAM_TRUNK_POINTS = 35
+
         const val EXTRA_MODE = "mode"
         const val EXTRA_TIER = "tier"
         const val EXTRA_MEASUREMENT_JSON = "measurement_json"
@@ -60,6 +69,11 @@ class ARMeasurementActivity : AppCompatActivity(), GLSurfaceView.Renderer {
         DIAMETER,
         HEIGHT,
     }
+
+    private data class WorldRay(
+        val origin: FloatArray,
+        val direction: FloatArray,
+    )
 
     private lateinit var rootView: FrameLayout
     private lateinit var glSurfaceView: GLSurfaceView
@@ -80,6 +94,8 @@ class ARMeasurementActivity : AppCompatActivity(), GLSurfaceView.Renderer {
     private var measurementStartedAt = 0L
     private var measurementCompleted = false
     private val slamPointCloud = mutableListOf<FloatArray>()
+    private val depthPointCloud = mutableListOf<FloatArray>()
+    private var lastRawDepthTimestamp = -1L
 
     @Volatile
     private var pendingTap: PointF? = null
@@ -90,6 +106,10 @@ class ARMeasurementActivity : AppCompatActivity(), GLSurfaceView.Renderer {
     private var lastHelperText: String? = null
     private var lastProgressValue: Int? = null
     private var wasProgressVisible = false
+    private var waitingForInstall = false
+    private var cameraUnavailableWhileCreatingSession = false
+    private val resumeHandler = Handler(Looper.getMainLooper())
+    private var cameraResumeAttempts = 0
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -124,23 +144,11 @@ class ARMeasurementActivity : AppCompatActivity(), GLSurfaceView.Renderer {
 
     override fun onResume() {
         super.onResume()
-
-        if (!ensureSession()) {
-            return
-        }
-
-        glSurfaceView.onResume()
-
-        try {
-            session?.resume()
-        } catch (exception: CameraNotAvailableException) {
-            finishWithError("Camera became unavailable. Please try again.")
-        } catch (exception: Exception) {
-            finishWithError(exception.message ?: "Unable to start AR measurement.")
-        }
+        scheduleSessionResumeAttempt(150)
     }
 
     override fun onPause() {
+        resumeHandler.removeCallbacksAndMessages(null)
         try {
             session?.pause()
         } catch (_: Exception) {
@@ -151,6 +159,7 @@ class ARMeasurementActivity : AppCompatActivity(), GLSurfaceView.Renderer {
     }
 
     override fun onDestroy() {
+        resumeHandler.removeCallbacksAndMessages(null)
         baseAnchor?.detach()
         baseAnchor = null
 
@@ -165,6 +174,8 @@ class ARMeasurementActivity : AppCompatActivity(), GLSurfaceView.Renderer {
 
     override fun onBackPressed() {
         if (!measurementCompleted) {
+            // Pass no EXTRA_ERROR_MESSAGE so ARModule.kt treats this as a
+            // user-initiated cancellation (silent reset, no 'failed' alert).
             measurementCompleted = true
             setResult(Activity.RESULT_CANCELED)
         }
@@ -339,6 +350,8 @@ class ARMeasurementActivity : AppCompatActivity(), GLSurfaceView.Renderer {
 
     private fun ensureSession(): Boolean {
         if (session != null) {
+            waitingForInstall = false
+            cameraUnavailableWhileCreatingSession = false
             return true
         }
 
@@ -346,17 +359,30 @@ class ARMeasurementActivity : AppCompatActivity(), GLSurfaceView.Renderer {
             when (ArCoreApk.getInstance().requestInstall(this, !installRequested)) {
                 ArCoreApk.InstallStatus.INSTALL_REQUESTED -> {
                     installRequested = true
+                    waitingForInstall = true
                     return false
                 }
 
                 ArCoreApk.InstallStatus.INSTALLED -> {
                     installRequested = false
+                    waitingForInstall = false
                 }
             }
 
-            val createdSession = Session(this)
+            // Create ARCore Session - this will attempt to access the camera
+            val createdSession = try {
+                Session(this)
+            } catch (exception: CameraNotAvailableException) {
+                cameraUnavailableWhileCreatingSession = true
+                return false
+            } catch (exception: SecurityException) {
+                finishWithError("Camera permission denied. Please grant camera access.")
+                return false
+            }
+
             configureSession(createdSession)
             session = createdSession
+            cameraUnavailableWhileCreatingSession = false
             return true
         } catch (exception: Exception) {
             finishWithError(exception.message ?: "ARCore is unavailable on this device.")
@@ -364,14 +390,57 @@ class ARMeasurementActivity : AppCompatActivity(), GLSurfaceView.Renderer {
         }
     }
 
+    private fun scheduleSessionResumeAttempt(delayMs: Long) {
+        resumeHandler.postDelayed({
+            if (measurementCompleted || isFinishing || isDestroyed) {
+                return@postDelayed
+            }
+
+            if (!ensureSession()) {
+                when {
+                    waitingForInstall -> Unit
+                    cameraUnavailableWhileCreatingSession && cameraResumeAttempts < 8 -> {
+                        cameraResumeAttempts += 1
+                        scheduleSessionResumeAttempt(150)
+                    }
+                    cameraUnavailableWhileCreatingSession -> {
+                        finishWithError("Camera is still in use. Please wait a moment and try again.")
+                    }
+                }
+                return@postDelayed
+            }
+
+            glSurfaceView.onResume()
+
+            try {
+                session?.resume()
+                cameraResumeAttempts = 0
+            } catch (_: CameraNotAvailableException) {
+                if (cameraResumeAttempts < 8) {
+                    cameraResumeAttempts += 1
+                    scheduleSessionResumeAttempt(150)
+                } else {
+                    finishWithError("Camera became unavailable. Please try again.")
+                }
+            } catch (exception: Exception) {
+                finishWithError(exception.message ?: "Unable to start AR measurement.")
+            }
+        }, delayMs)
+    }
+
     private fun configureSession(arSession: Session) {
         val config = Config(arSession).apply {
             focusMode = Config.FocusMode.AUTO
             depthMode = if (
-                requestedTier == 1 &&
-                arSession.isDepthModeSupported(Config.DepthMode.RAW_DEPTH_ONLY)
+                requestedTier == 1
             ) {
-                Config.DepthMode.RAW_DEPTH_ONLY
+                when {
+                    arSession.isDepthModeSupported(Config.DepthMode.RAW_DEPTH_ONLY) ->
+                        Config.DepthMode.RAW_DEPTH_ONLY
+                    arSession.isDepthModeSupported(Config.DepthMode.AUTOMATIC) ->
+                        Config.DepthMode.AUTOMATIC
+                    else -> Config.DepthMode.DISABLED
+                }
             } else {
                 Config.DepthMode.DISABLED
             }
@@ -380,6 +449,7 @@ class ARMeasurementActivity : AppCompatActivity(), GLSurfaceView.Renderer {
             } else {
                 Config.PlaneFindingMode.DISABLED
             }
+            instantPlacementMode = Config.InstantPlacementMode.DISABLED
         }
 
         arSession.configure(config)
@@ -388,6 +458,9 @@ class ARMeasurementActivity : AppCompatActivity(), GLSurfaceView.Renderer {
     private fun handleDiameterFrame(frame: Frame) {
         if (measurementStartedAt == 0L) {
             measurementStartedAt = SystemClock.elapsedRealtime()
+            slamPointCloud.clear()
+            depthPointCloud.clear()
+            lastRawDepthTimestamp = -1L
         }
 
         val durationMs = if (requestedTier == 1) 3000L else 5000L
@@ -408,7 +481,16 @@ class ARMeasurementActivity : AppCompatActivity(), GLSurfaceView.Renderer {
             progress,
         )
 
-        if (requestedTier == 2) {
+        if (requestedTier == 1) {
+            try {
+                depthPointCloud.addAll(collectDepthPoints(frame))
+                if (depthPointCloud.size > MAX_ACCUMULATED_POINTS) {
+                    depthPointCloud.subList(0, depthPointCloud.size - MAX_ACCUMULATED_POINTS).clear()
+                }
+            } catch (_: NotYetAvailableException) {
+                // Depth is still warming up; keep collecting until duration elapses.
+            }
+        } else {
             collectSlamPointCloud(frame)
         }
 
@@ -417,23 +499,23 @@ class ARMeasurementActivity : AppCompatActivity(), GLSurfaceView.Renderer {
         }
 
         val resultJson = if (requestedTier == 1) {
-            try {
-                val depthPoints = collectDepthPoints(frame)
-                if (depthPoints.size < 50) {
-                    finishWithError("Not enough depth data. Move closer and try again.")
-                    return
-                }
-                fitCylinder(depthPoints, 1)
-            } catch (_: NotYetAvailableException) {
-                finishWithError("Depth data is not ready yet. Hold steady and try again.")
+            val depthPoints = depthPointCloud.toList()
+            val filteredDepthPoints = filterDepthPointsForTrunk(depthPoints)
+            Log.d(TAG, "Tier1 depth points raw=${depthPoints.size} filtered=${filteredDepthPoints.size}")
+            if (filteredDepthPoints.size < MIN_DEPTH_TRUNK_POINTS) {
+                finishWithError("Not enough depth data. Keep the trunk centred and try again. points=${filteredDepthPoints.size}")
                 return
             }
+            fitCylinder(filteredDepthPoints, 1, depthPoints.size)
         } else {
-            if (slamPointCloud.size < 50) {
-                finishWithError("Not enough AR tracking data. Move slowly and try again.")
+            val slamPoints = slamPointCloud.toList()
+            val filteredSlamPoints = filterDepthPointsForTrunk(slamPoints)
+            Log.d(TAG, "Tier2 SLAM points raw=${slamPoints.size} filtered=${filteredSlamPoints.size}")
+            if (filteredSlamPoints.size < MIN_SLAM_TRUNK_POINTS) {
+                finishWithError("Not enough AR tracking data. Move slowly while keeping the trunk centred. points=${filteredSlamPoints.size}")
                 return
             }
-            fitCylinder(slamPointCloud, 2)
+            fitCylinder(filteredSlamPoints, 2, slamPoints.size)
         }
 
         if (resultJson == null) {
@@ -462,6 +544,21 @@ class ARMeasurementActivity : AppCompatActivity(), GLSurfaceView.Renderer {
         val tap = pendingTap ?: return
         pendingTap = null
 
+        if (baseAnchor != null) {
+            val heightMetres = estimateHeightFromTopTap(frame, tap)
+            if (heightMetres == null || heightMetres < 0.5f || heightMetres > 80f) {
+                postOverlayState(
+                    "Height looks unusual",
+                    "Keep the base centred below the top, then tap the canopy top again.",
+                    null,
+                )
+                return
+            }
+
+            finishWithHeightMeasurement(heightMetres)
+            return
+        }
+
         val hitResult = frame.hitTest(tap.x, tap.y).firstOrNull { result ->
             when (val trackable = result.trackable) {
                 is Plane -> trackable.isPoseInPolygon(result.hitPose)
@@ -473,54 +570,47 @@ class ARMeasurementActivity : AppCompatActivity(), GLSurfaceView.Renderer {
 
         if (hitResult == null) {
             postOverlayState(
-                if (baseAnchor == null) {
-                    "Tap the base of the tree"
-                } else {
-                    "Tap the top of the tree"
-                },
-                "No AR surface was detected there. Tap again more precisely.",
+                "Tap the base of the tree",
+                "No tracked surface was detected at the base. Move slowly and tap again.",
                 null,
             )
             return
         }
 
         val anchor = hitResult.createAnchor()
-        if (baseAnchor == null) {
-            baseAnchor?.detach()
-            baseAnchor = anchor
-            postOverlayState(
-                "Base marked",
-                "Now tap near the top of the tree.",
-                null,
-            )
-            return
-        }
-
-        val heightMetres = abs(anchor.pose.ty() - (baseAnchor?.pose?.ty() ?: 0f))
-        if (heightMetres < 0.5f || heightMetres > 80f) {
-            anchor.detach()
-            postOverlayState(
-                "Height looks unusual",
-                "Tap again more precisely at the top of the tree.",
-                null,
-            )
-            return
-        }
-
-        finishWithHeightMeasurement(heightMetres)
+        baseAnchor?.detach()
+        baseAnchor = anchor
+        postOverlayState(
+            "Base marked",
+            "Aim at the top of the tree and tap the canopy top.",
+            null,
+        )
     }
 
     private fun collectDepthPoints(frame: Frame): List<FloatArray> {
         val depthImage = frame.acquireRawDepthImage16Bits()
+        val confidenceImage = frame.acquireRawDepthConfidenceImage()
         try {
+            if (depthImage.timestamp == lastRawDepthTimestamp || depthImage.timestamp != frame.timestamp) {
+                return emptyList()
+            }
+            lastRawDepthTimestamp = depthImage.timestamp
+
             val width = depthImage.width
             val height = depthImage.height
             val depthBuffer = depthImage.planes[0].buffer.duplicate().order(ByteOrder.nativeOrder())
+            val depthPlane = depthImage.planes[0]
+            val confidencePlane = confidenceImage.planes[0]
+            val confidenceBuffer = confidencePlane.buffer.duplicate()
             val intrinsics = frame.camera.imageIntrinsics
-            val fx = intrinsics.focalLength[0]
-            val fy = intrinsics.focalLength[1]
-            val cx = intrinsics.principalPoint[0]
-            val cy = intrinsics.principalPoint[1]
+            val imageWidth = intrinsics.imageDimensions[0].toFloat().coerceAtLeast(1f)
+            val imageHeight = intrinsics.imageDimensions[1].toFloat().coerceAtLeast(1f)
+            val scaleX = width.toFloat() / imageWidth
+            val scaleY = height.toFloat() / imageHeight
+            val fx = intrinsics.focalLength[0] * scaleX
+            val fy = intrinsics.focalLength[1] * scaleY
+            val cx = intrinsics.principalPoint[0] * scaleX
+            val cy = intrinsics.principalPoint[1] * scaleY
 
             val xStart = (width * 0.35f).toInt()
             val xEnd = (width * 0.65f).toInt()
@@ -530,7 +620,14 @@ class ARMeasurementActivity : AppCompatActivity(), GLSurfaceView.Renderer {
             val points = mutableListOf<FloatArray>()
             for (y in yStart until yEnd) {
                 for (x in xStart until xEnd) {
-                    val depthMillimetres = depthBuffer.getShort((y * width + x) * 2).toInt() and 0xFFFF
+                    val confidenceOffset = y * confidencePlane.rowStride + x * confidencePlane.pixelStride
+                    val confidence = confidenceBuffer.get(confidenceOffset).toInt() and 0xFF
+                    if (confidence < 128) {
+                        continue
+                    }
+
+                    val depthOffset = y * depthPlane.rowStride + x * depthPlane.pixelStride
+                    val depthMillimetres = depthBuffer.getShort(depthOffset).toInt() and 0xFFFF
                     if (depthMillimetres <= 0 || depthMillimetres >= 10000) {
                         continue
                     }
@@ -544,6 +641,7 @@ class ARMeasurementActivity : AppCompatActivity(), GLSurfaceView.Renderer {
 
             return points
         } finally {
+            confidenceImage.close()
             depthImage.close()
         }
     }
@@ -553,102 +651,215 @@ class ARMeasurementActivity : AppCompatActivity(), GLSurfaceView.Renderer {
         try {
             val pointBuffer = pointCloud.points
             pointBuffer.rewind()
+            val cameraPose = frame.camera.pose
 
             while (pointBuffer.remaining() >= 4) {
                 val x = pointBuffer.get()
                 val y = pointBuffer.get()
                 val z = pointBuffer.get()
                 val confidence = pointBuffer.get()
-                if (confidence > 0.3f) {
-                    slamPointCloud.add(floatArrayOf(x, y, z))
+                if (confidence <= 0.3f) {
+                    continue
                 }
+
+                val cameraPoint = cameraPose.inverse().transformPoint(floatArrayOf(x, y, z))
+                val depthMetres = -cameraPoint[2]
+                if (depthMetres < 0.5f || depthMetres > 5.0f) {
+                    continue
+                }
+
+                val horizontalRatio = abs(cameraPoint[0] / depthMetres)
+                val verticalRatio = abs(cameraPoint[1] / depthMetres)
+                if (horizontalRatio <= 0.28f && verticalRatio <= 0.65f) {
+                    slamPointCloud.add(floatArrayOf(cameraPoint[0], cameraPoint[1], depthMetres))
+                }
+            }
+
+            if (slamPointCloud.size > MAX_ACCUMULATED_POINTS) {
+                slamPointCloud.subList(0, slamPointCloud.size - MAX_ACCUMULATED_POINTS).clear()
             }
         } finally {
             pointCloud.close()
         }
     }
 
-    private fun fitCylinder(points: List<FloatArray>, tierUsed: Int): String? {
-        if (points.size < 50) {
+    private fun filterDepthPointsForTrunk(points: List<FloatArray>): List<FloatArray> {
+        if (points.size < MIN_SLAM_TRUNK_POINTS) {
+            return points
+        }
+
+        val sortedDepths = points.map { it[2] }.sorted()
+        val medianDepth = sortedDepths[sortedDepths.size / 2]
+        val depthWindow = 0.35f
+        val xWindow = (medianDepth * 0.45f).coerceIn(0.12f, 0.85f)
+        val yWindow = (medianDepth * 0.85f).coerceIn(0.18f, 1.6f)
+
+        val filtered = points.filter { point ->
+            abs(point[2] - medianDepth) <= depthWindow &&
+                abs(point[0]) <= xWindow &&
+                abs(point[1]) <= yWindow
+        }
+
+        return if (filtered.size >= MIN_SLAM_TRUNK_POINTS) filtered else points
+    }
+
+    private fun fitCylinder(
+        points: List<FloatArray>,
+        tierUsed: Int,
+        rawPointCount: Int = points.size,
+    ): String? {
+        val minimumPoints = if (tierUsed == 1) MIN_DEPTH_TRUNK_POINTS else MIN_SLAM_TRUNK_POINTS
+        if (points.size < minimumPoints) {
             return null
         }
 
-        var bestInliers = 0
-        var bestRadius = 0.0f
-        val totalPoints = points.size
-        val epsilon = 0.02f
-
-        repeat(100) {
-            val firstIndex = Random.nextInt(totalPoints)
-            var secondIndex = Random.nextInt(totalPoints)
-            while (secondIndex == firstIndex) {
-                secondIndex = Random.nextInt(totalPoints)
-            }
-            var thirdIndex = Random.nextInt(totalPoints)
-            while (thirdIndex == firstIndex || thirdIndex == secondIndex) {
-                thirdIndex = Random.nextInt(totalPoints)
-            }
-
-            val firstPoint = points[firstIndex]
-            val secondPoint = points[secondIndex]
-            val thirdPoint = points[thirdIndex]
-
-            val axisX = secondPoint[0] - firstPoint[0]
-            val axisY = secondPoint[1] - firstPoint[1]
-            val axisZ = secondPoint[2] - firstPoint[2]
-            val axisLength = sqrt(axisX * axisX + axisY * axisY + axisZ * axisZ)
-            if (axisLength < 0.01f) {
-                return@repeat
-            }
-
-            val normalisedAxisX = axisX / axisLength
-            val normalisedAxisY = axisY / axisLength
-            val normalisedAxisZ = axisZ / axisLength
-
-            val offsetX = thirdPoint[0] - firstPoint[0]
-            val offsetY = thirdPoint[1] - firstPoint[1]
-            val offsetZ = thirdPoint[2] - firstPoint[2]
-            val axisProjection = offsetX * normalisedAxisX + offsetY * normalisedAxisY + offsetZ * normalisedAxisZ
-            val projectedX = offsetX - axisProjection * normalisedAxisX
-            val projectedY = offsetY - axisProjection * normalisedAxisY
-            val projectedZ = offsetZ - axisProjection * normalisedAxisZ
-            val radius = sqrt(projectedX * projectedX + projectedY * projectedY + projectedZ * projectedZ)
-
-            if (radius < 0.025f || radius > 1.0f) {
-                return@repeat
-            }
-
-            var inlierCount = 0
-            for (point in points) {
-                val pointOffsetX = point[0] - firstPoint[0]
-                val pointOffsetY = point[1] - firstPoint[1]
-                val pointOffsetZ = point[2] - firstPoint[2]
-                val pointProjection =
-                    pointOffsetX * normalisedAxisX +
-                        pointOffsetY * normalisedAxisY +
-                        pointOffsetZ * normalisedAxisZ
-                val distanceX = pointOffsetX - pointProjection * normalisedAxisX
-                val distanceY = pointOffsetY - pointProjection * normalisedAxisY
-                val distanceZ = pointOffsetZ - pointProjection * normalisedAxisZ
-                val distance = sqrt(distanceX * distanceX + distanceY * distanceY + distanceZ * distanceZ)
-                if (abs(distance - radius) < epsilon) {
-                    inlierCount += 1
-                }
-            }
-
-            if (inlierCount > bestInliers) {
-                bestInliers = inlierCount
-                bestRadius = radius
-            }
-        }
-
-        if (bestInliers < 50 || bestRadius == 0.0f) {
+        val sortedX = points.map { it[0] }.sorted()
+        val sortedY = points.map { it[1] }.sorted()
+        val sortedDepth = points.map { it[2] }.sorted()
+        val leftEdge = percentile(sortedX, 0.05f)
+        val rightEdge = percentile(sortedX, 0.95f)
+        val medianX = percentile(sortedX, 0.50f)
+        val diameterMetres = (rightEdge - leftEdge) * 1.04f
+        if (diameterMetres < 0.05f || diameterMetres > 2.0f) {
             return null
         }
 
-        val confidence = bestInliers.toFloat() / totalPoints.toFloat()
-        val diameterCentimetres = bestRadius * 2 * 100
-        return """{"diameter_cm":${String.format(Locale.US, "%.1f", diameterCentimetres)},"confidence":${String.format(Locale.US, "%.3f", confidence)},"tier_used":$tierUsed,"point_count":$totalPoints}"""
+        val verticalCoverage = percentile(sortedY, 0.90f) - percentile(sortedY, 0.10f)
+        val depthSpread = percentile(sortedDepth, 0.90f) - percentile(sortedDepth, 0.10f)
+        val leftWidth = abs(medianX - leftEdge)
+        val rightWidth = abs(rightEdge - medianX)
+        val symmetryScore =
+            (1f - (abs(leftWidth - rightWidth) / max(diameterMetres, 0.05f))).coerceIn(0f, 1f)
+        val countTarget = if (tierUsed == 1) 700f else 90f
+        val countScore = (points.size.toFloat() / countTarget).coerceIn(0f, 1f)
+        val depthScore = (1f - (depthSpread / 0.85f)).coerceIn(0f, 1f)
+        val coverageScore = (verticalCoverage / 0.60f).coerceIn(0f, 1f)
+        val confidence =
+            (0.52f + countScore * 0.18f + depthScore * 0.14f + coverageScore * 0.08f + symmetryScore * 0.08f)
+                .coerceIn(0.50f, 0.96f)
+
+        val diameterCentimetres = diameterMetres * 100f
+        return """{"diameter_cm":${String.format(Locale.US, "%.1f", diameterCentimetres)},"confidence":${String.format(Locale.US, "%.3f", confidence)},"tier_used":$tierUsed,"point_count":${points.size},"raw_point_count":$rawPointCount,"filtered_point_count":${points.size},"fit_method":"vertical_trunk_width"}"""
+    }
+
+    private fun percentile(sortedValues: List<Float>, percentile: Float): Float {
+        if (sortedValues.isEmpty()) {
+            return 0f
+        }
+
+        val index = (((sortedValues.size - 1) * percentile).toInt())
+            .coerceIn(0, sortedValues.size - 1)
+        return sortedValues[index]
+    }
+
+    private fun estimateHeightFromTopTap(frame: Frame, tap: PointF): Float? {
+        val basePose = baseAnchor?.pose ?: return null
+        val ray = createWorldRay(frame, tap) ?: return null
+        val base = floatArrayOf(basePose.tx(), basePose.ty(), basePose.tz())
+        val wx = ray.origin[0] - base[0]
+        val wy = ray.origin[1] - base[1]
+        val wz = ray.origin[2] - base[2]
+        val rayDotUp = ray.direction[1]
+        val rayDotOffset =
+            ray.direction[0] * wx +
+                ray.direction[1] * wy +
+                ray.direction[2] * wz
+        val denom = 1f - rayDotUp * rayDotUp
+        if (denom < 0.0005f) {
+            return null
+        }
+
+        val rayDistance = ((rayDotUp * wy) - rayDotOffset) / denom
+        if (rayDistance <= 0f) {
+            return null
+        }
+
+        val heightMetres = wy + rayDotUp * rayDistance
+        val closestRayPoint = floatArrayOf(
+            ray.origin[0] + ray.direction[0] * rayDistance,
+            ray.origin[1] + ray.direction[1] * rayDistance,
+            ray.origin[2] + ray.direction[2] * rayDistance,
+        )
+        val closestVerticalPoint = floatArrayOf(base[0], base[1] + heightMetres, base[2])
+        val missDistance = distance(closestRayPoint, closestVerticalPoint)
+        val phoneBaseDistance = sqrt(wx * wx + wz * wz)
+        val allowedMiss = (phoneBaseDistance * 0.35f + 0.45f).coerceIn(0.75f, 2.5f)
+        if (missDistance > allowedMiss) {
+            return null
+        }
+
+        return heightMetres
+    }
+
+    private fun createWorldRay(frame: Frame, tap: PointF): WorldRay? {
+        if (viewportWidth <= 0 || viewportHeight <= 0) {
+            return null
+        }
+
+        val projection = FloatArray(16)
+        val view = FloatArray(16)
+        val viewProjection = FloatArray(16)
+        val inverseViewProjection = FloatArray(16)
+        frame.camera.getProjectionMatrix(projection, 0, 0.1f, 100f)
+        frame.camera.getViewMatrix(view, 0)
+        Matrix.multiplyMM(viewProjection, 0, projection, 0, view, 0)
+        if (!Matrix.invertM(inverseViewProjection, 0, viewProjection, 0)) {
+            return null
+        }
+
+        val ndcX = (tap.x / viewportWidth.toFloat()) * 2f - 1f
+        val ndcY = 1f - (tap.y / viewportHeight.toFloat()) * 2f
+        val near = worldFromClip(inverseViewProjection, ndcX, ndcY, -1f) ?: return null
+        val far = worldFromClip(inverseViewProjection, ndcX, ndcY, 1f) ?: return null
+        val direction = normalised(
+            floatArrayOf(
+                far[0] - near[0],
+                far[1] - near[1],
+                far[2] - near[2],
+            ),
+        ) ?: return null
+
+        return WorldRay(near, direction)
+    }
+
+    private fun worldFromClip(
+        inverseViewProjection: FloatArray,
+        x: Float,
+        y: Float,
+        z: Float,
+    ): FloatArray? {
+        val clip = floatArrayOf(x, y, z, 1f)
+        val world = FloatArray(4)
+        Matrix.multiplyMV(world, 0, inverseViewProjection, 0, clip, 0)
+        if (abs(world[3]) < 0.000001f) {
+            return null
+        }
+
+        return floatArrayOf(
+            world[0] / world[3],
+            world[1] / world[3],
+            world[2] / world[3],
+        )
+    }
+
+    private fun normalised(vector: FloatArray): FloatArray? {
+        val length = sqrt(
+            vector[0] * vector[0] +
+                vector[1] * vector[1] +
+                vector[2] * vector[2],
+        )
+        if (length < 0.000001f) {
+            return null
+        }
+
+        return floatArrayOf(vector[0] / length, vector[1] / length, vector[2] / length)
+    }
+
+    private fun distance(first: FloatArray, second: FloatArray): Float {
+        val dx = first[0] - second[0]
+        val dy = first[1] - second[1]
+        val dz = first[2] - second[2]
+        return sqrt(dx * dx + dy * dy + dz * dz)
     }
 
     private fun finishWithDiameterMeasurement(resultJson: String) {

@@ -8,6 +8,7 @@ import android.os.Handler
 import android.os.HandlerThread
 import android.provider.Settings
 import android.util.Base64
+import android.util.Log
 import com.facebook.react.bridge.BaseActivityEventListener
 import com.facebook.react.bridge.Promise
 import com.facebook.react.bridge.ReactApplicationContext
@@ -22,6 +23,7 @@ import com.google.ar.core.Plane
 import com.google.ar.core.Point
 import com.google.ar.core.Session
 import com.google.ar.core.TrackingState
+import com.google.ar.core.exceptions.CameraNotAvailableException
 import org.tensorflow.lite.Interpreter
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
@@ -36,8 +38,11 @@ class ARModule(private val reactContext: ReactApplicationContext) :
     ReactContextBaseJavaModule(reactContext) {
 
     companion object {
+        private const val TAG = "TerraTrustAR"
         private const val DIAMETER_MEASUREMENT_REQUEST_CODE = 44001
         private const val HEIGHT_MEASUREMENT_REQUEST_CODE = 44002
+        private const val ARCORE_AVAILABILITY_MAX_ATTEMPTS = 8
+        private const val ARCORE_AVAILABILITY_RETRY_DELAY_MS = 200L
     }
 
     override fun getName(): String = "ARModule"
@@ -78,11 +83,14 @@ class ARModule(private val reactContext: ReactApplicationContext) :
                             promise.resolve(measurementJson)
                         }
                     } else {
-                        promise.reject(
-                            "MEASUREMENT_CANCELLED",
-                            data?.getStringExtra(ARMeasurementActivity.EXTRA_ERROR_MESSAGE)
-                                ?: "AR diameter measurement was cancelled.",
-                        )
+                        val errorMsg = data?.getStringExtra(ARMeasurementActivity.EXTRA_ERROR_MESSAGE)
+                        if (errorMsg.isNullOrBlank()) {
+                            // No error message = user pressed back — signal a cancellation so the
+                            // React Native layer can handle it silently (no 'failed' alert shown).
+                            promise.reject("MEASUREMENT_CANCELLED", "AR diameter measurement was cancelled.")
+                        } else {
+                            promise.reject("MEASUREMENT_ERROR", errorMsg)
+                        }
                     }
                 }
 
@@ -102,11 +110,13 @@ class ARModule(private val reactContext: ReactApplicationContext) :
                             )
                         }
                     } else {
-                        promise.reject(
-                            "HEIGHT_CAPTURE_CANCELLED",
-                            data?.getStringExtra(ARMeasurementActivity.EXTRA_ERROR_MESSAGE)
-                                ?: "AR height measurement was cancelled.",
-                        )
+                        val errorMsg = data?.getStringExtra(ARMeasurementActivity.EXTRA_ERROR_MESSAGE)
+                        if (errorMsg.isNullOrBlank()) {
+                            // No error message = user pressed back — treat as a cancellation, not a failure
+                            promise.reject("HEIGHT_CAPTURE_CANCELLED", "AR height measurement was cancelled.")
+                        } else {
+                            promise.reject("HEIGHT_CAPTURE_FAILED", errorMsg)
+                        }
                     }
                 }
             }
@@ -131,24 +141,50 @@ class ARModule(private val reactContext: ReactApplicationContext) :
     @ReactMethod
     fun checkDepthSupport(promise: Promise) {
         try {
-            val availability = ArCoreApk.getInstance().checkAvailability(reactContext)
+            val arCore = ArCoreApk.getInstance()
+            var availability = arCore.checkAvailability(reactContext)
+            var attempts = 0
+            while (
+                availability.isTransient &&
+                attempts < ARCORE_AVAILABILITY_MAX_ATTEMPTS
+            ) {
+                Thread.sleep(ARCORE_AVAILABILITY_RETRY_DELAY_MS)
+                availability = arCore.checkAvailability(reactContext)
+                attempts += 1
+            }
+
             if (availability.isUnsupported) {
+                Log.d(TAG, "ARCore availability=${availability.name} support=UNSUPPORTED")
                 promise.resolve("UNSUPPORTED")
                 return
             }
+
             val session = Session(reactContext)
             try {
-                val isDepthSupported = session.isDepthModeSupported(Config.DepthMode.RAW_DEPTH_ONLY)
-                if (isDepthSupported) {
-                    promise.resolve("FULL_DEPTH")
-                } else {
-                    promise.resolve("SLAM_ONLY")
-                }
+                val isDepthSupported =
+                    session.isDepthModeSupported(Config.DepthMode.RAW_DEPTH_ONLY) ||
+                        session.isDepthModeSupported(Config.DepthMode.AUTOMATIC)
+                val support = if (isDepthSupported) "FULL_DEPTH" else "SLAM_ONLY"
+                Log.d(TAG, "ARCore availability=${availability.name} support=$support")
+                promise.resolve(support)
             } finally {
                 session.close()
             }
+        } catch (_: CameraNotAvailableException) {
+            Log.d(TAG, "ARCore session camera transient; support=SLAM_ONLY")
+            promise.resolve("SLAM_ONLY")
         } catch (e: Exception) {
-            promise.resolve("UNSUPPORTED")
+            val exceptionName = e.javaClass.simpleName
+            if (
+                exceptionName.contains("NotInstalled", ignoreCase = true) ||
+                exceptionName.contains("ApkTooOld", ignoreCase = true)
+            ) {
+                Log.d(TAG, "ARCore install/update needed ($exceptionName); support=SLAM_ONLY")
+                promise.resolve("SLAM_ONLY")
+            } else {
+                Log.d(TAG, "ARCore detection failed ($exceptionName); support=UNSUPPORTED")
+                promise.resolve("UNSUPPORTED")
+            }
         }
     }
 
@@ -206,10 +242,13 @@ class ARModule(private val reactContext: ReactApplicationContext) :
                 activity.startActivityForResult(intent, DIAMETER_MEASUREMENT_REQUEST_CODE)
             } catch (exception: Exception) {
                 pendingDiameterPromise = null
-                promise.reject(
-                    "MEASUREMENT_ERROR",
-                    exception.message ?: "Unable to open AR diameter measurement.",
-                )
+                // Check if this is a camera-specific error
+                val errorMessage = exception.message ?: "Unable to open AR diameter measurement."
+                if (errorMessage.contains("camera", ignoreCase = true)) {
+                    promise.reject("CAMERA_IN_USE", "Camera access failed: $errorMessage")
+                } else {
+                    promise.reject("MEASUREMENT_ERROR", errorMessage)
+                }
             }
         }
     }
@@ -237,10 +276,13 @@ class ARModule(private val reactContext: ReactApplicationContext) :
                 activity.startActivityForResult(intent, HEIGHT_MEASUREMENT_REQUEST_CODE)
             } catch (exception: Exception) {
                 pendingHeightPromise = null
-                promise.reject(
-                    "HEIGHT_INIT_FAILED",
-                    exception.message ?: "Unable to open AR height measurement.",
-                )
+                // Check if this is a camera-specific error
+                val errorMessage = exception.message ?: "Unable to open AR height measurement."
+                if (errorMessage.contains("camera", ignoreCase = true)) {
+                    promise.reject("CAMERA_IN_USE", "Camera access failed: $errorMessage")
+                } else {
+                    promise.reject("HEIGHT_INIT_FAILED", errorMessage)
+                }
             }
         }
     }
@@ -534,10 +576,13 @@ class ARModule(private val reactContext: ReactApplicationContext) :
                 } else {
                     Config.DepthMode.DISABLED
                 }
+                updateMode = Config.UpdateMode.LATEST_CAMERA_IMAGE
             }
 
             session.configure(config)
-
+            // Do NOT call session.resume() here — the VisionCamera still owns the
+            // camera device. captureHeightPoint() resumes and immediately pauses the
+            // session for the brief instant it needs to acquire an anchor.
             heightSession = session
             promise.resolve("READY")
         } catch (e: Exception) {

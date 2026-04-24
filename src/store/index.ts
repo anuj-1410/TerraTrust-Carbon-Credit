@@ -17,7 +17,9 @@ import authReducer from '../features/auth/store/authSlice';
 import type {AuthState} from '../features/auth/store/authSlice';
 import landReducer from '../features/land/store/landSlice';
 import type {LandState} from '../features/land/store/landSlice';
-import auditReducer from '../features/ar-audit/store/auditSlice';
+import auditReducer, {
+  auditInitialState,
+} from '../features/ar-audit/store/auditSlice';
 import type {AuditState} from '../features/ar-audit/store/auditSlice';
 import creditsReducer from '../features/dashboard/store/creditsSlice';
 import type {CreditsState} from '../features/dashboard/store/creditsSlice';
@@ -91,6 +93,19 @@ async function migrateNotificationsState(state: any): Promise<any> {
   };
 }
 
+async function migrateAuditState(state: any): Promise<any> {
+  if (!state || typeof state !== 'object') {
+    return state;
+  }
+
+  return {
+    ...state,
+    arTier: auditInitialState.arTier,
+    arTierResolved: auditInitialState.arTierResolved,
+    uploadStatus: auditInitialState.uploadStatus,
+  };
+}
+
 const authPersistConfig: PersistConfig<AuthState> = {
   key: 'auth',
   version: 1,
@@ -110,10 +125,10 @@ const landPersistConfig: PersistConfig<LandState> = {
 
 const auditPersistConfig: PersistConfig<AuditState> = {
   key: 'audit',
-  version: 1,
+  version: 2,
   storage: mmkvStorage,
-  blacklist: ['uploadStatus'],
-  migrate: createMigrate(migrations, {debug: false}),
+  blacklist: ['uploadStatus', 'arTier', 'arTierResolved'],
+  migrate: migrateAuditState,
   stateReconciler: autoMergeLevel2,
 };
 

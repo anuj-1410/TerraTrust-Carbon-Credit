@@ -32,8 +32,6 @@ import {
   measureTreeDiameter,
   measureTreeHeight,
   identifySpecies,
-  beginHeightMeasurement,
-  captureHeightPoint,
   cancelHeightMeasurement,
 } from '../../../services/ar-bridge';
 import {hashPhoto, readFileAsBase64} from '../../../common/utils/hash';
@@ -58,8 +56,6 @@ type MeasurePhase =
   | 'identifying'
   | 'species_done'
   | 'measuring'
-  | 'height_base'
-  | 'height_top'
   | 'result'
   | 'success';
 
@@ -109,6 +105,7 @@ const ARCameraScreen = () => {
   const {zones, scannedTrees, arTier} = audit;
   const currentZone = zones[zoneIndex] ?? null;
   const returnedDiameter = route.params.returnDiameter;
+  const returnedHeight = route.params.returnHeight;
   const resetScanToken = route.params.resetScanToken;
 
   // State
@@ -136,6 +133,7 @@ const ARCameraScreen = () => {
   const [measureConfidence, setMeasureConfidence] = useState(0);
   const [tierUsed, setTierUsed] = useState<1 | 2 | 3>(arTier as 1 | 2 | 3);
   const [consecutiveFailures, setConsecutiveFailures] = useState(0);
+  const [, setConsecutiveHeightFailures] = useState(0);
 
   // Evidence
   const [evidenceBase64, setEvidenceBase64] = useState<string | null>(null);
@@ -177,7 +175,7 @@ const ARCameraScreen = () => {
   const waitForVisionCameraState = useCallback(
     (
       targetState: Extract<VisionCameraState, 'active' | 'inactive'>,
-      timeoutMs = 4000,
+      timeoutMs = 5000,
     ) =>
       new Promise<void>((resolve, reject) => {
         if (visionCameraStateRef.current === targetState) {
@@ -203,7 +201,7 @@ const ARCameraScreen = () => {
           waitersRef.current = waitersRef.current.filter(
             waiter => waiter !== resolveWaiter,
           );
-          reject(new Error(`VisionCamera did not become ${targetState} in time.`));
+          reject(new Error(`Camera failed to become ${targetState} within 5 seconds`));
         }, timeoutMs);
 
         waitersRef.current.push(resolveWaiter);
@@ -225,6 +223,11 @@ const ARCameraScreen = () => {
     }
 
     setVisionCameraDesiredActive(true);
+
+    // CRITICAL FIX: Wait for React state to propagate before waiting for callbacks
+    // This ensures the Camera component receives isActive={true} before we start waiting
+    await new Promise(resolve => setTimeout(resolve, 50));
+
     await waitForVisionCameraState('active');
   }, [isVisionCameraActive, setVisionCameraDesiredActive, waitForVisionCameraState]);
 
@@ -234,7 +237,23 @@ const ARCameraScreen = () => {
     }
 
     setVisionCameraDesiredActive(false);
-    await waitForVisionCameraState('inactive');
+
+    // CRITICAL FIX: Wait for React state to propagate before waiting for callbacks
+    // This ensures the Camera component receives isActive={false} before we start waiting
+    await new Promise(resolve => setTimeout(resolve, 50));
+
+    try {
+      await waitForVisionCameraState('inactive');
+    } catch (error) {
+      // Some devices dispatch stop callbacks late or not at all even after the
+      // camera device starts closing. Continue with an extra guard delay so ARCore
+      // can still attempt acquisition and use native retry/error handling.
+      if (__DEV__) {
+        console.warn('VisionCamera inactive callback timeout, continuing with delay', error);
+      }
+      visionCameraStateRef.current = 'inactive';
+      await new Promise(resolve => setTimeout(resolve, 650));
+    }
   }, [isVisionCameraActive, setVisionCameraDesiredActive, waitForVisionCameraState]);
 
   const runWithExclusiveArCameraAccess = useCallback(
@@ -242,8 +261,20 @@ const ARCameraScreen = () => {
       operation: () => Promise<T>,
       options?: {resumeVisionCamera?: boolean},
     ): Promise<T> {
+      if (__DEV__) {
+        console.log('VisionCamera transitioning to inactive');
+      }
       await ensureVisionCameraInactive();
 
+      if (__DEV__) {
+        console.log('VisionCamera inactive, waiting 250ms');
+      }
+      // Add post-inactive delay to ensure camera device is fully released
+      await new Promise(resolve => setTimeout(resolve, 300));
+
+      if (__DEV__) {
+        console.log('Launching ARMeasurementActivity');
+      }
       try {
         return await operation();
       } finally {
@@ -297,6 +328,8 @@ const ARCameraScreen = () => {
     setArHeightM(null);
     setMeasureConfidence(0);
     setTierUsed(arTier as 1 | 2 | 3);
+    setConsecutiveFailures(0);
+    setConsecutiveHeightFailures(0);
     setEvidenceBase64(null);
     setEvidenceHash(null);
     timerProgress.value = 0;
@@ -344,6 +377,15 @@ const ARCameraScreen = () => {
     }
   }, [returnedDiameter]);
 
+  useEffect(() => {
+    if (returnedHeight != null) {
+      setArHeightM(returnedHeight);
+      setConsecutiveHeightFailures(0);
+      setPhase(diameterCm !== null ? 'result' : 'species_done');
+      setStatusText(`Height entered: ${returnedHeight.toFixed(1)} m`);
+    }
+  }, [diameterCm, returnedHeight]);
+
   // GPS location for tree capture
   useEffect(() => {
     const watchId = Geolocation.watchPosition(
@@ -377,9 +419,9 @@ const ARCameraScreen = () => {
     : woodDensity;
   const needsArHeight = Boolean(currentZone && !currentZone.gedi_available);
   const canMeasureArHeight = needsArHeight && arTier !== 3;
-  const requiresArHeightBeforeSave = needsArHeight && canMeasureArHeight;
+  const requiresArHeightBeforeSave = needsArHeight;
   const canStartDiameterMeasurement = Boolean(resolvedSpeciesName);
-  const canStartHeightMeasurement = canStartDiameterMeasurement && canMeasureArHeight;
+  const canStartHeightMeasurement = canStartDiameterMeasurement && needsArHeight;
 
   useEffect(() => {
     return () => {
@@ -475,7 +517,11 @@ const ARCameraScreen = () => {
   // ──── MEASURE DIAMETER ────
   const handleMeasureDiameter = useCallback(async () => {
     if (arTier === 3) {
-      navigation.navigate('ManualMeasureScreen', {zoneId, zoneIndex});
+      navigation.navigate('ManualMeasureScreen', {
+        zoneId,
+        zoneIndex,
+        mode: 'diameter',
+      });
       return;
     }
 
@@ -505,34 +551,48 @@ const ARCameraScreen = () => {
 
       // FR-021: confidence < 0.7 → retry
       if (result.confidence < 0.7) {
-        setConsecutiveFailures(f => f + 1);
-        if (consecutiveFailures + 1 >= 3) {
-          // FR-027: 3 failures → ManualMeasure
-          navigation.navigate('ManualMeasureScreen', {zoneId, zoneIndex});
-          return;
-        }
-        Alert.alert(
-          'Low Confidence',
-          'Move closer to the tree and hold still, then try again.',
-        );
-        setPhase('species_done');
-        setStatusText('Try again — Measure diameter');
+        // Use functional updater and read the new value synchronously via a ref-like pattern
+        setConsecutiveFailures(prev => {
+          const next = prev + 1;
+          if (next >= 3) {
+            navigation.navigate('ManualMeasureScreen', {
+              zoneId,
+              zoneIndex,
+              mode: 'diameter',
+            });
+          } else {
+            Alert.alert(
+              'Low Confidence',
+              'Move closer to the tree and hold still, then try again.',
+            );
+            setPhase('species_done');
+            setStatusText('Try again — Measure diameter');
+          }
+          return next;
+        });
         return;
       }
 
       // FR-022: unusual DBH
       if (result.diameter_cm < 5 || result.diameter_cm > 200) {
-        setConsecutiveFailures(f => f + 1);
-        if (consecutiveFailures + 1 >= 3) {
-          navigation.navigate('ManualMeasureScreen', {zoneId, zoneIndex});
-          return;
-        }
-        Alert.alert(
-          'Unusual Measurement',
-          'This seems unusual. Please measure again.',
-        );
-        setPhase('species_done');
-        setStatusText('Try again — Measure diameter');
+        setConsecutiveFailures(prev => {
+          const next = prev + 1;
+          if (next >= 3) {
+            navigation.navigate('ManualMeasureScreen', {
+              zoneId,
+              zoneIndex,
+              mode: 'diameter',
+            });
+          } else {
+            Alert.alert(
+              'Unusual Measurement',
+              'This seems unusual. Please measure again.',
+            );
+            setPhase('species_done');
+            setStatusText('Try again — Measure diameter');
+          }
+          return next;
+        });
         return;
       }
 
@@ -542,53 +602,113 @@ const ARCameraScreen = () => {
       setMeasureConfidence(result.confidence);
       setTierUsed(result.tier_used);
 
-      // Evidence photo + hash
-      await captureEvidencePhoto();
+      // Try evidence capture, but do not fail a successful AR measurement if
+      // snapshot capture races while VisionCamera is recovering.
+      try {
+        await captureEvidencePhoto();
+      } catch {
+        // Accept measurement result and let save flow re-capture evidence later.
+      }
 
       ReactNativeHapticFeedback.trigger('impactMedium');
       setPhase('result');
       setStatusText('Measurement complete');
-    } catch {
-      setConsecutiveFailures(f => f + 1);
-      if (consecutiveFailures + 1 >= 3) {
-        navigation.navigate('ManualMeasureScreen', {zoneId, zoneIndex});
+    } catch (err: unknown) {
+      // Distinguish user cancellation (back press) from a real AR failure
+      const errorCode =
+        err != null &&
+        typeof err === 'object' &&
+        'code' in err
+          ? (err as {code: string}).code
+          : '';
+
+      if (errorCode === 'MEASUREMENT_CANCELLED') {
+        // User pressed back inside the AR activity — not a failure, just reset quietly
+        setPhase(
+          IS_AUDIT_SPECIES_DETECTION_DISABLED ? 'species_done' : (speciesName ? 'species_done' : 'idle'),
+        );
+        setStatusText(
+          speciesName
+            ? 'Try again — Measure diameter'
+            : (IS_AUDIT_SPECIES_DETECTION_DISABLED
+                ? DIRECT_MEASUREMENT_STATUS_TEXT
+                : DEFAULT_STATUS_TEXT),
+        );
         return;
       }
-      Alert.alert(
-        'Measurement Failed',
-        'Move closer to the tree and hold still, then try again.',
-      );
-      setPhase('species_done');
-      setStatusText('Try again — Measure diameter');
+
+      if (errorCode === 'CAMERA_IN_USE') {
+        // Camera access conflict - provide specific error message
+        Alert.alert(
+          'Camera Unavailable',
+          'The camera is currently in use. Please wait a moment and try again.',
+        );
+        setPhase('species_done');
+        setStatusText('Try again — Measure diameter');
+        return;
+      }
+
+      const errorMessage =
+        err != null &&
+        typeof err === 'object' &&
+        'message' in err &&
+        typeof (err as {message?: unknown}).message === 'string'
+          ? (err as {message: string}).message
+          : '';
+
+      setConsecutiveFailures(prev => {
+        const next = prev + 1;
+        if (next >= 3) {
+          navigation.navigate('ManualMeasureScreen', {
+            zoneId,
+            zoneIndex,
+            mode: 'diameter',
+          });
+        } else {
+          Alert.alert(
+            'Measurement Failed',
+            errorMessage || 'Move closer to the tree and hold still, then try again.',
+          );
+          setPhase('species_done');
+          setStatusText('Try again — Measure diameter');
+        }
+        return next;
+      });
     }
   }, [
     arTier,
     captureEvidencePhoto,
-    consecutiveFailures,
     navigation,
     runWithExclusiveArCameraAccess,
     slamArrowX,
+    speciesName,
     timerProgress,
     zoneId,
     zoneIndex,
   ]);
 
   const handleStartHeightMeasurement = useCallback(async () => {
+    if (!needsArHeight) {
+      return;
+    }
+
     if (!canMeasureArHeight) {
-      Alert.alert(
-        'Height Measurement Unavailable',
-        'This device cannot capture AR height for zones without GEDI satellite data.',
-      );
+      navigation.navigate('ManualMeasureScreen', {
+        zoneId,
+        zoneIndex,
+        mode: 'height',
+      });
       return;
     }
 
     try {
-      setStatusText('Opening AR height measurement...');
+      setStatusText('Launching height measurement...');
       const result = await runWithExclusiveArCameraAccess(() =>
         measureTreeHeight(),
       );
       const heightM = result.height_m ?? null;
       setArHeightM(heightM);
+      setConsecutiveHeightFailures(0);
       ReactNativeHapticFeedback.trigger('impactMedium');
       setStatusText(
         heightM !== null
@@ -596,11 +716,53 @@ const ARCameraScreen = () => {
           : 'Height measured',
       );
       setPhase(diameterCm !== null ? 'result' : 'species_done');
-    } catch {
+    } catch (error: unknown) {
+      const errorCode =
+        error != null &&
+        typeof error === 'object' &&
+        'code' in error
+          ? (error as {code: string}).code
+          : '';
+
+      if (errorCode === 'HEIGHT_CAPTURE_CANCELLED') {
+        setStatusText(
+          diameterCm !== null
+            ? 'Measurement complete'
+            : 'Species identified - Measure diameter',
+        );
+        setPhase(diameterCm !== null ? 'result' : 'species_done');
+        return;
+      }
+
+      if (errorCode === 'CAMERA_IN_USE') {
+        Alert.alert(
+          'Camera Unavailable',
+          'The camera is currently in use. Please wait a moment and try again.',
+        );
+        setStatusText(
+          diameterCm !== null
+            ? 'Measurement complete'
+            : 'Species identified - Measure diameter',
+        );
+        setPhase(diameterCm !== null ? 'result' : 'species_done');
+        return;
+      }
+
       Alert.alert(
         'Height Measurement Unavailable',
-        'Could not measure tree height. Point at the tree and try again.',
+        'Could not complete AR height measurement. Please try again.',
       );
+      setConsecutiveHeightFailures(prev => {
+        const next = prev + 1;
+        if (next >= 3) {
+          navigation.navigate('ManualMeasureScreen', {
+            zoneId,
+            zoneIndex,
+            mode: 'height',
+          });
+        }
+        return next;
+      });
       setStatusText(
         diameterCm !== null
           ? 'Measurement complete'
@@ -608,55 +770,15 @@ const ARCameraScreen = () => {
       );
       setPhase(diameterCm !== null ? 'result' : 'species_done');
     }
-  }, [canMeasureArHeight, diameterCm, runWithExclusiveArCameraAccess]);
-
-  const handleCaptureHeightBase = useCallback(async () => {
-    try {
-      await runWithExclusiveArCameraAccess(() =>
-        withTimeout(captureHeightPoint('base'), 5000),
-      );
-      setPhase('height_top');
-      setStatusText('Base marked. Tilt to the top of the tree, then tap Top.');
-    } catch {
-      Alert.alert(
-        'Base Not Captured',
-        'Point at the base of the tree and hold steady, then try again.',
-      );
-    }
-  }, [runWithExclusiveArCameraAccess]);
-
-  const handleCaptureHeightTop = useCallback(async () => {
-    try {
-      const result = await runWithExclusiveArCameraAccess(() =>
-        withTimeout(captureHeightPoint('top'), 5000),
-      );
-      const heightM = result.height_m ?? null;
-      setArHeightM(heightM);
-      ReactNativeHapticFeedback.trigger('impactMedium');
-      setStatusText(
-        heightM !== null
-          ? `Height measured: ${heightM.toFixed(1)} m`
-          : 'Height measured',
-      );
-      setPhase(diameterCm !== null ? 'result' : 'species_done');
-    } catch {
-      Alert.alert(
-        'Height Not Captured',
-        'Point at the top of the tree and hold steady, then try again.',
-      );
-    }
-  }, [diameterCm, runWithExclusiveArCameraAccess]);
-
-  const handleCancelHeightMeasurement = useCallback(() => {
-    void cancelHeightMeasurement().catch(() => undefined);
-    void ensureVisionCameraActive().catch(() => undefined);
-    setStatusText(
-      diameterCm !== null
-        ? 'Measurement complete'
-        : 'Species identified — Measure diameter',
-    );
-    setPhase(diameterCm !== null ? 'result' : 'species_done');
-  }, [diameterCm, ensureVisionCameraActive]);
+  }, [
+    canMeasureArHeight,
+    diameterCm,
+    navigation,
+    needsArHeight,
+    runWithExclusiveArCameraAccess,
+    zoneId,
+    zoneIndex,
+  ]);
 
   const handleAcceptSave = useCallback(async () => {
     if (!resolvedSpeciesName || !resolvedSpeciesSource || diameterCm === null) {
@@ -665,8 +787,8 @@ const ARCameraScreen = () => {
 
     if (requiresArHeightBeforeSave && arHeightM === null) {
       Alert.alert(
-        'Measure Height First',
-        'This zone has no GEDI satellite height data, so you need to capture tree height before saving.',
+        'Add Height First',
+        'This zone has no GEDI satellite height data, so measure or enter tree height before saving.',
       );
       return;
     }
@@ -962,53 +1084,13 @@ const ARCameraScreen = () => {
                 }}>
                 <MaterialCommunityIcons color="#FFFFFF" name="arrow-expand-vertical" size={18} />
                 <Text className="mt-1 text-center text-xs font-semibold text-white">
-                  {canMeasureArHeight ? 'Measure Height' : 'Height Unavailable'}
+                  {canMeasureArHeight ? 'Measure Height' : 'Enter Height'}
                 </Text>
               </TouchableOpacity>
             ) : null}
           </View>
         </View>
       ) : null}
-
-      {(phase === 'height_base' || phase === 'height_top') && (
-        <View className="absolute bottom-0 left-0 right-0 px-5 pb-8 pt-6 bg-gradient-to-t from-black/80">
-          <View className="rounded-2xl bg-black/60 p-4 mb-4">
-            <Text className="text-white text-base font-semibold">
-              {phase === 'height_base'
-                ? 'Point the crosshair at the base of the tree trunk.'
-                : 'Tilt up and place the crosshair on the top of the tree.'}
-            </Text>
-            <Text className="text-white/70 text-sm mt-2">
-              {phase === 'height_base'
-                ? 'Tap Base when the crosshair is on the tree base.'
-                : 'Tap Top to calculate the vertical height between both points.'}
-            </Text>
-          </View>
-          <View className="flex-row space-x-3">
-            <TouchableOpacity
-              onPress={handleCancelHeightMeasurement}
-              className="flex-1 h-14 rounded-xl border-2 border-white/60 items-center justify-center">
-              <Text className="text-white text-base font-semibold">
-                Cancel
-              </Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              onPress={() => {
-                if (phase === 'height_base') {
-                  void handleCaptureHeightBase();
-                  return;
-                }
-
-                void handleCaptureHeightTop();
-              }}
-              className="flex-1 h-14 rounded-xl bg-[#2D6A4F] items-center justify-center">
-              <Text className="text-white text-base font-bold">
-                {phase === 'height_base' ? 'Mark Base' : 'Mark Top'}
-              </Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-      )}
 
       {/* Measurement result bottom sheet */}
       {phase === 'result' && diameterCm !== null && (
@@ -1054,19 +1136,19 @@ const ARCameraScreen = () => {
                   ? `${arHeightM.toFixed(1)} m`
                   : canMeasureArHeight
                     ? 'Not measured yet'
-                    : 'AR height unavailable on this device'
+                    : 'Manual height required'
                 : 'From GEDI Satellite'}
             </Text>
           </View>
 
-          {canMeasureArHeight && arHeightM === null && (
+          {needsArHeight && arHeightM === null && (
             <TouchableOpacity
               onPress={() => {
                 void handleStartHeightMeasurement();
               }}
               className="mb-3 h-12 rounded-xl border-2 border-[#2D6A4F] items-center justify-center">
               <Text className="text-[#2D6A4F] text-base font-semibold">
-                Measure Height
+                {canMeasureArHeight ? 'Measure Height' : 'Enter Height'}
               </Text>
             </TouchableOpacity>
           )}

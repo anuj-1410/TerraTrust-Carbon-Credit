@@ -22,7 +22,8 @@ type RouteType = RouteProp<RootStackParamList, 'ManualMeasureScreen'>;
 const ManualMeasureScreen = () => {
   const navigation = useNavigation<NavProp>();
   const route = useRoute<RouteType>();
-  const {zoneId, zoneIndex} = route.params;
+  const {zoneId, zoneIndex, mode = 'diameter'} = route.params;
+  const isHeightMode = mode === 'height';
 
   const [showTutorial, setShowTutorial] = useState(false);
   const [circumference, setCircumference] = useState('');
@@ -32,11 +33,15 @@ const ManualMeasureScreen = () => {
   );
 
   useEffect(() => {
+    if (isHeightMode) {
+      return;
+    }
+
     const tutorialShown = mmkv.getBoolean('manual_tutorial_shown');
     if (!tutorialShown) {
       setShowTutorial(true);
     }
-  }, []);
+  }, [isHeightMode]);
 
   const dismissTutorial = useCallback(() => {
     mmkv.set('manual_tutorial_shown', true);
@@ -52,6 +57,18 @@ const ManualMeasureScreen = () => {
       return;
     }
     const num = parseFloat(trimmed);
+    if (isHeightMode) {
+      if (num < 0.5 || num > 80) {
+        setError('Height must be between 0.5 m and 80 m');
+        setCalculatedDiameter(null);
+        return;
+      }
+
+      setError(null);
+      setCalculatedDiameter(Math.round(num * 10) / 10);
+      return;
+    }
+
     if (num <= 0) {
       setError('Circumference must be greater than zero');
       setCalculatedDiameter(null);
@@ -60,7 +77,7 @@ const ManualMeasureScreen = () => {
     setError(null);
     const dbh = Math.round((num / Math.PI) * 10) / 10;
     setCalculatedDiameter(dbh);
-  }, [circumference]);
+  }, [circumference, isHeightMode]);
 
   const handleConfirm = useCallback(() => {
     if (calculatedDiameter === null) return;
@@ -70,12 +87,14 @@ const ManualMeasureScreen = () => {
         params: {
           zoneId,
           zoneIndex,
-          returnDiameter: calculatedDiameter,
+          ...(isHeightMode
+            ? {returnHeight: calculatedDiameter}
+            : {returnDiameter: calculatedDiameter}),
         },
         merge: true,
       }),
     );
-  }, [calculatedDiameter, navigation, zoneId, zoneIndex]);
+  }, [calculatedDiameter, isHeightMode, navigation, zoneId, zoneIndex]);
 
   return (
     <View className="flex-1 bg-[#F8FAF8]">
@@ -90,10 +109,10 @@ const ManualMeasureScreen = () => {
           </TouchableOpacity>
           <View className="flex-1 items-center mr-12">
             <Text className="text-white text-xl font-bold">
-              Manual Measurement
+              {isHeightMode ? 'Manual Height' : 'Manual Measurement'}
             </Text>
             <Text className="text-white/60 text-sm mt-0.5">
-              Measure Using a String
+              {isHeightMode ? 'Enter Tree Height' : 'Measure Using a String'}
             </Text>
           </View>
         </View>
@@ -103,7 +122,7 @@ const ManualMeasureScreen = () => {
         className="flex-1 px-5"
         contentContainerStyle={{paddingBottom: 32}}
         keyboardShouldPersistTaps="handled">
-        {showTutorial && (
+        {!isHeightMode && showTutorial && (
           <View className="items-center mt-8 mb-6 bg-white rounded-2xl p-5 shadow-sm">
             <LottieView
               source={require('../../../assets/lottie/string_wrap_tutorial.json')}
@@ -131,20 +150,30 @@ const ManualMeasureScreen = () => {
           {/* Trunk cross-section diagram */}
           <View className="w-36 h-36 rounded-full border-4 border-dashed border-[#F59E0B] bg-[#D1FAE5] items-center justify-center">
             <View className="w-24 h-24 rounded-full bg-[#2D6A4F] items-center justify-center">
-              <MaterialCommunityIcons color="#FFFFFF" name="sprout" size={32} />
+              <MaterialCommunityIcons
+                color="#FFFFFF"
+                name={isHeightMode ? 'arrow-expand-vertical' : 'sprout'}
+                size={32}
+              />
             </View>
           </View>
           <Text className="text-[#6B7280] text-sm text-center mt-4">
-            Wrap string at chest height{' '}(1.3m from ground)
+            {isHeightMode
+              ? 'Enter the measured or estimated tree height'
+              : 'Wrap string at chest height (1.3m from ground)'}
           </Text>
           <Text className="text-[#2D6A4F] text-xs text-center mt-2">
-            We'll calculate the diameter for you
+            {isHeightMode
+              ? 'Used only where GEDI/AR height is unavailable'
+              : "We'll calculate the diameter for you"}
           </Text>
         </View>
 
         {/* Input section */}
         <View className="bg-white rounded-2xl p-5 shadow-sm">
-          <Text className="text-[#6B7280] text-sm mb-2">Length in centimetres</Text>
+          <Text className="text-[#6B7280] text-sm mb-2">
+            {isHeightMode ? 'Height in metres' : 'Length in centimetres'}
+          </Text>
           <View className="flex-row items-center">
             <TextInput
               className={`flex-1 text-[#191C1B] text-2xl font-bold border-b-2 pb-2 ${
@@ -154,7 +183,7 @@ const ManualMeasureScreen = () => {
                     ? 'border-[#2D6A4F]'
                     : 'border-[#E5E7EB]'
               }`}
-              placeholder="e.g. 62.8"
+              placeholder={isHeightMode ? 'e.g. 12.5' : 'e.g. 62.8'}
               placeholderTextColor="#9CA3AF"
               keyboardType="decimal-pad"
               value={circumference}
@@ -163,9 +192,15 @@ const ManualMeasureScreen = () => {
                 setError(null);
               }}
               style={{fontFamily: 'RobotoMono-Bold'}}
-              accessibilityLabel="Circumference input in centimeters"
+              accessibilityLabel={
+                isHeightMode
+                  ? 'Height input in metres'
+                  : 'Circumference input in centimeters'
+              }
             />
-            <Text className="text-[#6B7280] text-lg ml-3">cm</Text>
+            <Text className="text-[#6B7280] text-lg ml-3">
+              {isHeightMode ? 'm' : 'cm'}
+            </Text>
           </View>
           {error && (
             <Text className="text-[#EF4444] text-xs mt-2">{error}</Text>
@@ -179,7 +214,7 @@ const ManualMeasureScreen = () => {
               circumference.trim() ? 'bg-[#40916C]' : 'bg-[#9CA3AF]'
             }`}>
             <Text className="text-white text-base font-semibold">
-              Calculate Diameter
+              {isHeightMode ? 'Use Height' : 'Calculate Diameter'}
             </Text>
           </TouchableOpacity>
         </View>
@@ -189,16 +224,18 @@ const ManualMeasureScreen = () => {
           <View className="mt-5 bg-[#D1FAE5]/40 rounded-2xl p-5 border border-[#D1FAE5]">
             <View className="flex-row items-center justify-between mb-2">
               <Text className="text-[#6B7280] text-sm">
-                Calculated Diameter
+                {isHeightMode ? 'Entered Height' : 'Calculated Diameter'}
               </Text>
               <Badge label="Manual Measurement" variant="manual" />
             </View>
             <Text className="text-[#191C1B] text-3xl font-bold mb-2"
               style={{fontFamily: 'RobotoMono-Bold'}}>
-              {calculatedDiameter.toFixed(1)} cm
+              {calculatedDiameter.toFixed(1)} {isHeightMode ? 'm' : 'cm'}
             </Text>
             <Text className="text-[#6B7280] text-xs">
-              Diameter: {calculatedDiameter.toFixed(1)} cm (calculated from {circumference} cm circumference)
+              {isHeightMode
+                ? `Height: ${calculatedDiameter.toFixed(1)} m`
+                : `Diameter: ${calculatedDiameter.toFixed(1)} cm (calculated from ${circumference} cm circumference)`}
             </Text>
           </View>
         )}
@@ -214,7 +251,7 @@ const ManualMeasureScreen = () => {
           }`}
           activeOpacity={0.7}>
           <Text className="text-white text-base font-bold">
-            Confirm & Use This Measurement
+            {isHeightMode ? 'Confirm & Use This Height' : 'Confirm & Use This Measurement'}
           </Text>
         </TouchableOpacity>
         <TouchableOpacity

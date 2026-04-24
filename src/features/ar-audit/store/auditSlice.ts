@@ -320,8 +320,15 @@ const auditSlice = createSlice({
         }
       })
       // detectAndSetARTier
+      .addCase(detectAndSetARTier.pending, state => {
+        state.arTierResolved = false;
+      })
       .addCase(detectAndSetARTier.fulfilled, (state, action) => {
         state.arTier = action.payload;
+        state.arTierResolved = true;
+      })
+      .addCase(detectAndSetARTier.rejected, state => {
+        state.arTier = 3;
         state.arTierResolved = true;
       })
       // submitAudit
