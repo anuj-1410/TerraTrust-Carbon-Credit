@@ -83,13 +83,14 @@ class ARModule(private val reactContext: ReactApplicationContext) :
                             promise.resolve(measurementJson)
                         }
                     } else {
+                        val errorCode = data?.getStringExtra(ARMeasurementActivity.EXTRA_ERROR_CODE)
                         val errorMsg = data?.getStringExtra(ARMeasurementActivity.EXTRA_ERROR_MESSAGE)
                         if (errorMsg.isNullOrBlank()) {
                             // No error message = user pressed back — signal a cancellation so the
                             // React Native layer can handle it silently (no 'failed' alert shown).
                             promise.reject("MEASUREMENT_CANCELLED", "AR diameter measurement was cancelled.")
                         } else {
-                            promise.reject("MEASUREMENT_ERROR", errorMsg)
+                            promise.reject(errorCode ?: "MEASUREMENT_ERROR", errorMsg)
                         }
                     }
                 }
@@ -110,12 +111,13 @@ class ARModule(private val reactContext: ReactApplicationContext) :
                             )
                         }
                     } else {
+                        val errorCode = data?.getStringExtra(ARMeasurementActivity.EXTRA_ERROR_CODE)
                         val errorMsg = data?.getStringExtra(ARMeasurementActivity.EXTRA_ERROR_MESSAGE)
                         if (errorMsg.isNullOrBlank()) {
                             // No error message = user pressed back — treat as a cancellation, not a failure
                             promise.reject("HEIGHT_CAPTURE_CANCELLED", "AR height measurement was cancelled.")
                         } else {
-                            promise.reject("HEIGHT_CAPTURE_FAILED", errorMsg)
+                            promise.reject(errorCode ?: "HEIGHT_CAPTURE_FAILED", errorMsg)
                         }
                     }
                 }
@@ -162,8 +164,7 @@ class ARModule(private val reactContext: ReactApplicationContext) :
             val session = Session(reactContext)
             try {
                 val isDepthSupported =
-                    session.isDepthModeSupported(Config.DepthMode.RAW_DEPTH_ONLY) ||
-                        session.isDepthModeSupported(Config.DepthMode.AUTOMATIC)
+                    session.isDepthModeSupported(Config.DepthMode.RAW_DEPTH_ONLY)
                 val support = if (isDepthSupported) "FULL_DEPTH" else "SLAM_ONLY"
                 Log.d(TAG, "ARCore availability=${availability.name} support=$support")
                 promise.resolve(support)

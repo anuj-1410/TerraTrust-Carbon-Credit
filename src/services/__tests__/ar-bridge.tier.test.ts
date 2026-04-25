@@ -42,13 +42,15 @@ describe('AR bridge tier detection', () => {
 
   it('keeps Tier 2 on native AR measurement instead of manual fallback', async () => {
     mockARModule.launchDiameterMeasurement.mockResolvedValue(
-      '{"diameter_cm":32.4,"confidence":0.82,"tier_used":2,"point_count":88,"filtered_point_count":88,"fit_method":"vertical_trunk_width"}',
+      '{"diameter_cm":32.4,"confidence":0.82,"tier_used":2,"point_count":88,"filtered_point_count":88,"inlier_count":63,"residual_cm":2.7,"scan_distance_m":0.24,"scan_duration_ms":5100,"fit_method":"gravity_aligned_ransac_circle"}',
     );
 
     const result = await measureTreeDiameter(2);
 
     expect(mockARModule.launchDiameterMeasurement).toHaveBeenCalledWith(2);
     expect(result.tier_used).toBe(2);
-    expect(result.fit_method).toBe('vertical_trunk_width');
+    expect(result.fit_method).toBe('gravity_aligned_ransac_circle');
+    expect(result.inlier_count).toBe(63);
+    expect(result.residual_cm).toBe(2.7);
   });
 });
