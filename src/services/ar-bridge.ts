@@ -8,6 +8,10 @@ export interface ARMeasurementResult {
   point_count: number;
   raw_point_count?: number;
   filtered_point_count?: number;
+  inlier_count?: number;
+  residual_cm?: number;
+  scan_distance_m?: number;
+  scan_duration_ms?: number;
   fit_method?: string;
 }
 

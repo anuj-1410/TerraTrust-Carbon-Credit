@@ -5,21 +5,14 @@ import {
   Text,
   TouchableOpacity,
   Alert,
+  ActivityIndicator,
 } from 'react-native';
 import {useNavigation, useRoute} from '@react-navigation/native';
 import type {NativeStackNavigationProp} from '@react-navigation/native-stack';
 import type {RouteProp} from '@react-navigation/native';
 import {Camera, useCameraDevice} from 'react-native-vision-camera';
 import Geolocation from 'react-native-geolocation-service';
-import Animated, {
-  useSharedValue,
-  useAnimatedStyle,
-  withTiming,
-  withRepeat,
-  Easing,
-} from 'react-native-reanimated';
 import ReactNativeHapticFeedback from 'react-native-haptic-feedback';
-import LottieView from 'lottie-react-native';
 import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
 
 import type {RootStackParamList} from '../../../types/navigation';
@@ -55,7 +48,7 @@ type MeasurePhase =
   | 'idle'
   | 'identifying'
   | 'species_done'
-  | 'measuring'
+  | 'opening_ar'
   | 'result'
   | 'success';
 
@@ -145,18 +138,6 @@ const ARCameraScreen = () => {
   const [gpsAccuracy, setGpsAccuracy] = useState(0);
   const [hasCameraPermission, setHasCameraPermission] = useState<boolean | null>(null);
   const [isVisionCameraActive, setIsVisionCameraActive] = useState(true);
-
-  // Timer animation
-  const timerProgress = useSharedValue(0);
-  const slamArrowX = useSharedValue(0);
-
-  const timerStyle = useAnimatedStyle(() => ({
-    width: `${timerProgress.value * 100}%`,
-  }));
-
-  const slamArrowStyle = useAnimatedStyle(() => ({
-    transform: [{translateX: slamArrowX.value}],
-  }));
 
   const resolveVisionCameraWaiters = useCallback(
     (nextState: Extract<VisionCameraState, 'active' | 'inactive'>) => {
@@ -332,9 +313,7 @@ const ARCameraScreen = () => {
     setConsecutiveHeightFailures(0);
     setEvidenceBase64(null);
     setEvidenceHash(null);
-    timerProgress.value = 0;
-    slamArrowX.value = 0;
-  }, [arTier, setVisionCameraDesiredActive, slamArrowX, timerProgress]);
+  }, [arTier, setVisionCameraDesiredActive]);
 
   useEffect(() => {
     let mounted = true;
@@ -526,24 +505,8 @@ const ARCameraScreen = () => {
     }
 
     try {
-      setPhase('measuring');
-
-      if (arTier === 1) {
-        setStatusText('Hold still for 3 seconds...');
-        timerProgress.value = 0;
-        timerProgress.value = withTiming(1, {
-          duration: 3000,
-          easing: Easing.linear,
-        });
-      } else {
-        setStatusText('Move left and right slowly...');
-        slamArrowX.value = 0;
-        slamArrowX.value = withRepeat(
-          withTiming(80, {duration: 1250, easing: Easing.inOut(Easing.ease)}),
-          4,
-          true,
-        );
-      }
+      setPhase('opening_ar');
+      setStatusText('Opening AR measurement...');
 
       const result = await runWithExclusiveArCameraAccess(() =>
         measureTreeDiameter(arTier as 1 | 2),
@@ -680,9 +643,7 @@ const ARCameraScreen = () => {
     captureEvidencePhoto,
     navigation,
     runWithExclusiveArCameraAccess,
-    slamArrowX,
     speciesName,
-    timerProgress,
     zoneId,
     zoneIndex,
   ]);
@@ -702,7 +663,8 @@ const ARCameraScreen = () => {
     }
 
     try {
-      setStatusText('Launching height measurement...');
+      setPhase('opening_ar');
+      setStatusText('Opening AR height measurement...');
       const result = await runWithExclusiveArCameraAccess(() =>
         measureTreeHeight(),
       );
@@ -722,6 +684,13 @@ const ARCameraScreen = () => {
         typeof error === 'object' &&
         'code' in error
           ? (error as {code: string}).code
+          : '';
+      const errorMessage =
+        error != null &&
+        typeof error === 'object' &&
+        'message' in error &&
+        typeof (error as {message?: unknown}).message === 'string'
+          ? (error as {message: string}).message
           : '';
 
       if (errorCode === 'HEIGHT_CAPTURE_CANCELLED') {
@@ -750,7 +719,7 @@ const ARCameraScreen = () => {
 
       Alert.alert(
         'Height Measurement Unavailable',
-        'Could not complete AR height measurement. Please try again.',
+        errorMessage || 'Could not complete AR height measurement. Please try again.',
       );
       setConsecutiveHeightFailures(prev => {
         const next = prev + 1;
@@ -961,7 +930,7 @@ const ARCameraScreen = () => {
       </View>
 
       {/* Crosshair reticle */}
-      {phase !== 'result' && phase !== 'success' && (
+      {phase !== 'result' && phase !== 'success' && phase !== 'opening_ar' && (
         <View className="absolute inset-0 items-center justify-center" pointerEvents="none">
           {/* Horizontal line */}
           <View className="absolute w-20 h-px bg-white/80" />
@@ -972,20 +941,12 @@ const ARCameraScreen = () => {
         </View>
       )}
 
-      {/* Green wireframe cylinder overlay during measurement — FR-016 / T034 */}
-      {phase === 'measuring' && (
-        <View className="absolute inset-0 items-center justify-center" pointerEvents="none">
-          {/* Cylinder body — green dashed border */}
-          <View className="w-20 h-40 border-2 border-dashed border-[#4ADE80] rounded-lg opacity-70" />
-          {/* Top ellipse */}
-          <View className="absolute top-[28%] w-20 h-5 border-2 border-dashed border-[#4ADE80] rounded-full opacity-70" />
-          {/* Bottom ellipse */}
-          <View className="absolute bottom-[28%] w-20 h-5 border-2 border-dashed border-[#4ADE80] rounded-full opacity-70" />
-        </View>
-      )}
-
       {/* Species overlay card — visible after identification */}
-      {speciesName && phase !== 'idle' && phase !== 'identifying' && phase !== 'success' && (
+      {speciesName &&
+      phase !== 'idle' &&
+      phase !== 'identifying' &&
+      phase !== 'success' &&
+      phase !== 'opening_ar' && (
         <View className="absolute top-28 left-5 right-5 bg-black/60 rounded-2xl p-4">
           <View className="flex-row items-center justify-between">
             <View className="flex-row items-center">
@@ -1006,26 +967,17 @@ const ARCameraScreen = () => {
         </View>
       )}
 
-      {/* Measurement progress — Tier 1 ring / Tier 2 motion guide */}
-      {phase === 'measuring' && (
-        <View className="absolute bottom-48 left-0 right-0 items-center">
-          {arTier === 1 ? (
-            <View className="w-48 h-3 bg-white/20 rounded-full overflow-hidden">
-              <Animated.View
-                className="h-full bg-[#4ADE80] rounded-full"
-                style={timerStyle}
-              />
-            </View>
-          ) : (
-            <Animated.View style={slamArrowStyle}>
-              <MaterialCommunityIcons color="#FFFFFF" name="arrow-left-right" size={36} />
-            </Animated.View>
-          )}
-          <Text className="text-white text-sm mt-3">
-            {arTier === 1
-              ? 'Hold still...'
-              : 'Move left and right slowly...'}
-          </Text>
+      {phase === 'opening_ar' && (
+        <View className="absolute inset-0 items-center justify-center bg-black/55 px-8">
+          <View className="items-center rounded-3xl bg-black/70 px-8 py-7">
+            <ActivityIndicator color="#4ADE80" size="large" />
+            <Text className="mt-4 text-center text-lg font-semibold text-white">
+              {statusText}
+            </Text>
+            <Text className="mt-2 text-center text-sm text-white/75">
+              Releasing the preview camera and handing off to TerraTrust AR.
+            </Text>
+          </View>
         </View>
       )}
 
