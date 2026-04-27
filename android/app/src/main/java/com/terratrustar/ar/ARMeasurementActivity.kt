@@ -4,6 +4,7 @@ import android.app.Activity
 import android.content.Intent
 import android.graphics.Color
 import android.graphics.PointF
+import android.graphics.drawable.GradientDrawable
 import android.opengl.GLES11Ext
 import android.opengl.GLES20
 import android.opengl.GLSurfaceView
@@ -29,6 +30,7 @@ import com.google.ar.core.Config
 import com.google.ar.core.Coordinates2d
 import com.google.ar.core.DepthPoint
 import com.google.ar.core.Frame
+import com.google.ar.core.HitResult
 import com.google.ar.core.Plane
 import com.google.ar.core.Point
 import com.google.ar.core.PointCloud
@@ -100,6 +102,13 @@ class ARMeasurementActivity : AppCompatActivity(), GLSurfaceView.Renderer {
     private data class HeightPreview(
         val heightMetres: Float,
         val topWorldPoint: FloatArray,
+        val isHitBased: Boolean = false,
+        val sourceLabel: String = "Guided estimate",
+    )
+
+    private data class HeightHitCandidate(
+        val kind: HeightBaseHitKind,
+        val hitResult: HitResult,
     )
 
     private lateinit var rootView: FrameLayout
@@ -146,8 +155,12 @@ class ARMeasurementActivity : AppCompatActivity(), GLSurfaceView.Renderer {
     private var lastScanDistanceM = 0f
     private var lastScanDurationMs = 0L
 
+    private val heightTapLock = Any()
+    private val pendingHeightTaps = ArrayDeque<PointF>()
     @Volatile
-    private var pendingTap: PointF? = null
+    private var heightAimPoint: PointF? = null
+    private var heightStep = HeightMeasurementStep.STEP_1_BASE_TARGET
+    private var latestHeightTapFeedback: MeasurementOverlayView.TapFeedback? = null
 
     private var baseAnchor: Anchor? = null
     private var currentHeightPreview: HeightPreview? = null
@@ -162,6 +175,7 @@ class ARMeasurementActivity : AppCompatActivity(), GLSurfaceView.Renderer {
             else -> MeasurementMode.DIAMETER
         }
         requestedTier = intent.getIntExtra(EXTRA_TIER, 1).coerceIn(1, 2)
+        heightStep = HeightMeasurementStep.STEP_1_BASE_TARGET
 
         buildLayout()
         resetDiameterState()
@@ -197,6 +211,11 @@ class ARMeasurementActivity : AppCompatActivity(), GLSurfaceView.Renderer {
         resumeHandler.removeCallbacksAndMessages(null)
         baseAnchor?.detach()
         baseAnchor = null
+        synchronized(heightTapLock) {
+            pendingHeightTaps.clear()
+        }
+        heightAimPoint = null
+        latestHeightTapFeedback = null
 
         try {
             session?.close()
@@ -247,7 +266,24 @@ class ARMeasurementActivity : AppCompatActivity(), GLSurfaceView.Renderer {
             backgroundRenderer.draw(frame)
 
             if (frame.camera.trackingState != TrackingState.TRACKING) {
-                overlayView.render(MeasurementOverlayView.State())
+                overlayView.render(
+                    MeasurementOverlayView.State(
+                        heightStep =
+                            if (measurementMode == MeasurementMode.HEIGHT) {
+                                heightStep
+                            } else {
+                                null
+                            },
+                        stageBadge =
+                            if (measurementMode == MeasurementMode.DIAMETER) {
+                                "Tracking scene"
+                            } else {
+                                heightStageBadge()
+                            },
+                        activeAimPoint = heightAimPoint?.let { PointF(it.x, it.y) },
+                        tapFeedbacks = activeTapFeedbacks(),
+                    ),
+                )
                 postOverlayState(
                     if (measurementMode == MeasurementMode.DIAMETER) {
                         "Point the phone at the tree"
@@ -279,41 +315,72 @@ class ARMeasurementActivity : AppCompatActivity(), GLSurfaceView.Renderer {
     private fun buildLayout() {
         rootView = FrameLayout(this).apply {
             setBackgroundColor(Color.BLACK)
-            setOnTouchListener { _, motionEvent ->
-                if (
-                    measurementMode == MeasurementMode.HEIGHT &&
-                    motionEvent.action == MotionEvent.ACTION_UP &&
-                    !measurementCompleted
-                ) {
-                    pendingTap = PointF(motionEvent.x, motionEvent.y)
-                    true
-                } else {
-                    false
+        }
+
+        val heightTouchListener =
+            View.OnTouchListener { _, motionEvent ->
+                if (measurementMode != MeasurementMode.HEIGHT || measurementCompleted) {
+                    return@OnTouchListener false
+                }
+
+                when (motionEvent.actionMasked) {
+                    MotionEvent.ACTION_DOWN,
+                    MotionEvent.ACTION_MOVE -> {
+                        heightAimPoint = PointF(motionEvent.x, motionEvent.y)
+                        true
+                    }
+
+                    MotionEvent.ACTION_UP -> {
+                        val tapPoint = PointF(motionEvent.x, motionEvent.y)
+                        heightAimPoint = tapPoint
+                        enqueueHeightTap(tapPoint)
+                        true
+                    }
+
+                    MotionEvent.ACTION_CANCEL -> {
+                        heightAimPoint = null
+                        true
+                    }
+
+                    else -> false
                 }
             }
-        }
 
         glSurfaceView = GLSurfaceView(this).apply {
             preserveEGLContextOnPause = true
             setEGLContextClientVersion(2)
             setRenderer(this@ARMeasurementActivity)
             renderMode = GLSurfaceView.RENDERMODE_CONTINUOUSLY
+            setOnTouchListener(heightTouchListener)
         }
 
-        overlayView = MeasurementOverlayView(this)
+        overlayView =
+            MeasurementOverlayView(this).apply {
+                setOnTouchListener(heightTouchListener)
+            }
 
         statusTextView = TextView(this).apply {
             setTextColor(Color.WHITE)
             textSize = 18f
             gravity = Gravity.CENTER
-            setPadding(dp(16), dp(12), dp(16), dp(8))
+            setPadding(dp(22), dp(14), dp(22), dp(14))
+            background =
+                GradientDrawable().apply {
+                    setColor(Color.parseColor("#C0111720"))
+                    cornerRadius = dp(20).toFloat()
+                }
         }
 
         helperTextView = TextView(this).apply {
             setTextColor(Color.WHITE)
             textSize = 14f
             gravity = Gravity.CENTER
-            setPadding(dp(20), dp(8), dp(20), dp(24))
+            setPadding(dp(22), dp(14), dp(22), dp(14))
+            background =
+                GradientDrawable().apply {
+                    setColor(Color.parseColor("#B3101720"))
+                    cornerRadius = dp(18).toFloat()
+                }
         }
 
         progressBar = ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal).apply {
@@ -341,8 +408,12 @@ class ARMeasurementActivity : AppCompatActivity(), GLSurfaceView.Renderer {
             FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
                 ViewGroup.LayoutParams.WRAP_CONTENT,
-                Gravity.TOP,
-            ),
+                Gravity.TOP or Gravity.CENTER_HORIZONTAL,
+            ).apply {
+                topMargin = dp(28)
+                marginStart = dp(20)
+                marginEnd = dp(20)
+            },
         )
         rootView.addView(
             progressBar,
@@ -361,11 +432,70 @@ class ARMeasurementActivity : AppCompatActivity(), GLSurfaceView.Renderer {
             FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
                 ViewGroup.LayoutParams.WRAP_CONTENT,
-                Gravity.BOTTOM,
-            ),
+                Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL,
+            ).apply {
+                bottomMargin = dp(24)
+                marginStart = dp(20)
+                marginEnd = dp(20)
+            },
         )
 
         setContentView(rootView)
+    }
+
+    private fun enqueueHeightTap(point: PointF) {
+        synchronized(heightTapLock) {
+            if (pendingHeightTaps.size >= 4) {
+                pendingHeightTaps.removeFirst()
+            }
+            pendingHeightTaps.addLast(PointF(point.x, point.y))
+        }
+    }
+
+    private fun pollHeightTap(): PointF? {
+        synchronized(heightTapLock) {
+            if (pendingHeightTaps.isEmpty()) {
+                return null
+            }
+            return pendingHeightTaps.removeFirst()
+        }
+    }
+
+    private fun showHeightTapFeedback(
+        point: PointF,
+        isSuccess: Boolean,
+        label: String,
+    ) {
+        latestHeightTapFeedback =
+            MeasurementOverlayView.TapFeedback(
+                point = PointF(point.x, point.y),
+                isSuccess = isSuccess,
+                label = label,
+            )
+    }
+
+    private fun activeTapFeedbacks(): List<MeasurementOverlayView.TapFeedback> {
+        val feedback = latestHeightTapFeedback ?: return emptyList()
+        return if (SystemClock.elapsedRealtime() - feedback.createdAtMs <= 520L) {
+            listOf(feedback)
+        } else {
+            emptyList()
+        }
+    }
+
+    private fun heightStageBadge(): String {
+        return when (heightStep) {
+            HeightMeasurementStep.STEP_1_BASE_TARGET -> "Step 1 of 2"
+            HeightMeasurementStep.STEP_1_BASE_LOCKED -> "Base locked"
+            HeightMeasurementStep.STEP_2_TOP_PREVIEW -> "Step 2 of 2"
+            HeightMeasurementStep.STEP_2_TOP_CONFIRMED -> "Height locked"
+            HeightMeasurementStep.STEP_ERROR_RETRY ->
+                if (baseAnchor == null) {
+                    "Base retry"
+                } else {
+                    "Top retry"
+                }
+        }
     }
 
     private fun ensureSession(): Boolean {
@@ -540,7 +670,12 @@ class ARMeasurementActivity : AppCompatActivity(), GLSurfaceView.Renderer {
             helper,
             if (requestedTier == 1) min(35, depthWarmupFrames * 10) else min(30, previewPoints.size / 3),
         )
-        renderDiameterOverlay(frame, showMotionGuide = false, motionProgress = 0f)
+        renderDiameterOverlay(
+            frame,
+            showMotionGuide = false,
+            motionProgress = 0f,
+            stageBadge = if (hasPreview) "Locking trunk" else "Scan the trunk",
+        )
 
         if (hasPreview && enoughWarmup && now - previewStableSince >= 650L) {
             diameterStage = DiameterStage.LOCK
@@ -564,7 +699,12 @@ class ARMeasurementActivity : AppCompatActivity(), GLSurfaceView.Renderer {
             },
             0,
         )
-        renderDiameterOverlay(frame, showMotionGuide = requestedTier == 2, motionProgress = 0f)
+        renderDiameterOverlay(
+            frame,
+            showMotionGuide = requestedTier == 2,
+            motionProgress = 0f,
+            stageBadge = if (requestedTier == 1) "Get ready to hold" else "Get ready to scan",
+        )
 
         if (now - stageStartedAt >= 350L) {
             beginDiameterCapture(now, frame.camera.pose)
@@ -599,7 +739,12 @@ class ARMeasurementActivity : AppCompatActivity(), GLSurfaceView.Renderer {
             "Move left and right until the progress bar fills while keeping the trunk centered.",
             (motionProgress * 100f).toInt(),
         )
-        renderDiameterOverlay(frame, showMotionGuide = true, motionProgress = motionProgress)
+        renderDiameterOverlay(
+            frame,
+            showMotionGuide = true,
+            motionProgress = motionProgress,
+            stageBadge = if (motionProgress >= 1f) "Checking fit" else "Scan left and right",
+        )
 
         if (lastScanDurationMs > 9000L && lastScanDistanceM < TIER2_MIN_SCAN_SPAN_M) {
             finishWithError(
@@ -649,7 +794,12 @@ class ARMeasurementActivity : AppCompatActivity(), GLSurfaceView.Renderer {
                 "TerraTrust lost the stable hold. Keep the phone steady on the trunk.",
                 0,
             )
-            renderDiameterOverlay(frame, showMotionGuide = false, motionProgress = 0f)
+            renderDiameterOverlay(
+                frame,
+                showMotionGuide = false,
+                motionProgress = 0f,
+                stageBadge = "Re-lock trunk",
+            )
             return
         }
 
@@ -662,7 +812,12 @@ class ARMeasurementActivity : AppCompatActivity(), GLSurfaceView.Renderer {
             "Keep the trunk centered while TerraTrust captures a stable depth fit.",
             (progress * 100f).toInt(),
         )
-        renderDiameterOverlay(frame, showMotionGuide = false, motionProgress = progress)
+        renderDiameterOverlay(
+            frame,
+            showMotionGuide = false,
+            motionProgress = progress,
+            stageBadge = "Hold still",
+        )
 
         if (lastScanDurationMs >= TIER1_CAPTURE_DURATION_MS) {
             val fit =
@@ -706,6 +861,7 @@ class ARMeasurementActivity : AppCompatActivity(), GLSurfaceView.Renderer {
         frame: Frame,
         showMotionGuide: Boolean,
         motionProgress: Float,
+        stageBadge: String,
     ) {
         val activeFit = previewFit ?: lockedPreviewFit
         if (activeFit == null) {
@@ -714,6 +870,7 @@ class ARMeasurementActivity : AppCompatActivity(), GLSurfaceView.Renderer {
                     reticleLocked = false,
                     showMotionGuide = showMotionGuide,
                     motionGuideProgress = motionProgress,
+                    stageBadge = stageBadge,
                 ),
             )
             return
@@ -763,6 +920,7 @@ class ARMeasurementActivity : AppCompatActivity(), GLSurfaceView.Renderer {
                 cylinderSides = sides,
                 showMotionGuide = showMotionGuide,
                 motionGuideProgress = motionProgress,
+                stageBadge = stageBadge,
             ),
         )
     }
@@ -772,97 +930,146 @@ class ARMeasurementActivity : AppCompatActivity(), GLSurfaceView.Renderer {
         val view = FloatArray(16)
         frame.camera.getProjectionMatrix(projection, 0, 0.1f, 100f)
         frame.camera.getViewMatrix(view, 0)
+        val tap = pollHeightTap()
 
         if (baseAnchor == null) {
-            postOverlayState(
-                "Tap the base of the tree",
-                "Move slightly until the ground and trunk edge are stable, then tap the base.",
-                null,
-            )
-            overlayView.render(MeasurementOverlayView.State())
+            heightStep = HeightMeasurementStep.STEP_1_BASE_TARGET
 
-            val tap = pendingTap ?: return
-            pendingTap = null
-
-            val hitResult = frame.hitTest(tap.x, tap.y).firstOrNull { result ->
-                when (val trackable = result.trackable) {
-                    is Plane -> trackable.isPoseInPolygon(result.hitPose)
-                    is Point -> true
-                    is DepthPoint -> true
-                    else -> false
+            if (tap != null) {
+                val selectedBaseHit = selectBaseHit(frame, tap)
+                if (selectedBaseHit == null) {
+                    heightStep = HeightMeasurementWorkflow.nextStepForBaseCapture(success = false)
+                    currentHeightPreview = null
+                    showHeightTapFeedback(tap, isSuccess = false, label = "Try again")
+                    postOverlayState(
+                        "Step 1 of 2 — Mark the base",
+                        "No tracked base point was found. Move slightly and tap the ground or trunk base again.",
+                        null,
+                    )
+                    renderHeightOverlay(view, projection)
+                    return
                 }
-            }
 
-            if (hitResult == null) {
+                baseAnchor?.detach()
+                baseAnchor = selectedBaseHit.hitResult.createAnchor()
+                currentHeightPreview = null
+                heightAimPoint = null
+                heightStep = HeightMeasurementWorkflow.nextStepForBaseCapture(success = true)
+                showHeightTapFeedback(
+                    tap,
+                    isSuccess = true,
+                    label =
+                        if (selectedBaseHit.kind == HeightBaseHitKind.DEPTH_POINT) {
+                            "Base locked"
+                        } else {
+                            "Base marked"
+                        },
+                )
                 postOverlayState(
-                    "Tap the base of the tree",
-                    "No tracked surface was found at the base. Move slightly and tap again.",
+                    "Base marked",
+                    "TerraTrust locked the base. Touch the canopy top and lift your finger to confirm the height.",
                     null,
                 )
+                renderHeightOverlay(view, projection)
                 return
             }
 
-            baseAnchor?.detach()
-            baseAnchor = hitResult.createAnchor()
-            currentHeightPreview = null
             postOverlayState(
-                "Base marked",
-                "Aim the reticle at the top of the tree and tap to confirm the height.",
+                "Step 1 of 2 — Mark the base",
+                "Tap the ground or trunk base to start the height measurement.",
                 null,
             )
             renderHeightOverlay(view, projection)
             return
         }
 
+        if (heightStep == HeightMeasurementStep.STEP_1_BASE_LOCKED) {
+            heightStep = HeightMeasurementStep.STEP_2_TOP_PREVIEW
+        } else if (heightStep == HeightMeasurementStep.STEP_ERROR_RETRY) {
+            heightStep = HeightMeasurementWorkflow.stepAfterRetry(baseLocked = true)
+        }
+
         currentHeightPreview = estimateHeightPreview(frame)
         if (currentHeightPreview != null) {
             postOverlayState(
-                "Aim at the top of the tree",
-                "Keep the reticle on the canopy top, then tap to confirm the height.",
+                "Step 2 of 2 — Mark the top",
+                if (currentHeightPreview?.isHitBased == true) {
+                    "Touch the canopy top and lift your finger when the blue line matches the tree."
+                } else {
+                    "Touch near the canopy top. TerraTrust is showing a guided preview line."
+                },
                 null,
             )
         } else {
             postOverlayState(
-                "Aim at the top of the tree",
-                "Move slightly and keep the base below the reticle until the preview line appears.",
+                "Step 2 of 2 — Mark the top",
+                "Touch near the canopy top and move slightly until the blue preview line appears.",
                 null,
             )
         }
         renderHeightOverlay(view, projection)
 
-        val tap = pendingTap ?: return
-        pendingTap = null
-
-        val finalPreview = estimateHeightFromTap(frame, tap)
-        if (finalPreview == null || finalPreview.heightMetres < 0.5f || finalPreview.heightMetres > 80f) {
-            postOverlayState(
-                "Height looks unusual",
-                "Keep the reticle on the canopy top and tap again when the preview line looks right.",
-                null,
-            )
+        if (tap == null) {
             return
         }
 
+        val finalPreview = estimateHeightFromTap(frame, tap)
+        if (finalPreview == null) {
+            heightStep = HeightMeasurementWorkflow.nextStepForTopAttempt(success = false)
+            showHeightTapFeedback(tap, isSuccess = false, label = "Try again")
+            postOverlayState(
+                "Top point not locked",
+                "Keep the touch point on the canopy top and try again when the blue line looks right.",
+                null,
+            )
+            currentHeightPreview = estimateHeightPreview(frame)
+            renderHeightOverlay(view, projection)
+            return
+        }
+
+        heightStep = HeightMeasurementWorkflow.nextStepForTopAttempt(success = true)
+        currentHeightPreview = finalPreview
+        showHeightTapFeedback(tap, isSuccess = true, label = "Height locked")
+        renderHeightOverlay(view, projection)
         finishWithHeightMeasurement(finalPreview.heightMetres)
     }
 
     private fun renderHeightOverlay(view: FloatArray, projection: FloatArray) {
         val basePose = baseAnchor?.pose
         if (basePose == null) {
-            overlayView.render(MeasurementOverlayView.State())
+            overlayView.render(
+                MeasurementOverlayView.State(
+                    heightStep = heightStep,
+                    stageBadge = heightStageBadge(),
+                    activeAimPoint = heightAimPoint?.let { PointF(it.x, it.y) },
+                    tapFeedbacks = activeTapFeedbacks(),
+                ),
+            )
             return
         }
 
         val baseWorld = floatArrayOf(basePose.tx(), basePose.ty(), basePose.tz())
         val baseMarker = projectWorldPoint(baseWorld, view, projection)
         val preview = currentHeightPreview
-        val topMarker =
+        val projectedTopMarker =
             preview?.let { heightPreview ->
                 projectWorldPoint(heightPreview.topWorldPoint, view, projection)
             }
+        val topMarker =
+            if (heightStep == HeightMeasurementStep.STEP_2_TOP_CONFIRMED) {
+                projectedTopMarker
+            } else {
+                null
+            }
+        val ghostTopMarker =
+            if (heightStep != HeightMeasurementStep.STEP_2_TOP_CONFIRMED) {
+                projectedTopMarker
+            } else {
+                null
+            }
         val heightLine =
-            if (baseMarker != null && topMarker != null) {
-                baseMarker to topMarker
+            if (baseMarker != null && (topMarker != null || ghostTopMarker != null)) {
+                baseMarker to (topMarker ?: ghostTopMarker!!)
             } else {
                 null
             }
@@ -872,63 +1079,137 @@ class ARMeasurementActivity : AppCompatActivity(), GLSurfaceView.Renderer {
                 reticleLocked = preview != null,
                 baseMarker = baseMarker,
                 topMarker = topMarker,
+                ghostTopMarker = ghostTopMarker,
                 heightLine = heightLine,
                 heightLabel = preview?.let { "${String.format(Locale.US, "%.1f", it.heightMetres)} m" },
+                heightStep = heightStep,
+                stageBadge = heightStageBadge(),
+                activeAimPoint = heightAimPoint?.let { PointF(it.x, it.y) },
+                tapFeedbacks = activeTapFeedbacks(),
             ),
         )
     }
 
     private fun estimateHeightPreview(frame: Frame): HeightPreview? {
-        if (viewportWidth <= 0 || viewportHeight <= 0) {
-            return null
-        }
-
-        return estimateHeightFromTap(frame, PointF(viewportWidth / 2f, viewportHeight / 2f))
+        val aimPoint = heightAimPoint ?: return null
+        return estimateHeightFromTap(frame, aimPoint)
     }
 
     private fun estimateHeightFromTap(frame: Frame, tap: PointF): HeightPreview? {
         val basePose = baseAnchor?.pose ?: return null
+        val sceneHitPreview = estimateHeightFromSceneHit(frame, tap)
+        if (sceneHitPreview != null) {
+            return sceneHitPreview
+        }
+
         val ray = createWorldRay(frame, tap) ?: return null
         val base = floatArrayOf(basePose.tx(), basePose.ty(), basePose.tz())
-        val wx = ray.origin[0] - base[0]
-        val wy = ray.origin[1] - base[1]
-        val wz = ray.origin[2] - base[2]
-        val rayDotUp = ray.direction[1]
-        val rayDotOffset =
-            ray.direction[0] * wx +
-                ray.direction[1] * wy +
-                ray.direction[2] * wz
-        val denominator = 1f - rayDotUp * rayDotUp
-        if (denominator < 0.0005f) {
-            return null
-        }
+        val rayEstimate =
+            HeightMeasurementMath.estimateHeightFromRay(
+                baseWorldPoint = base,
+                rayOrigin = ray.origin,
+                rayDirection = ray.direction,
+            ) ?: return null
 
-        val rayDistance = ((rayDotUp * wy) - rayDotOffset) / denominator
-        if (rayDistance <= 0f) {
-            return null
-        }
-
-        val heightMetres = wy + rayDotUp * rayDistance
-        val closestRayPoint = floatArrayOf(
-            ray.origin[0] + ray.direction[0] * rayDistance,
-            ray.origin[1] + ray.direction[1] * rayDistance,
-            ray.origin[2] + ray.direction[2] * rayDistance,
+        return HeightPreview(
+            heightMetres = rayEstimate.heightMetres,
+            topWorldPoint = rayEstimate.topWorldPoint,
+            isHitBased = false,
+            sourceLabel = "Guided preview",
         )
-        val closestVerticalPoint = floatArrayOf(base[0], base[1] + heightMetres, base[2])
-        val missDistance = distance(closestRayPoint, closestVerticalPoint)
-        val phoneBaseDistance = sqrt(wx * wx + wz * wz)
-        val allowedMiss = (phoneBaseDistance * 0.35f + 0.45f).coerceIn(0.75f, 2.5f)
-        if (missDistance > allowedMiss) {
-            return null
+    }
+
+    private fun selectBaseHit(frame: Frame, tap: PointF): HeightHitCandidate? {
+        val candidates =
+            frame.hitTest(tap.x, tap.y)
+                .mapNotNull(::mapBaseHitCandidate)
+        val bestKind =
+            HeightMeasurementWorkflow.selectBestBaseHitKind(
+                candidates.map { it.kind },
+            ) ?: return null
+
+        return candidates.firstOrNull { it.kind == bestKind }
+    }
+
+    private fun mapBaseHitCandidate(result: HitResult): HeightHitCandidate? {
+        return when (val trackable = result.trackable) {
+            is DepthPoint -> HeightHitCandidate(HeightBaseHitKind.DEPTH_POINT, result)
+            is Plane ->
+                if (trackable.isPoseInPolygon(result.hitPose)) {
+                    HeightHitCandidate(
+                        if (trackable.type == Plane.Type.HORIZONTAL_UPWARD_FACING) {
+                            HeightBaseHitKind.HORIZONTAL_PLANE
+                        } else {
+                            HeightBaseHitKind.OTHER_PLANE
+                        },
+                        result,
+                    )
+                } else {
+                    null
+                }
+
+            is Point -> HeightHitCandidate(HeightBaseHitKind.FEATURE_POINT, result)
+            else -> null
         }
+    }
+
+    private fun estimateHeightFromSceneHit(frame: Frame, tap: PointF): HeightPreview? {
+        val basePose = baseAnchor?.pose ?: return null
+        val baseWorld = floatArrayOf(basePose.tx(), basePose.ty(), basePose.tz())
+        val candidates =
+            frame.hitTest(tap.x, tap.y)
+                .mapNotNull(::mapBaseHitCandidate)
+
+        val bestHit =
+            candidates.firstOrNull {
+                it.kind == HeightBaseHitKind.DEPTH_POINT &&
+                    isValidTopHitPose(it.hitResult.hitPose, baseWorld)
+            } ?: candidates.firstOrNull {
+                it.kind == HeightBaseHitKind.FEATURE_POINT &&
+                    isValidTopHitPose(it.hitResult.hitPose, baseWorld)
+            } ?: candidates.firstOrNull {
+                (it.kind == HeightBaseHitKind.HORIZONTAL_PLANE || it.kind == HeightBaseHitKind.OTHER_PLANE) &&
+                    isValidTopHitPose(it.hitResult.hitPose, baseWorld)
+            } ?: return null
+
+        val hitPose = bestHit.hitResult.hitPose
+        val hitWorldPoint = floatArrayOf(hitPose.tx(), hitPose.ty(), hitPose.tz())
+        val heightMetres = abs(hitWorldPoint[1] - baseWorld[1])
         if (heightMetres < 0.5f || heightMetres > 80f) {
             return null
         }
 
         return HeightPreview(
             heightMetres = heightMetres,
-            topWorldPoint = floatArrayOf(base[0], base[1] + heightMetres, base[2]),
+            topWorldPoint = hitWorldPoint,
+            isHitBased = true,
+            sourceLabel =
+                if (bestHit.kind == HeightBaseHitKind.DEPTH_POINT) {
+                    "Depth locked"
+                } else {
+                    "Scene hit"
+                },
         )
+    }
+
+    private fun isValidTopHitPose(
+        pose: Pose,
+        baseWorldPoint: FloatArray,
+    ): Boolean {
+        val heightMetres = abs(pose.ty() - baseWorldPoint[1])
+        if (heightMetres < 0.5f || heightMetres > 80f) {
+            return false
+        }
+
+        val horizontalDistance =
+            distanceXZ(
+                pose.tx(),
+                pose.tz(),
+                baseWorldPoint[0],
+                baseWorldPoint[2],
+            )
+        val maxHorizontalDistance = max(1.2f, heightMetres * 0.55f)
+        return horizontalDistance <= maxHorizontalDistance
     }
 
     private fun createWorldRay(frame: Frame, tap: PointF): WorldRay? {

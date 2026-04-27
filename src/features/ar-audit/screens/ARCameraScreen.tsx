@@ -40,6 +40,12 @@ import {
   IS_AUDIT_SPECIES_DETECTION_DISABLED,
   resolveTreeCaptureLocation,
 } from '../utils/demoMode';
+import {
+  DIAMETER_READY_STATUS_TEXT,
+  getDefaultArCameraStatusText,
+  getHeightInterruptedStatusText,
+  getHeightRetryStatusText,
+} from '../utils/arMeasurementCopy';
 
 type NavProp = NativeStackNavigationProp<RootStackParamList, 'ARCameraScreen'>;
 type RouteType = RouteProp<RootStackParamList, 'ARCameraScreen'>;
@@ -54,9 +60,6 @@ type MeasurePhase =
 
 type VisionCameraState = 'starting' | 'active' | 'inactive';
 
-const DEFAULT_STATUS_TEXT = 'Point camera at tree trunk';
-const DIRECT_MEASUREMENT_STATUS_TEXT =
-  'Point camera at tree trunk and measure directly';
 const DIRECT_MEASUREMENT_SPECIES = APPROVED_SPECIES[0]!;
 
 function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
@@ -104,9 +107,7 @@ const ARCameraScreen = () => {
   // State
   const [phase, setPhase] = useState<MeasurePhase>('idle');
   const [statusText, setStatusText] = useState(
-    IS_AUDIT_SPECIES_DETECTION_DISABLED
-      ? DIRECT_MEASUREMENT_STATUS_TEXT
-      : DEFAULT_STATUS_TEXT,
+    getDefaultArCameraStatusText(IS_AUDIT_SPECIES_DETECTION_DISABLED),
   );
 
   // Species
@@ -294,9 +295,7 @@ const ARCameraScreen = () => {
     setVisionCameraDesiredActive(true);
     setPhase('idle');
     setStatusText(
-      IS_AUDIT_SPECIES_DETECTION_DISABLED
-        ? DIRECT_MEASUREMENT_STATUS_TEXT
-        : DEFAULT_STATUS_TEXT,
+      getDefaultArCameraStatusText(IS_AUDIT_SPECIES_DETECTION_DISABLED),
     );
     setSpeciesName(null);
     setSpeciesConfidence(0);
@@ -400,7 +399,7 @@ const ARCameraScreen = () => {
   const canMeasureArHeight = needsArHeight && arTier !== 3;
   const requiresArHeightBeforeSave = needsArHeight;
   const canStartDiameterMeasurement = Boolean(resolvedSpeciesName);
-  const canStartHeightMeasurement = canStartDiameterMeasurement && needsArHeight;
+  const canStartHeightMeasurement = diameterCm !== null && needsArHeight;
 
   useEffect(() => {
     return () => {
@@ -422,7 +421,7 @@ const ARCameraScreen = () => {
       setSuggestedSpecies(null);
       setSuggestedConfidence(0);
       setPhase('species_done');
-      setStatusText('Species identified - Measure diameter');
+      setStatusText(DIAMETER_READY_STATUS_TEXT);
     },
     [],
   );
@@ -466,7 +465,9 @@ const ARCameraScreen = () => {
         );
         setSpeciesResolutionMode('none');
         setPhase('idle');
-        setStatusText(DEFAULT_STATUS_TEXT);
+        setStatusText(
+          getDefaultArCameraStatusText(IS_AUDIT_SPECIES_DETECTION_DISABLED),
+        );
         return;
       }
 
@@ -489,7 +490,9 @@ const ARCameraScreen = () => {
       Alert.alert('Species ID Failed', 'Could not identify species. Please try again.');
       setSpeciesResolutionMode('none');
       setPhase('idle');
-      setStatusText(DEFAULT_STATUS_TEXT);
+      setStatusText(
+        getDefaultArCameraStatusText(IS_AUDIT_SPECIES_DETECTION_DISABLED),
+      );
     }
   }, [applySpeciesSelection, openManualSpeciesPicker, takeVisionCameraSnapshot]);
 
@@ -593,9 +596,9 @@ const ARCameraScreen = () => {
         setStatusText(
           speciesName
             ? 'Try again — Measure diameter'
-            : (IS_AUDIT_SPECIES_DETECTION_DISABLED
-                ? DIRECT_MEASUREMENT_STATUS_TEXT
-                : DEFAULT_STATUS_TEXT),
+            : getDefaultArCameraStatusText(
+                IS_AUDIT_SPECIES_DETECTION_DISABLED,
+              ),
         );
         return;
       }
@@ -695,9 +698,12 @@ const ARCameraScreen = () => {
 
       if (errorCode === 'HEIGHT_CAPTURE_CANCELLED') {
         setStatusText(
-          diameterCm !== null
-            ? 'Measurement complete'
-            : 'Species identified - Measure diameter',
+          getHeightInterruptedStatusText({
+            diameterReady: diameterCm !== null,
+            needsArHeight,
+            speciesReady: Boolean(resolvedSpeciesName),
+            speciesDetectionDisabled: IS_AUDIT_SPECIES_DETECTION_DISABLED,
+          }),
         );
         setPhase(diameterCm !== null ? 'result' : 'species_done');
         return;
@@ -709,9 +715,12 @@ const ARCameraScreen = () => {
           'The camera is currently in use. Please wait a moment and try again.',
         );
         setStatusText(
-          diameterCm !== null
-            ? 'Measurement complete'
-            : 'Species identified - Measure diameter',
+          getHeightInterruptedStatusText({
+            diameterReady: diameterCm !== null,
+            needsArHeight,
+            speciesReady: Boolean(resolvedSpeciesName),
+            speciesDetectionDisabled: IS_AUDIT_SPECIES_DETECTION_DISABLED,
+          }),
         );
         setPhase(diameterCm !== null ? 'result' : 'species_done');
         return;
@@ -733,15 +742,19 @@ const ARCameraScreen = () => {
         return next;
       });
       setStatusText(
-        diameterCm !== null
-          ? 'Measurement complete'
-          : 'Species identified — Measure diameter',
+        getHeightRetryStatusText({
+          diameterReady: diameterCm !== null,
+          needsArHeight,
+          speciesReady: Boolean(resolvedSpeciesName),
+          speciesDetectionDisabled: IS_AUDIT_SPECIES_DETECTION_DISABLED,
+        }),
       );
       setPhase(diameterCm !== null ? 'result' : 'species_done');
     }
   }, [
     canMeasureArHeight,
     diameterCm,
+    resolvedSpeciesName,
     navigation,
     needsArHeight,
     runWithExclusiveArCameraAccess,
@@ -1139,7 +1152,9 @@ const ARCameraScreen = () => {
         visible={speciesResolutionMode === 'confirm'}
         onClose={() => {
           setSpeciesResolutionMode('none');
-          setStatusText(DEFAULT_STATUS_TEXT);
+          setStatusText(
+            getDefaultArCameraStatusText(IS_AUDIT_SPECIES_DETECTION_DISABLED),
+          );
         }}>
         <Text className="text-lg font-bold" style={{color: '#191C1B'}}>
           Is this the correct species?
@@ -1182,7 +1197,9 @@ const ARCameraScreen = () => {
         visible={speciesResolutionMode === 'manual'}
         onClose={() => {
           setSpeciesResolutionMode('none');
-          setStatusText(DEFAULT_STATUS_TEXT);
+          setStatusText(
+            getDefaultArCameraStatusText(IS_AUDIT_SPECIES_DETECTION_DISABLED),
+          );
         }}>
         <Text className="text-lg font-bold" style={{color: '#191C1B'}}>
           Select an approved species
