@@ -28,7 +28,7 @@ With Metro running, open a new terminal window/pane from the root of your React 
 # Using npm
 npm run android
 
-# OR using Yarn
+# OR using Yarn.
 yarn android
 ```
 
