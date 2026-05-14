@@ -19,3 +19,11 @@
 -keep class org.tensorflow.lite.** { *; }
 -keep class org.tensorflow.lite.support.** { *; }
 -dontwarn org.tensorflow.lite.**
+
+# Keep native methods
+-keepclasseswithmembernames class * {
+    native <methods>;
+}
+
+# Keep annotations
+-keepattributes *Annotation*

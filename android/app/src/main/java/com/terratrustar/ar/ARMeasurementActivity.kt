@@ -36,6 +36,7 @@ import com.google.ar.core.Point
 import com.google.ar.core.PointCloud
 import com.google.ar.core.Pose
 import com.google.ar.core.Session
+import com.google.ar.core.TrackingFailureReason
 import com.google.ar.core.TrackingState
 import com.google.ar.core.exceptions.CameraNotAvailableException
 import com.google.ar.core.exceptions.NotYetAvailableException
@@ -109,6 +110,11 @@ class ARMeasurementActivity : AppCompatActivity(), GLSurfaceView.Renderer {
     private data class HeightHitCandidate(
         val kind: HeightBaseHitKind,
         val hitResult: HitResult,
+    )
+
+    private data class TrackingGuidance(
+        val status: String,
+        val helper: String,
     )
 
     private lateinit var rootView: FrameLayout
@@ -266,6 +272,7 @@ class ARMeasurementActivity : AppCompatActivity(), GLSurfaceView.Renderer {
             backgroundRenderer.draw(frame)
 
             if (frame.camera.trackingState != TrackingState.TRACKING) {
+                val trackingGuidance = trackingGuidance(frame.camera.trackingFailureReason)
                 overlayView.render(
                     MeasurementOverlayView.State(
                         heightStep =
@@ -285,16 +292,8 @@ class ARMeasurementActivity : AppCompatActivity(), GLSurfaceView.Renderer {
                     ),
                 )
                 postOverlayState(
-                    if (measurementMode == MeasurementMode.DIAMETER) {
-                        "Point the phone at the tree"
-                    } else {
-                        "Move slowly until tracking locks"
-                    },
-                    if (measurementMode == MeasurementMode.DIAMETER) {
-                        "Center the trunk and move slightly so TerraTrust can lock onto it."
-                    } else {
-                        "Move slightly so TerraTrust can detect the tree base and top."
-                    },
+                    trackingGuidance.status,
+                    trackingGuidance.helper,
                     if (measurementMode == MeasurementMode.DIAMETER) 0 else null,
                 )
                 return
@@ -494,6 +493,53 @@ class ARMeasurementActivity : AppCompatActivity(), GLSurfaceView.Renderer {
                     "Base retry"
                 } else {
                     "Top retry"
+                }
+        }
+    }
+
+    private fun trackingGuidance(reason: TrackingFailureReason): TrackingGuidance {
+        return when (reason) {
+            TrackingFailureReason.INSUFFICIENT_LIGHT ->
+                TrackingGuidance(
+                    status = "Need better lighting",
+                    helper = "Move to brighter, even light so TerraTrust can see bark detail clearly.",
+                )
+
+            TrackingFailureReason.EXCESSIVE_MOTION ->
+                TrackingGuidance(
+                    status = "Hold the phone steadier",
+                    helper = "Move slowly and keep the tree centered while TerraTrust re-locks tracking.",
+                )
+
+            TrackingFailureReason.INSUFFICIENT_FEATURES ->
+                TrackingGuidance(
+                    status = "Need more surface detail",
+                    helper = "Aim at textured bark or nearby ground, and avoid blank or reflective surfaces.",
+                )
+
+            TrackingFailureReason.CAMERA_UNAVAILABLE ->
+                TrackingGuidance(
+                    status = "Camera unavailable",
+                    helper = "Close other camera apps and try the AR measurement again.",
+                )
+
+            TrackingFailureReason.BAD_STATE ->
+                TrackingGuidance(
+                    status = "Resetting AR tracking",
+                    helper = "Pause for a moment while TerraTrust rebuilds the scene around the tree.",
+                )
+
+            TrackingFailureReason.NONE ->
+                if (measurementMode == MeasurementMode.DIAMETER) {
+                    TrackingGuidance(
+                        status = "Point the phone at the tree",
+                        helper = "Center the trunk and move slightly so TerraTrust can lock onto it.",
+                    )
+                } else {
+                    TrackingGuidance(
+                        status = "Move slowly until tracking locks",
+                        helper = "Move slightly so TerraTrust can detect the tree base and top.",
+                    )
                 }
         }
     }

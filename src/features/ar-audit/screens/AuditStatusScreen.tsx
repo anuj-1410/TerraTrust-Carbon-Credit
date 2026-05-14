@@ -17,6 +17,7 @@ import Button from '../../../common/components/Button';
 import {COLORS} from '../../../common/constants/colors';
 import {useAppDispatch, useAppSelector} from '../../../store/hooks';
 import {
+  cleanupAuditSession,
   setAuditResult,
   setLastPolledAt,
   setUploadStatus,
@@ -24,7 +25,10 @@ import {
 } from '../store/auditSlice';
 import {setPendingMint} from '../../dashboard/store/creditsSlice';
 import {store} from '../../../store';
-import {syncAuditStatus} from '../utils/auditStatus';
+import {
+  isAuditResultProcessingStatus,
+  syncAuditStatus,
+} from '../utils/auditStatus';
 import type {RootStackParamList} from '../../../types/navigation';
 import {moveAppToBackground} from '../../../services/ar-bridge';
 
@@ -48,14 +52,25 @@ const AuditStatusScreen = () => {
     auditResult ?? {status: 'PROCESSING'},
   );
   const [statusHint, setStatusHint] = useState('');
-  const isInProgress =
-    currentResult.status === 'PROCESSING' ||
-    currentResult.status === 'CALCULATING' ||
-    currentResult.status === 'READY_TO_MINT';
+  const isInProgress = isAuditResultProcessingStatus(currentResult.status);
 
-  const goHome = useCallback(() => {
-    navigation.reset({index: 0, routes: [{name: 'HomeScreen'}]});
-  }, [navigation]);
+  const goHome = useCallback(
+    (options?: {cleanupAudit?: boolean}) => {
+      const navigateHome = () => {
+        navigation.reset({index: 0, routes: [{name: 'HomeScreen'}]});
+      };
+
+      if (options?.cleanupAudit) {
+        void dispatch(cleanupAuditSession())
+          .unwrap()
+          .finally(navigateHome);
+        return;
+      }
+
+      navigateHome();
+    },
+    [dispatch, navigation],
+  );
 
   useEffect(() => {
     const subscription = BackHandler.addEventListener('hardwareBackPress', () => {
@@ -96,11 +111,7 @@ const AuditStatusScreen = () => {
         setStatusHint('');
         setCurrentResult(nextResult);
 
-        if (
-          nextResult.status === 'PROCESSING' ||
-          nextResult.status === 'CALCULATING' ||
-          nextResult.status === 'READY_TO_MINT'
-        ) {
+        if (isAuditResultProcessingStatus(nextResult.status)) {
           scheduleNextPoll(5000);
           return;
         }
@@ -117,15 +128,15 @@ const AuditStatusScreen = () => {
           return;
         }
 
-        const failedResult: AuditResultResponse = {
-          status: 'FAILED',
-          error: 'Unable to check audit status right now. Please try again later.',
-        };
-        setCurrentResult(failedResult);
-        dispatch(setAuditResult(failedResult));
+        setStatusHint('Connection issue while checking status. Retrying...');
         dispatch(setLastPolledAt(new Date().toISOString()));
-        dispatch(setUploadStatus('error'));
-        dispatch(setPendingMint(false));
+
+        if (isAuditResultProcessingStatus(currentResult.status)) {
+          dispatch(setUploadStatus('processing'));
+          dispatch(setPendingMint(true));
+        }
+
+        scheduleNextPoll(10000);
       }
     };
 
@@ -137,7 +148,7 @@ const AuditStatusScreen = () => {
         clearTimeout(timer);
       }
     };
-  }, [dispatch, route.params.auditId]);
+  }, [currentResult.status, dispatch, route.params.auditId]);
 
   const truncatedTxHash = useMemo(() => {
     if (!currentResult.tx_hash) {
@@ -292,7 +303,7 @@ const AuditStatusScreen = () => {
             ) : null}
 
             <View className="mt-8 w-full">
-              <Button label="Go to Home" onPress={goHome} />
+              <Button label="Go to Home" onPress={() => goHome({cleanupAudit: true})} />
             </View>
           </View>
         ) : null}
@@ -312,7 +323,7 @@ const AuditStatusScreen = () => {
               {currentResult.reason ?? 'Baseline year established; future growth earns credits.'}
             </Text>
             <View className="mt-8 w-full">
-              <Button label="Go to Home" onPress={goHome} />
+              <Button label="Go to Home" onPress={() => goHome({cleanupAudit: true})} />
             </View>
           </View>
         ) : null}

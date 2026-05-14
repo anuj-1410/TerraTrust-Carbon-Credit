@@ -74,8 +74,14 @@ const ManualMeasureScreen = () => {
       setCalculatedDiameter(null);
       return;
     }
-    setError(null);
     const dbh = Math.round((num / Math.PI) * 10) / 10;
+    if (dbh < 5 || dbh > 200) {
+      setError('Calculated DBH must be between 5 cm and 200 cm');
+      setCalculatedDiameter(null);
+      return;
+    }
+
+    setError(null);
     setCalculatedDiameter(dbh);
   }, [circumference, isHeightMode]);
 
@@ -134,7 +140,7 @@ const ManualMeasureScreen = () => {
               Wrap a string around the tree trunk at chest height (1.3m from ground)
             </Text>
             <Text className="text-[#6B7280] text-sm text-center mt-2">
-              Mark where the string meets, then measure the length with a ruler
+              Mark where the string meets, then measure that circumference length with a ruler
             </Text>
             <TouchableOpacity
               onPress={dismissTutorial}
@@ -159,12 +165,12 @@ const ManualMeasureScreen = () => {
           </View>
           <Text className="text-[#6B7280] text-sm text-center mt-4">
             {isHeightMode
-              ? 'Enter the measured or estimated tree height'
-              : 'Wrap string at chest height (1.3m from ground)'}
+              ? 'Enter fallback tree height only when GEDI or AR height is unavailable'
+              : 'Wrap the string at DBH height: 1.3m above the ground'}
           </Text>
           <Text className="text-[#2D6A4F] text-xs text-center mt-2">
             {isHeightMode
-              ? 'Used only where GEDI/AR height is unavailable'
+              ? 'Used only where GEDI and AR height are unavailable'
               : "We'll calculate the diameter for you"}
           </Text>
         </View>

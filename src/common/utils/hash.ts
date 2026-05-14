@@ -3,66 +3,48 @@ import {NativeModules} from 'react-native';
 type HashModuleSpec = {
   sha256Utf8(input: string): Promise<string>;
   sha256Base64(base64: string): Promise<string>;
+  sha256File(fileUriOrPath: string): Promise<string>;
   readFileAsBase64(fileUriOrPath: string): Promise<string>;
+  persistFile(fileUriOrPath: string, targetFileName: string): Promise<string>;
+  deleteFile(fileUriOrPath: string): Promise<boolean>;
 };
 
 const hashModule = NativeModules.HashModule as HashModuleSpec | undefined;
 
-function getNodeCrypto() {
-  try {
-    return require('crypto') as typeof import('crypto');
-  } catch {
-    return null;
+function requireHashModule(): HashModuleSpec {
+  if (!hashModule) {
+    throw new Error('HashModule is unavailable.');
   }
-}
-
-function getNodeFs() {
-  try {
-    return require('fs') as typeof import('fs');
-  } catch {
-    return null;
-  }
-}
-
-function normalizeFilePath(fileUriOrPath: string): string {
-  return fileUriOrPath.replace(/^file:\/\//, '');
+  return hashModule;
 }
 
 export async function sha256(data: string): Promise<string> {
-  if (hashModule?.sha256Utf8) {
-    return hashModule.sha256Utf8(data);
-  }
-
-  const crypto = getNodeCrypto();
-  if (!crypto) {
-    throw new Error('HashModule is unavailable.');
-  }
-
-  return crypto.createHash('sha256').update(data, 'utf8').digest('hex');
+  return requireHashModule().sha256Utf8(data);
 }
 
 export async function hashPhoto(base64: string): Promise<string> {
-  if (hashModule?.sha256Base64) {
-    return hashModule.sha256Base64(base64);
-  }
+  return requireHashModule().sha256Base64(base64);
+}
 
-  const crypto = getNodeCrypto();
-  if (!crypto) {
-    throw new Error('HashModule is unavailable.');
-  }
-
-  return crypto.createHash('sha256').update(base64, 'base64').digest('hex');
+export async function hashFile(fileUriOrPath: string): Promise<string> {
+  return requireHashModule().sha256File(fileUriOrPath);
 }
 
 export async function readFileAsBase64(fileUriOrPath: string): Promise<string> {
-  if (hashModule?.readFileAsBase64) {
-    return hashModule.readFileAsBase64(fileUriOrPath);
+  return requireHashModule().readFileAsBase64(fileUriOrPath);
+}
+
+export async function persistFile(
+  fileUriOrPath: string,
+  targetFileName: string,
+): Promise<string> {
+  return requireHashModule().persistFile(fileUriOrPath, targetFileName);
+}
+
+export async function deleteFile(fileUriOrPath: string): Promise<boolean> {
+  if (!fileUriOrPath) {
+    return false;
   }
 
-  const fs = getNodeFs();
-  if (!fs) {
-    throw new Error('HashModule is unavailable.');
-  }
-
-  return fs.readFileSync(normalizeFilePath(fileUriOrPath), {encoding: 'base64'});
+  return requireHashModule().deleteFile(fileUriOrPath);
 }

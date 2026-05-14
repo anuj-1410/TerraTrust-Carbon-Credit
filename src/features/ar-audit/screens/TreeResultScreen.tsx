@@ -11,6 +11,7 @@ import Badge from '../../../common/components/Badge';
 import BottomSheet from '../../../common/components/BottomSheet';
 import {useAppDispatch, useAppSelector} from '../../../store/hooks';
 import {addScannedTree, setCurrentZoneIndex} from '../store/auditSlice';
+import {deleteFile} from '../../../common/utils/hash';
 
 type NavProp = NativeStackNavigationProp<RootStackParamList, 'TreeResultScreen'>;
 type RouteType = RouteProp<RootStackParamList, 'TreeResultScreen'>;
@@ -22,6 +23,21 @@ const formatLatitude = (value: number) =>
 
 const formatLongitude = (value: number) =>
   `${Math.abs(value).toFixed(4)}°${value >= 0 ? 'E' : 'W'}`;
+
+function getHeightSourceLabel(tree: RouteType['params']['pendingTree']): string {
+  const heightCaptureMethod =
+    tree.height_capture_method ?? (tree.ar_height_m !== null ? 'AR' : 'GEDI');
+
+  if (heightCaptureMethod === 'GEDI' || tree.ar_height_m === null) {
+    return 'From GEDI Satellite';
+  }
+
+  if (heightCaptureMethod === 'MANUAL') {
+    return `Manual Height: ${tree.ar_height_m.toFixed(1)} m`;
+  }
+
+  return `AR Measured: ${tree.ar_height_m.toFixed(1)} m`;
+}
 
 const TreeResultScreen = () => {
   const navigation = useNavigation<NavProp>();
@@ -115,8 +131,11 @@ const TreeResultScreen = () => {
   }, []);
 
   const handleRescan = useCallback(() => {
+    if (tree.evidence_photo_uri) {
+      void deleteFile(tree.evidence_photo_uri).catch(() => false);
+    }
     navigateBackToCamera();
-  }, [navigateBackToCamera]);
+  }, [navigateBackToCamera, tree.evidence_photo_uri]);
 
   const handleScanMoreTrees = useCallback(() => {
     setShowZoneCompletionSheet(false);
@@ -219,13 +238,7 @@ const TreeResultScreen = () => {
           <View className="py-4">
             <Text className="text-[#6B7280] text-sm mb-1">Height Source</Text>
             <Text className="text-[#191C1B] text-base">
-              {tree.ar_height_m !== null ? (
-                <Text style={{fontFamily: 'RobotoMono-Regular'}}>
-                  AR Measured: {tree.ar_height_m.toFixed(1)} m
-                </Text>
-              ) : (
-                'From GEDI Satellite'
-              )}
+              {getHeightSourceLabel(tree)}
             </Text>
           </View>
 
@@ -249,10 +262,10 @@ const TreeResultScreen = () => {
           {/* Evidence photo */}
           <View className="py-4">
             <Text className="text-[#6B7280] text-sm mb-2">Evidence Photo</Text>
-            {tree.evidence_photo_base64 ? (
+            {tree.evidence_photo_uri ? (
               <Image
                 source={{
-                  uri: `data:image/jpeg;base64,${tree.evidence_photo_base64}`,
+                  uri: tree.evidence_photo_uri,
                 }}
                 className="w-full h-32 rounded-xl bg-[#E5E7EB]"
                 resizeMode="cover"

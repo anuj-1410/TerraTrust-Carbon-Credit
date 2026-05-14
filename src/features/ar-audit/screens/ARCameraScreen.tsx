@@ -6,6 +6,7 @@ import {
   TouchableOpacity,
   Alert,
   ActivityIndicator,
+  Linking,
 } from 'react-native';
 import {useNavigation, useRoute} from '@react-navigation/native';
 import type {NativeStackNavigationProp} from '@react-navigation/native-stack';
@@ -20,21 +21,27 @@ import Badge from '../../../common/components/Badge';
 import BottomSheet from '../../../common/components/BottomSheet';
 import {isPointInsidePolygon} from '../../../common/utils/geoJson';
 import {useAppSelector} from '../../../store/hooks';
-import type {SpeciesSource, TreeSample} from '../store/auditSlice';
+import type {
+  HeightCaptureMethod,
+  SpeciesSource,
+  TreeSample,
+} from '../store/auditSlice';
 import {
   measureTreeDiameter,
   measureTreeHeight,
   identifySpecies,
-  cancelHeightMeasurement,
 } from '../../../services/ar-bridge';
-import {hashPhoto, readFileAsBase64} from '../../../common/utils/hash';
+import {deleteFile, hashFile, persistFile} from '../../../common/utils/hash';
 import {
   APPROVED_SPECIES,
   APPROVED_SPECIES_NAMES,
   getWoodDensity,
 } from '../../../common/constants/species';
 import {v4 as uuidv4} from 'uuid';
-import {ensureCameraPermission} from '../../../common/utils/permissions';
+import {
+  ensureCameraPermission,
+  type PermissionStatus,
+} from '../../../common/utils/permissions';
 import {
   IS_AUDIT_DEMO_MODE,
   IS_AUDIT_SPECIES_DETECTION_DISABLED,
@@ -46,6 +53,10 @@ import {
   getHeightInterruptedStatusText,
   getHeightRetryStatusText,
 } from '../utils/arMeasurementCopy';
+import {
+  GPS_RELIABLE_ACCURACY_METRES,
+  hasValidGpsCoordinates,
+} from '../../../common/utils/location';
 
 type NavProp = NativeStackNavigationProp<RootStackParamList, 'ARCameraScreen'>;
 type RouteType = RouteProp<RootStackParamList, 'ARCameraScreen'>;
@@ -124,20 +135,25 @@ const ARCameraScreen = () => {
   // Measurement
   const [diameterCm, setDiameterCm] = useState<number | null>(null);
   const [arHeightM, setArHeightM] = useState<number | null>(null);
-  const [measureConfidence, setMeasureConfidence] = useState(0);
+  const [heightCaptureMethod, setHeightCaptureMethod] = useState<HeightCaptureMethod>(
+    currentZone?.gedi_available ? 'GEDI' : 'AR',
+  );
+  const [measureConfidence, setMeasureConfidence] = useState<number | null>(null);
   const [tierUsed, setTierUsed] = useState<1 | 2 | 3>(arTier as 1 | 2 | 3);
   const [consecutiveFailures, setConsecutiveFailures] = useState(0);
   const [, setConsecutiveHeightFailures] = useState(0);
 
   // Evidence
-  const [evidenceBase64, setEvidenceBase64] = useState<string | null>(null);
+  const [evidenceUri, setEvidenceUri] = useState<string | null>(null);
   const [evidenceHash, setEvidenceHash] = useState<string | null>(null);
 
   // GPS from last known position (simplified — gets from geolocation)
   const [gpsLat, setGpsLat] = useState(0);
   const [gpsLng, setGpsLng] = useState(0);
   const [gpsAccuracy, setGpsAccuracy] = useState(0);
-  const [hasCameraPermission, setHasCameraPermission] = useState<boolean | null>(null);
+  const [gpsHasFix, setGpsHasFix] = useState(false);
+  const [gpsIsMocked, setGpsIsMocked] = useState(false);
+  const [cameraPermissionStatus, setCameraPermissionStatus] = useState<PermissionStatus | null>(null);
   const [isVisionCameraActive, setIsVisionCameraActive] = useState(true);
 
   const resolveVisionCameraWaiters = useCallback(
@@ -280,18 +296,26 @@ const ARCameraScreen = () => {
 
   const captureEvidencePhoto = useCallback(async () => {
     const snapshot = await takeVisionCameraSnapshot();
-    const nextEvidenceBase64 = await readFileAsBase64(snapshot.path);
-    const nextEvidenceHash = await hashPhoto(nextEvidenceBase64);
-    setEvidenceBase64(nextEvidenceBase64);
+    const nextEvidenceUri = await persistFile(
+      snapshot.path,
+      `audit-${audit.activeAuditId ?? 'local'}-${zoneId}-${Date.now()}.jpg`,
+    );
+    const nextEvidenceHash = await hashFile(nextEvidenceUri);
+    if (evidenceUri && evidenceUri !== nextEvidenceUri) {
+      void deleteFile(evidenceUri).catch(() => false);
+    }
+    setEvidenceUri(nextEvidenceUri);
     setEvidenceHash(nextEvidenceHash);
     return {
-      base64: nextEvidenceBase64,
+      uri: nextEvidenceUri,
       hash: nextEvidenceHash,
     };
-  }, [takeVisionCameraSnapshot]);
+  }, [audit.activeAuditId, evidenceUri, takeVisionCameraSnapshot, zoneId]);
 
-  const resetScanState = useCallback(() => {
-    void cancelHeightMeasurement().catch(() => undefined);
+  const resetScanState = useCallback(async () => {
+    if (evidenceUri) {
+      await deleteFile(evidenceUri).catch(() => false);
+    }
     setVisionCameraDesiredActive(true);
     setPhase('idle');
     setStatusText(
@@ -306,25 +330,22 @@ const ARCameraScreen = () => {
     setWoodDensity(0);
     setDiameterCm(null);
     setArHeightM(null);
-    setMeasureConfidence(0);
+    setHeightCaptureMethod(currentZone?.gedi_available ? 'GEDI' : 'AR');
+    setMeasureConfidence(null);
     setTierUsed(arTier as 1 | 2 | 3);
     setConsecutiveFailures(0);
     setConsecutiveHeightFailures(0);
-    setEvidenceBase64(null);
+    setEvidenceUri(null);
     setEvidenceHash(null);
-  }, [arTier, setVisionCameraDesiredActive]);
+  }, [arTier, currentZone?.gedi_available, evidenceUri, setVisionCameraDesiredActive]);
 
   useEffect(() => {
     let mounted = true;
 
     const requestCameraAccess = async () => {
-      const cameraGranted = await ensureCameraPermission();
-      const visionCameraGranted =
-        (await Camera.getCameraPermissionStatus()) === 'granted' ||
-        (await Camera.requestCameraPermission()) === 'granted';
-
       if (mounted) {
-        setHasCameraPermission(cameraGranted && visionCameraGranted);
+        const permissionResult = await ensureCameraPermission();
+        setCameraPermissionStatus(permissionResult.status);
       }
     };
 
@@ -340,7 +361,7 @@ const ARCameraScreen = () => {
       return;
     }
 
-    resetScanState();
+    void resetScanState();
   }, [resetScanState, resetScanToken]);
 
   // Wire returnDiameter from ManualMeasureScreen (T031)
@@ -348,8 +369,7 @@ const ARCameraScreen = () => {
     if (returnedDiameter != null) {
       setDiameterCm(returnedDiameter);
       setTierUsed(3);
-      setMeasureConfidence(1.0);
-      setSpeciesConfidence(currentConfidence => currentConfidence || 1.0);
+      setMeasureConfidence(null);
       setPhase('result');
       setStatusText('Manual measurement received');
     }
@@ -358,6 +378,7 @@ const ARCameraScreen = () => {
   useEffect(() => {
     if (returnedHeight != null) {
       setArHeightM(returnedHeight);
+      setHeightCaptureMethod('MANUAL');
       setConsecutiveHeightFailures(0);
       setPhase(diameterCm !== null ? 'result' : 'species_done');
       setStatusText(`Height entered: ${returnedHeight.toFixed(1)} m`);
@@ -371,6 +392,8 @@ const ARCameraScreen = () => {
         setGpsLat(pos.coords.latitude);
         setGpsLng(pos.coords.longitude);
         setGpsAccuracy(pos.coords.accuracy);
+        setGpsHasFix(true);
+        setGpsIsMocked(pos.mocked === true);
       },
       () => {},
       {enableHighAccuracy: gpsHighAccuracy, distanceFilter: 1, interval: 3000},
@@ -400,12 +423,12 @@ const ARCameraScreen = () => {
   const requiresArHeightBeforeSave = needsArHeight;
   const canStartDiameterMeasurement = Boolean(resolvedSpeciesName);
   const canStartHeightMeasurement = diameterCm !== null && needsArHeight;
-
-  useEffect(() => {
-    return () => {
-      void cancelHeightMeasurement().catch(() => undefined);
-    };
-  }, []);
+  const hasReliableGpsFix =
+    gpsHasFix &&
+    hasValidGpsCoordinates(gpsLat, gpsLng) &&
+    Number.isFinite(gpsAccuracy) &&
+    gpsAccuracy > 0 &&
+    gpsAccuracy <= GPS_RELIABLE_ACCURACY_METRES;
 
   const applySpeciesSelection = useCallback(
     (
@@ -452,9 +475,7 @@ const ARCameraScreen = () => {
       setPhase('identifying');
       setStatusText('Identifying species...');
       const snapshot = await takeVisionCameraSnapshot();
-      const imgBase64 = await readFileAsBase64(snapshot.path);
-
-      const result = await withTimeout(identifySpecies(imgBase64), 10000);
+      const result = await withTimeout(identifySpecies(snapshot.path), 10000);
 
       const isApprovedSpecies = APPROVED_SPECIES_NAMES.includes(result.species);
 
@@ -486,7 +507,23 @@ const ARCameraScreen = () => {
       }
 
       openManualSpeciesPicker(result.confidence);
-    } catch {
+    } catch (error: unknown) {
+      const errorCode =
+        error != null &&
+        typeof error === 'object' &&
+        'code' in error
+          ? (error as {code: string}).code
+          : '';
+
+      if (errorCode === 'MODEL_UNAVAILABLE') {
+        Alert.alert(
+          'Automatic Species ID Unavailable',
+          'This build does not include a usable species model. Choose the species manually to continue.',
+        );
+        openManualSpeciesPicker(0);
+        return;
+      }
+
       Alert.alert('Species ID Failed', 'Could not identify species. Please try again.');
       setSpeciesResolutionMode('none');
       setPhase('idle');
@@ -673,6 +710,9 @@ const ARCameraScreen = () => {
       );
       const heightM = result.height_m ?? null;
       setArHeightM(heightM);
+      if (heightM !== null) {
+        setHeightCaptureMethod('AR');
+      }
       setConsecutiveHeightFailures(0);
       ReactNativeHapticFeedback.trigger('impactMedium');
       setStatusText(
@@ -775,10 +815,18 @@ const ARCameraScreen = () => {
       return;
     }
 
-    if (!IS_AUDIT_DEMO_MODE && gpsAccuracy > 30) {
+    if (!IS_AUDIT_DEMO_MODE && gpsIsMocked) {
       Alert.alert(
-        'Weak GPS Signal',
-        'GPS accuracy is too weak to save this tree. Move to an open area and try again.',
+        'Mock Location Detected',
+        'Disable mock location before saving this tree scan.',
+      );
+      return;
+    }
+
+    if (!IS_AUDIT_DEMO_MODE && !hasReliableGpsFix) {
+      Alert.alert(
+        'Reliable GPS Required',
+        `TerraTrust needs a live in-field GPS fix within ${GPS_RELIABLE_ACCURACY_METRES}m before saving this tree.`,
       );
       return;
     }
@@ -786,6 +834,7 @@ const ARCameraScreen = () => {
     if (
       !IS_AUDIT_DEMO_MODE &&
       boundary &&
+      hasValidGpsCoordinates(gpsLat, gpsLng) &&
       !isPointInsidePolygon({lat: gpsLat, lng: gpsLng}, boundary)
     ) {
       Alert.alert(
@@ -795,12 +844,12 @@ const ARCameraScreen = () => {
       return;
     }
 
-    let nextEvidenceBase64 = evidenceBase64;
+    let nextEvidenceUri = evidenceUri;
     let nextEvidenceHash = evidenceHash;
 
-    if (!nextEvidenceBase64 || !nextEvidenceHash) {
+    if (!nextEvidenceUri || !nextEvidenceHash) {
       const evidencePhoto = await captureEvidencePhoto();
-      nextEvidenceBase64 = evidencePhoto.base64;
+      nextEvidenceUri = evidencePhoto.uri;
       nextEvidenceHash = evidencePhoto.hash;
     }
 
@@ -820,20 +869,26 @@ const ARCameraScreen = () => {
       dbh_cm: Math.round(diameterCm * 10) / 10,
       wood_density: resolvedWoodDensity,
       ar_height_m: needsArHeight ? arHeightM : null,
+      height_capture_method: needsArHeight ? heightCaptureMethod : 'GEDI',
       measurement_tier: tierUsed,
-      confidence_score: measureConfidence,
+      confidence_score: tierUsed === 3 ? null : measureConfidence,
       gps_lat: resolvedLocation.gpsLat,
       gps_lng: resolvedLocation.gpsLng,
       gps_accuracy_m: resolvedLocation.gpsAccuracy,
-      evidence_photo_base64: nextEvidenceBase64 ?? '',
+      evidence_photo_uri: nextEvidenceUri ?? null,
       evidence_photo_hash: nextEvidenceHash ?? '',
       scan_timestamp: new Date().toISOString(),
     };
 
+    setEvidenceUri(null);
+    setEvidenceHash(null);
     navigation.navigate('TreeResultScreen', {pendingTree});
   }, [
     arHeightM,
     diameterCm,
+    gpsIsMocked,
+    hasReliableGpsFix,
+    heightCaptureMethod,
     needsArHeight,
     requiresArHeightBeforeSave,
     tierUsed,
@@ -842,7 +897,7 @@ const ARCameraScreen = () => {
     gpsLng,
     gpsAccuracy,
     boundary,
-    evidenceBase64,
+    evidenceUri,
     evidenceHash,
     zoneId,
     navigation,
@@ -855,10 +910,16 @@ const ARCameraScreen = () => {
   ]);
 
   const handleRetry = useCallback(() => {
+    if (evidenceUri) {
+      void deleteFile(evidenceUri).catch(() => false);
+    }
+    setEvidenceUri(null);
+    setEvidenceHash(null);
     setDiameterCm(null);
+    setMeasureConfidence(null);
     setPhase('species_done');
     setStatusText('Try again — Measure diameter');
-  }, []);
+  }, [evidenceUri]);
 
   const precisionBadge = (() => {
     if (tierUsed === 1) {
@@ -872,26 +933,38 @@ const ARCameraScreen = () => {
     return {label: 'Manual Measurement', variant: 'manual' as const};
   })();
 
-  if (hasCameraPermission === false) {
+  const hasCameraPermission = cameraPermissionStatus === 'granted';
+  const isCameraPermissionBlocked = cameraPermissionStatus === 'blocked';
+
+  if (cameraPermissionStatus !== null && !hasCameraPermission) {
     return (
       <View className="flex-1 items-center justify-center bg-black px-8">
         <Text className="text-center text-lg font-semibold text-white">
-          Camera permission is required to scan trees.
+          {isCameraPermissionBlocked
+            ? 'Camera access is blocked in Settings.'
+            : 'Camera permission is required to scan trees.'}
         </Text>
         <TouchableOpacity
           onPress={() => {
-            void Camera.requestCameraPermission().then(status => {
-              setHasCameraPermission(status === 'granted');
+            if (isCameraPermissionBlocked) {
+              void Linking.openSettings();
+              return;
+            }
+
+            void ensureCameraPermission().then(result => {
+              setCameraPermissionStatus(result.status);
             });
           }}
           className="mt-6 rounded-xl bg-[#2D6A4F] px-6 py-3">
-          <Text className="font-bold text-white">Allow Camera Access</Text>
+          <Text className="font-bold text-white">
+            {isCameraPermissionBlocked ? 'Open Settings' : 'Allow Camera Access'}
+          </Text>
         </TouchableOpacity>
       </View>
     );
   }
 
-  if (hasCameraPermission === null) {
+  if (cameraPermissionStatus === null) {
     return (
       <View className="flex-1 items-center justify-center bg-black">
         <Text className="text-lg text-white">Checking camera permission...</Text>
@@ -1076,20 +1149,26 @@ const ARCameraScreen = () => {
           </View>
 
           {/* Confidence */}
-          <View className="flex-row items-center mb-5">
-            <Text className="text-[#6B7280] text-sm mr-2">Confidence</Text>
-            <View className="flex-1 h-2 bg-[#E5E7EB] rounded-full overflow-hidden">
-              <View
-                className="h-full bg-[#2D6A4F] rounded-full"
-                style={{width: `${Math.round(measureConfidence * 100)}%`}}
-              />
+          {measureConfidence !== null ? (
+            <View className="flex-row items-center mb-5">
+              <Text className="text-[#6B7280] text-sm mr-2">Confidence</Text>
+              <View className="flex-1 h-2 bg-[#E5E7EB] rounded-full overflow-hidden">
+                <View
+                  className="h-full bg-[#2D6A4F] rounded-full"
+                  style={{width: `${Math.round(measureConfidence * 100)}%`}}
+                />
+              </View>
+              <Text
+                className="text-[#191C1B] text-sm font-bold ml-2"
+                style={{fontFamily: 'RobotoMono-Regular'}}>
+                {Math.round(measureConfidence * 100)}%
+              </Text>
             </View>
-            <Text
-              className="text-[#191C1B] text-sm font-bold ml-2"
-              style={{fontFamily: 'RobotoMono-Regular'}}>
-              {Math.round(measureConfidence * 100)}%
+          ) : (
+            <Text className="mb-5 text-sm" style={{color: '#6B7280'}}>
+              Confidence: Manual entry
             </Text>
-          </View>
+          )}
 
           <View className="mb-5">
             <Text className="text-[#6B7280] text-sm mb-1">Height</Text>
@@ -1098,7 +1177,9 @@ const ARCameraScreen = () => {
               style={{fontFamily: 'RobotoMono-Regular'}}>
               {needsArHeight
                 ? arHeightM !== null
-                  ? `${arHeightM.toFixed(1)} m`
+                  ? heightCaptureMethod === 'MANUAL'
+                    ? `Manual height: ${arHeightM.toFixed(1)} m`
+                    : `AR height: ${arHeightM.toFixed(1)} m`
                   : canMeasureArHeight
                     ? 'Not measured yet'
                     : 'Manual height required'

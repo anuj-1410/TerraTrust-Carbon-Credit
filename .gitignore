@@ -19,6 +19,7 @@ android/app/google-services.json
 *.p8
 *.p12
 *.key
+.gradle-home
 
 # iOS and Xcode generated files
 ios/Pods/

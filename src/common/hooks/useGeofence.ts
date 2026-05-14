@@ -8,6 +8,11 @@ import {
 import type {GeoJSONPolygon} from '../../features/land/store/landSlice';
 import {useAppSelector} from '../../store/hooks';
 import {isPointInsidePolygon} from '../utils/geoJson';
+import {
+  GPS_RELIABLE_ACCURACY_METRES,
+  ZONE_ARRIVAL_METRES,
+  isMockedGeoPosition,
+} from '../utils/location';
 
 export interface GeofencePosition extends GPS {
   accuracy: number;
@@ -19,11 +24,10 @@ export interface UseGeofenceResult {
   currentPosition: GeofencePosition | null;
   gpsAccuracy: number | null;
   hasWeakSignal: boolean;
+  hasReliableFix: boolean;
+  isMockedLocation: boolean;
   error: string | null;
 }
-
-const ACCURACY_THRESHOLD = 20;
-const ZONE_ARRIVAL_METRES = 10;
 
 function haversineDistance(a: GPS, b: GPS): number {
   const R = 6371000;
@@ -53,6 +57,7 @@ export function useGeofence(
   const [lastReliableInsideBoundary, setLastReliableInsideBoundary] =
     useState<boolean | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [isMockedLocation, setIsMockedLocation] = useState(false);
 
   useEffect(() => {
     setLastReliableInsideBoundary(null);
@@ -68,10 +73,11 @@ export function useGeofence(
         };
 
         setCurrentPosition(nextPosition);
+        setIsMockedLocation(isMockedGeoPosition(position));
 
         if (
           boundary &&
-          nextPosition.accuracy <= ACCURACY_THRESHOLD
+          nextPosition.accuracy <= GPS_RELIABLE_ACCURACY_METRES
         ) {
           setLastReliableInsideBoundary(
             isPointInsidePolygon(nextPosition, boundary),
@@ -95,14 +101,15 @@ export function useGeofence(
   }, [boundary, gpsHighAccuracy]);
 
   const hasAccurateFix =
-    currentPosition !== null && currentPosition.accuracy <= ACCURACY_THRESHOLD;
+    currentPosition !== null &&
+    currentPosition.accuracy <= GPS_RELIABLE_ACCURACY_METRES;
   const demoZonePosition = IS_AUDIT_DEMO_MODE
     ? getDemoZonePosition(currentZone)
     : null;
   const effectivePosition = demoZonePosition ?? currentPosition;
   const hasReliableEffectiveFix =
     effectivePosition !== null &&
-    effectivePosition.accuracy <= ACCURACY_THRESHOLD;
+    effectivePosition.accuracy <= GPS_RELIABLE_ACCURACY_METRES;
 
   // Local client-side check (fast, preliminary)
   const isInsideBoundary = demoZonePosition
@@ -129,7 +136,10 @@ export function useGeofence(
     gpsAccuracy: effectivePosition?.accuracy ?? null,
     hasWeakSignal: demoZonePosition
       ? false
-      : currentPosition !== null && currentPosition.accuracy > ACCURACY_THRESHOLD,
+      : currentPosition !== null &&
+        currentPosition.accuracy > GPS_RELIABLE_ACCURACY_METRES,
+    hasReliableFix: demoZonePosition ? true : hasAccurateFix,
+    isMockedLocation: demoZonePosition ? false : isMockedLocation,
     error,
   };
 }

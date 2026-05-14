@@ -35,7 +35,6 @@ import {hideBanner, setMaintenance, showBanner} from '../store/uiSlice';
 import Loader from '../common/components/Loader';
 import api, {retryPendingAuditUpload} from '../services/api';
 import {COLORS} from '../common/constants/colors';
-import {useARTier} from '../common/hooks/useARTier';
 import {setPendingMint} from '../features/dashboard/store/creditsSlice';
 import {
   setAuditResult,
@@ -376,8 +375,6 @@ async function configureBackgroundFetch() {
 }
 
 function AppLifecycleEffects() {
-  useARTier();
-
   const dispatch = useAppDispatch();
   const bannerType = useAppSelector(state => state.ui.bannerType);
   const maintenanceMode = useAppSelector(state => state.ui.maintenanceMode);
