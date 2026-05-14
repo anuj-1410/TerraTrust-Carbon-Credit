@@ -4,9 +4,9 @@ import android.app.Activity
 import android.content.Intent
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.net.Uri
 import android.os.Handler
 import android.os.HandlerThread
-import android.provider.Settings
 import android.util.Base64
 import android.util.Log
 import com.facebook.react.bridge.BaseActivityEventListener
@@ -15,21 +15,17 @@ import com.facebook.react.bridge.ReactApplicationContext
 import com.facebook.react.bridge.ReactContextBaseJavaModule
 import com.facebook.react.bridge.ReactMethod
 import com.google.ar.core.ArCoreApk
-import com.google.ar.core.Anchor
 import com.google.ar.core.Config
-import com.google.ar.core.DepthPoint
 import com.google.ar.core.Frame
-import com.google.ar.core.Plane
-import com.google.ar.core.Point
 import com.google.ar.core.Session
-import com.google.ar.core.TrackingState
 import com.google.ar.core.exceptions.CameraNotAvailableException
 import org.tensorflow.lite.Interpreter
+import java.io.File
+import java.io.FileInputStream
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import java.nio.MappedByteBuffer
 import java.nio.channels.FileChannel
-import java.io.FileInputStream
 import kotlin.math.sqrt
 import kotlin.random.Random
 import java.util.Locale
@@ -47,9 +43,8 @@ class ARModule(private val reactContext: ReactApplicationContext) :
 
     override fun getName(): String = "ARModule"
 
-    private val tfliteInterpreter: Interpreter by lazy {
-        val modelBuffer = loadModelFromAssets("species_model.tflite")
-        Interpreter(modelBuffer, Interpreter.Options().apply { setNumThreads(4) })
+    private val tfliteInterpreter: Interpreter? by lazy {
+        createInterpreterOrNull()
     }
 
     private val approvedSpecies = listOf(
@@ -58,9 +53,6 @@ class ARModule(private val reactContext: ReactApplicationContext) :
         "Drumstick", "Amla"
     )
 
-    private var heightSession: Session? = null
-    private var heightBaseAnchor: Anchor? = null
-    private var heightTopAnchor: Anchor? = null
     private var pendingDiameterPromise: Promise? = null
     private var pendingHeightPromise: Promise? = null
 
@@ -131,6 +123,10 @@ class ARModule(private val reactContext: ReactApplicationContext) :
 
     private fun loadModelFromAssets(filename: String): MappedByteBuffer {
         val fileDescriptor = reactContext.assets.openFd(filename)
+        if (fileDescriptor.declaredLength <= 0L) {
+            throw IllegalStateException("Species model asset is empty.")
+        }
+
         val inputStream = FileInputStream(fileDescriptor.fileDescriptor)
         val fileChannel = inputStream.channel
         val startOffset = fileDescriptor.startOffset
@@ -138,7 +134,17 @@ class ARModule(private val reactContext: ReactApplicationContext) :
         return fileChannel.map(FileChannel.MapMode.READ_ONLY, startOffset, declaredLength)
     }
 
-    // ---- T011: checkDepthSupport + checkMockLocation ----
+    private fun createInterpreterOrNull(): Interpreter? {
+        return try {
+            val modelBuffer = loadModelFromAssets("species_model.tflite")
+            Interpreter(modelBuffer, Interpreter.Options().apply { setNumThreads(4) })
+        } catch (error: Exception) {
+            Log.w(TAG, "Species model unavailable: ${error.message}")
+            null
+        }
+    }
+
+    // ---- T011: checkDepthSupport ----
 
     @ReactMethod
     fun checkDepthSupport(promise: Promise) {
@@ -186,21 +192,6 @@ class ARModule(private val reactContext: ReactApplicationContext) :
                 Log.d(TAG, "ARCore detection failed ($exceptionName); support=UNSUPPORTED")
                 promise.resolve("UNSUPPORTED")
             }
-        }
-    }
-
-    @ReactMethod
-    fun checkMockLocation(promise: Promise) {
-        try {
-            @Suppress("DEPRECATION")
-            val isMockEnabled = Settings.Secure.getInt(
-                reactContext.contentResolver,
-                Settings.Secure.ALLOW_MOCK_LOCATION,
-                0
-            ) == 1
-            promise.resolve(isMockEnabled)
-        } catch (e: Exception) {
-            promise.resolve(false)
         }
     }
 
@@ -501,175 +492,18 @@ class ARModule(private val reactContext: ReactApplicationContext) :
         return """{"diameter_cm":${String.format("%.1f", diameterCm)},"confidence":${String.format("%.3f", confidence)},"tier_used":$tierUsed,"point_count":$totalPoints}"""
     }
 
-    private fun clearHeightAnchors() {
-        heightBaseAnchor?.detach()
-        heightBaseAnchor = null
-        heightTopAnchor?.detach()
-        heightTopAnchor = null
-    }
-
-    private fun releaseHeightMeasurementSession() {
-        clearHeightAnchors()
-        try {
-            heightSession?.pause()
-        } catch (_: Exception) {
-        }
-        try {
-            heightSession?.close()
-        } catch (_: Exception) {
-        }
-        heightSession = null
-    }
-
-    private fun pauseSessionQuietly(session: Session?) {
-        try {
-            session?.pause()
-        } catch (_: Exception) {
-        }
-    }
-
-    private fun acquireCenterAnchor(session: Session): Anchor? {
-        repeat(15) {
-            val frame = session.update()
-            if (frame.camera.trackingState != TrackingState.TRACKING) {
-                Thread.sleep(75)
-                return@repeat
-            }
-
-            val intrinsics = frame.camera.imageIntrinsics
-            val centerX = intrinsics.principalPoint[0]
-            val centerY = intrinsics.principalPoint[1]
-            val hit = frame.hitTest(centerX, centerY).firstOrNull { hitResult ->
-                when (val trackable = hitResult.trackable) {
-                    is Plane -> trackable.isPoseInPolygon(hitResult.hitPose)
-                    is Point -> true
-                    is DepthPoint -> true
-                    else -> false
-                }
-            }
-
-            if (hit != null) {
-                return hit.createAnchor()
-            }
-
-            Thread.sleep(75)
-        }
-
-        return null
-    }
-
-    @ReactMethod
-    fun beginHeightMeasurement(promise: Promise) {
-        try {
-            releaseHeightMeasurementSession()
-
-            val availability = ArCoreApk.getInstance().checkAvailability(reactContext)
-            if (availability.isUnsupported) {
-                promise.reject("AR_UNSUPPORTED", "AR height measurement is not supported on this device.")
-                return
-            }
-
-            val session = Session(reactContext)
-            val config = Config(session).apply {
-                planeFindingMode = Config.PlaneFindingMode.HORIZONTAL_AND_VERTICAL
-                depthMode = if (session.isDepthModeSupported(Config.DepthMode.RAW_DEPTH_ONLY)) {
-                    Config.DepthMode.RAW_DEPTH_ONLY
-                } else {
-                    Config.DepthMode.DISABLED
-                }
-                updateMode = Config.UpdateMode.LATEST_CAMERA_IMAGE
-            }
-
-            session.configure(config)
-            // Do NOT call session.resume() here — the VisionCamera still owns the
-            // camera device. captureHeightPoint() resumes and immediately pauses the
-            // session for the brief instant it needs to acquire an anchor.
-            heightSession = session
-            promise.resolve("READY")
-        } catch (e: Exception) {
-            releaseHeightMeasurementSession()
-            promise.reject("HEIGHT_INIT_FAILED", "Failed to start height measurement: ${e.message}")
-        }
-    }
-
-    @ReactMethod
-    fun captureHeightPoint(pointType: String, promise: Promise) {
-        try {
-            val session = heightSession
-            if (session == null) {
-                promise.reject("HEIGHT_NOT_STARTED", "Start height measurement before capturing points.")
-                return
-            }
-
-            session.resume()
-            Thread.sleep(250)
-
-            val anchor = try {
-                acquireCenterAnchor(session)
-            } finally {
-                pauseSessionQuietly(session)
-            }
-
-            if (anchor == null) {
-                promise.reject("HEIGHT_TRACKING_FAILED", "Point at the tree and hold steady, then try again.")
-                return
-            }
-
-            when (pointType) {
-                "base" -> {
-                    heightBaseAnchor?.detach()
-                    heightBaseAnchor = anchor
-                    heightTopAnchor?.detach()
-                    heightTopAnchor = null
-                    promise.resolve("""{"captured":"base"}""")
-                }
-
-                "top" -> {
-                    val baseAnchor = heightBaseAnchor
-                    if (baseAnchor == null) {
-                        anchor.detach()
-                        promise.reject("HEIGHT_BASE_MISSING", "Capture the base of the tree first.")
-                        return
-                    }
-
-                    heightTopAnchor?.detach()
-                    heightTopAnchor = anchor
-                    val heightM = kotlin.math.abs(anchor.pose.ty() - baseAnchor.pose.ty())
-
-                    if (heightM < 0.5f || heightM > 80f) {
-                        anchor.detach()
-                        heightTopAnchor = null
-                        promise.reject("HEIGHT_OUT_OF_RANGE", "That height looks unusual. Try pointing more precisely at the tree.")
-                        return
-                    }
-
-                    val result = """{"captured":"top","height_m":${String.format(Locale.US, "%.2f", heightM)}}"""
-                    releaseHeightMeasurementSession()
-                    promise.resolve(result)
-                }
-
-                else -> {
-                    anchor.detach()
-                    promise.reject("INVALID_HEIGHT_POINT", "Expected 'base' or 'top'.")
-                }
-            }
-        } catch (e: Exception) {
-            promise.reject("HEIGHT_CAPTURE_FAILED", "Failed to capture height point: ${e.message}")
-        }
-    }
-
-    @ReactMethod
-    fun cancelHeightMeasurement(promise: Promise) {
-        releaseHeightMeasurementSession()
-        promise.resolve(null)
-    }
-
     // ---- T014: runSpeciesInference ----
 
     @ReactMethod
-    fun runSpeciesInference(imageBase64: String, promise: Promise) {
+    fun runSpeciesInference(imageSource: String, promise: Promise) {
         try {
-            val imageBytes = Base64.decode(imageBase64, Base64.DEFAULT)
+            val interpreter = tfliteInterpreter
+            if (interpreter == null) {
+                promise.reject("MODEL_UNAVAILABLE", "Species model is missing or invalid on this build.")
+                return
+            }
+
+            val imageBytes = resolveImageBytes(imageSource)
             val bitmap = BitmapFactory.decodeByteArray(imageBytes, 0, imageBytes.size)
                 ?: run {
                     promise.reject("DECODE_ERROR", "Failed to decode image.")
@@ -698,7 +532,7 @@ class ARModule(private val reactContext: ReactApplicationContext) :
 
             // Output tensor: [1][11]
             val outputArray = Array(1) { FloatArray(11) }
-            tfliteInterpreter.run(inputBuffer, outputArray)
+            interpreter.run(inputBuffer, outputArray)
 
             val scores = outputArray[0]
             var maxIdx = 0
@@ -715,6 +549,21 @@ class ARModule(private val reactContext: ReactApplicationContext) :
             promise.resolve("""{"species":"$speciesName","confidence":${String.format("%.4f", maxConf)},"all_scores":[$scoresStr]}""")
         } catch (e: Exception) {
             promise.reject("INFERENCE_ERROR", "Species identification failed: ${e.message}")
+        }
+    }
+
+    private fun resolveImageBytes(imageSource: String): ByteArray {
+        val normalizedPath = if (imageSource.startsWith("file://")) {
+            Uri.parse(imageSource).path ?: imageSource.removePrefix("file://")
+        } else {
+            imageSource
+        }
+
+        val sourceFile = File(normalizedPath)
+        return if (sourceFile.exists()) {
+            sourceFile.readBytes()
+        } else {
+            Base64.decode(imageSource, Base64.DEFAULT)
         }
     }
 }

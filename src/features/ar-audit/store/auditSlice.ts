@@ -1,14 +1,17 @@
 import {createSlice, createAsyncThunk, type PayloadAction} from '@reduxjs/toolkit';
 import api from '../../../services/api';
 import {detectARTier as detectARTierBridge} from '../../../services/ar-bridge';
+import {deleteFile, readFileAsBase64} from '../../../common/utils/hash';
 import type {RootState} from '../../../store/index';
 import type {MainAppOriginTab} from '../../../types/navigation';
+import {mmkv} from '../../../store/mmkvStorage';
 
 export type ARTier = 1 | 2 | 3;
 export type SpeciesSource =
   | 'MODEL_AUTO'
   | 'MODEL_CONFIRMED'
   | 'MANUAL_SELECTED';
+export type HeightCaptureMethod = 'GEDI' | 'AR' | 'MANUAL';
 export type UploadStatus =
   | 'idle'
   | 'uploading'
@@ -60,12 +63,13 @@ export interface TreeSample {
   dbh_cm: number;
   wood_density: number;
   ar_height_m: number | null;
+  height_capture_method: HeightCaptureMethod;
   measurement_tier: ARTier;
   confidence_score: number | null;
   gps_lat: number;
   gps_lng: number;
   gps_accuracy_m: number;
-  evidence_photo_base64: string;
+  evidence_photo_uri: string | null;
   evidence_photo_hash: string;
   scan_timestamp: string;
 }
@@ -107,6 +111,10 @@ export interface AuditState {
   auditResult: AuditResultResponse | null;
   lastPolledAt: string | null;
 }
+
+type TreeSampleWithLegacyEvidence = TreeSample & {
+  evidence_photo_base64?: string | null;
+};
 
 export const auditInitialState: AuditState = {
   activeAuditId: null,
@@ -186,7 +194,19 @@ export const submitAudit = createAsyncThunk<
     return rejectWithValue('No active audit session.');
   }
 
-  const trees = scannedTrees.map(tree => ({
+  const trees = await Promise.all(scannedTrees.map(async tree => {
+      const treeWithLegacyEvidence = tree as TreeSampleWithLegacyEvidence;
+      let evidencePhotoBase64 = treeWithLegacyEvidence.evidence_photo_base64 ?? '';
+
+      if (!evidencePhotoBase64 && tree.evidence_photo_uri) {
+        try {
+          evidencePhotoBase64 = await readFileAsBase64(tree.evidence_photo_uri);
+        } catch {
+          evidencePhotoBase64 = '';
+        }
+      }
+
+      return {
       zone_id: tree.zone_id,
       species: tree.species,
       species_confidence: tree.species_confidence,
@@ -197,10 +217,11 @@ export const submitAudit = createAsyncThunk<
       gps_accuracy_m: tree.gps_accuracy_m,
       ar_tier_used: tree.measurement_tier,
       confidence_score: tree.confidence_score,
-      evidence_photo_base64: tree.evidence_photo_base64,
+      evidence_photo_base64: evidencePhotoBase64,
       evidence_photo_hash: tree.evidence_photo_hash,
       scan_timestamp: tree.scan_timestamp,
-    }));
+    };
+  }));
 
   const payload = {
     land_id: activeLandId,
@@ -220,6 +241,27 @@ export const submitAudit = createAsyncThunk<
     }
     return rejectWithValue('Submission failed. Please try again.');
   }
+});
+
+export const cleanupAuditSession = createAsyncThunk<
+  void,
+  void,
+  {state: RootState}
+>('audit/cleanupAuditSession', async (_, {getState, dispatch}) => {
+  const evidenceUris = Array.from(
+    new Set(
+      getState()
+        .audit.scannedTrees.map(tree => tree.evidence_photo_uri)
+        .filter((uri): uri is string => typeof uri === 'string' && uri.length > 0),
+    ),
+  );
+
+  await Promise.all(
+    evidenceUris.map(uri => deleteFile(uri).catch(() => false)),
+  );
+
+  mmkv.delete('pending_upload');
+  dispatch(resetAudit());
 });
 
 const auditSlice = createSlice({

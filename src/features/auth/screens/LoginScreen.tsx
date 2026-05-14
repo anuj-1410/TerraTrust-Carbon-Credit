@@ -30,6 +30,8 @@ const loginSchema = z.object({
 
 type LoginForm = z.infer<typeof loginSchema>;
 
+const OTP_TIMEOUT_MS = 20000;
+
 const LoginScreen = () => {
   const navigation = useNavigation<Nav>();
   const [isLoading, setIsLoading] = useState(false);
@@ -49,17 +51,43 @@ const LoginScreen = () => {
   const phoneNumber = watch('phoneNumber');
   const isPhoneValid = /^[2-9]\d{9}$/.test(phoneNumber);
 
+  const sendPhoneOtpWithTimeout = async (phone: string) => {
+    let timeoutId: ReturnType<typeof setTimeout> | null = null;
+    try {
+      await Promise.race([
+        sendPhoneOtp(phone),
+        new Promise<void>((_, reject) => {
+          timeoutId = setTimeout(() => reject(new Error('OTP_TIMEOUT')), OTP_TIMEOUT_MS);
+        }),
+      ]);
+    } finally {
+      if (timeoutId) {
+        clearTimeout(timeoutId);
+      }
+    }
+  };
+
   const onSubmit = async (data: LoginForm) => {
     setIsLoading(true);
     setApiError(null);
     try {
       const phone = '+91' + data.phoneNumber;
-      await sendPhoneOtp(phone);
+      await sendPhoneOtpWithTimeout(phone);
       navigation.navigate('OTPScreen', {phone});
     } catch (error) {
       const firebaseErr = error as {code?: string};
       if (firebaseErr.code === 'auth/too-many-requests') {
         setApiError('Too many attempts. Please wait a few minutes and try again.');
+      } else if (
+        firebaseErr.code === 'auth/invalid-app-credential' ||
+        firebaseErr.code === 'auth/missing-client-identifier' ||
+        firebaseErr.code === 'auth/app-not-authorized'
+      ) {
+        setApiError(
+          'App verification failed. Please register the release SHA-1/SHA-256 in Firebase and try again.',
+        );
+      } else if ((error as {message?: string}).message === 'OTP_TIMEOUT') {
+        setApiError('Request timed out. Please check your network and try again.');
       } else {
         setApiError('Something went wrong. Please try again.');
       }

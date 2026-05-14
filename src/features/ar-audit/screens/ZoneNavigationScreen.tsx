@@ -1,5 +1,12 @@
 import React, {useCallback, useEffect, useRef, useState} from 'react';
-import {Alert, BackHandler, View, Text, TouchableOpacity} from 'react-native';
+import {
+  Alert,
+  BackHandler,
+  Linking,
+  View,
+  Text,
+  TouchableOpacity,
+} from 'react-native';
 import {useNavigation, useRoute} from '@react-navigation/native';
 import type {NativeStackNavigationProp} from '@react-navigation/native-stack';
 import type {RouteProp} from '@react-navigation/native';
@@ -18,6 +25,7 @@ import {useGeofence} from '../../../common/hooks/useGeofence';
 import {ensureLocationPermission} from '../../../common/utils/permissions';
 import {COLORS} from '../../../common/constants/colors';
 import {IS_AUDIT_DEMO_MODE} from '../utils/demoMode';
+import {GPS_RELIABLE_ACCURACY_METRES} from '../../../common/utils/location';
 
 type NavProp = NativeStackNavigationProp<RootStackParamList, 'ZoneNavigationScreen'>;
 type RouteType = RouteProp<RootStackParamList, 'ZoneNavigationScreen'>;
@@ -38,7 +46,9 @@ const ZoneNavigationScreen = () => {
 
   const ZONE_LETTERS = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J'];
   const currentZoneLetter = ZONE_LETTERS[currentZoneIndex] ?? String(currentZoneIndex + 1);
-  const [hasLocationPermission, setHasLocationPermission] = useState<boolean | null>(null);
+  const [locationPermissionStatus, setLocationPermissionStatus] = useState<
+    'granted' | 'denied' | 'blocked' | null
+  >(null);
 
   // Convert farm boundary GeoJSON to polygon coordinates
   const boundaryCoords = React.useMemo(() => {
@@ -46,7 +56,15 @@ const ZoneNavigationScreen = () => {
     return boundary.coordinates[0].map(c => ({latitude: c[1], longitude: c[0]}));
   }, [boundary]);
 
-  const {isInsideBoundary, isAtZoneCentre, currentPosition, gpsAccuracy, hasWeakSignal} = useGeofence(
+  const {
+    isInsideBoundary,
+    isAtZoneCentre,
+    currentPosition,
+    gpsAccuracy,
+    hasWeakSignal,
+    hasReliableFix,
+    isMockedLocation,
+  } = useGeofence(
     boundary,
     currentZone,
     landId,
@@ -54,11 +72,13 @@ const ZoneNavigationScreen = () => {
 
   useEffect(() => {
     if (IS_AUDIT_DEMO_MODE) {
-      setHasLocationPermission(true);
+      setLocationPermissionStatus('granted');
       return;
     }
 
-    void ensureLocationPermission().then(setHasLocationPermission);
+    void ensureLocationPermission().then(result => {
+      setLocationPermissionStatus(result.status);
+    });
   }, []);
 
   // Fire haptic on zone arrival
@@ -94,10 +114,16 @@ const ZoneNavigationScreen = () => {
     3,
     Math.floor(minTreesRequired / Math.max(zones.length, 1)),
   );
+  const hasLocationPermission = locationPermissionStatus === 'granted';
+  const satisfiesBoundary = boundary ? isInsideBoundary : true;
   const canStartScanning =
-    (IS_AUDIT_DEMO_MODE || hasLocationPermission !== false) &&
+    (IS_AUDIT_DEMO_MODE || hasLocationPermission) &&
+    Boolean(currentPosition) &&
+    hasReliableFix &&
+    !hasWeakSignal &&
+    !isMockedLocation &&
     isAtZoneCentre &&
-    (isInsideBoundary || !currentPosition || hasWeakSignal);
+    satisfiesBoundary;
 
   const handleStartScanning = () => {
     if (!currentZone) return;
@@ -319,7 +345,7 @@ const ZoneNavigationScreen = () => {
         </View>
       )}
 
-      {hasLocationPermission === false && !IS_AUDIT_DEMO_MODE && (
+      {locationPermissionStatus === 'denied' && !IS_AUDIT_DEMO_MODE && (
         <View className="mx-4 mt-2 rounded-2xl px-4 py-3 flex-row items-center" style={{backgroundColor: '#FEF3C7'}}>
           <MaterialCommunityIcons color="#92400E" name="map-marker-outline" size={20} />
           <Text className="flex-1 text-sm leading-5" style={{color: '#92400E'}}>
@@ -328,11 +354,39 @@ const ZoneNavigationScreen = () => {
         </View>
       )}
 
+      {locationPermissionStatus === 'blocked' && !IS_AUDIT_DEMO_MODE && (
+        <View className="mx-4 mt-2 rounded-2xl px-4 py-3" style={{backgroundColor: '#FEF3C7'}}>
+          <View className="flex-row items-center">
+            <MaterialCommunityIcons color="#92400E" name="map-marker-off-outline" size={20} />
+            <Text className="ml-3 flex-1 text-sm leading-5" style={{color: '#92400E'}}>
+              Location access is blocked. Enable it in Settings before scanning this zone.
+            </Text>
+          </View>
+          <TouchableOpacity
+            onPress={() => {
+              void Linking.openSettings();
+            }}
+            className="mt-3 self-start rounded-xl border px-4 py-2"
+            style={{borderColor: '#92400E'}}>
+            <Text style={{color: '#92400E'}}>Open Settings</Text>
+          </TouchableOpacity>
+        </View>
+      )}
+
       {hasWeakSignal && gpsAccuracy !== null && (
         <View className="mx-4 mt-2 rounded-2xl px-4 py-3 flex-row items-center" style={{backgroundColor: '#FEF3C7'}}>
           <MaterialCommunityIcons color="#92400E" name="crosshairs-question" size={20} />
           <Text className="flex-1 text-sm leading-5" style={{color: '#92400E'}}>
-            GPS signal is weak right now (accuracy ±{Math.round(gpsAccuracy)}m). Move to an open area for better zone guidance.
+            GPS signal is weak right now (accuracy ±{Math.round(gpsAccuracy)}m). TerraTrust needs accuracy within {GPS_RELIABLE_ACCURACY_METRES}m before scanning can start.
+          </Text>
+        </View>
+      )}
+
+      {isMockedLocation && !IS_AUDIT_DEMO_MODE && (
+        <View className="mx-4 mt-2 rounded-2xl px-4 py-3 flex-row items-center" style={{backgroundColor: '#FEE2E2'}}>
+          <MaterialCommunityIcons color={COLORS.ERROR_RED} name="map-marker-off" size={20} />
+          <Text className="ml-3 flex-1 text-sm leading-5" style={{color: COLORS.ERROR_RED}}>
+            Mock location was detected on this GPS fix. Disable mock location before scanning.
           </Text>
         </View>
       )}

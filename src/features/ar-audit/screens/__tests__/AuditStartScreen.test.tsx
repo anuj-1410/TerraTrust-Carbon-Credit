@@ -28,8 +28,20 @@ jest.mock('react-native-device-info', () => ({
   getType: jest.fn(() => Promise.resolve('user')),
 }));
 
-jest.mock('../../../../services/ar-bridge', () => ({
-  isMockLocationEnabled: jest.fn(() => Promise.resolve(false)),
+jest.mock('../../../../common/utils/permissions', () => ({
+  ensureLocationPermission: jest.fn(() =>
+    Promise.resolve({status: 'granted', granted: true, blocked: false}),
+  ),
+}));
+
+jest.mock('../../../../common/utils/location', () => ({
+  getCurrentLocationFix: jest.fn(() =>
+    Promise.resolve({
+      coords: {latitude: 12.34, longitude: 56.78, accuracy: 5},
+      mocked: false,
+    }),
+  ),
+  isMockedGeoPosition: jest.fn((position: {mocked?: boolean}) => position.mocked === true),
 }));
 
 jest.mock('../../../../common/utils/units', () => ({
@@ -84,9 +96,12 @@ describe('AuditStartScreen', () => {
   });
 
   it('calls fetchZones on start audit tap', async () => {
-    const {isMockLocationEnabled} =
-      require('../../../../services/ar-bridge');
-    (isMockLocationEnabled as jest.Mock).mockResolvedValue(false);
+    const {getCurrentLocationFix} =
+      require('../../../../common/utils/location');
+    (getCurrentLocationFix as jest.Mock).mockResolvedValue({
+      coords: {latitude: 12.34, longitude: 56.78, accuracy: 5},
+      mocked: false,
+    });
     mockUnwrap.mockResolvedValue({audit_id: 'a1'});
 
     // Verify fetchZones dispatch would be called
@@ -94,12 +109,15 @@ describe('AuditStartScreen', () => {
   });
 
   it('blocks audit when mock location is detected', async () => {
-    const {isMockLocationEnabled} =
-      require('../../../../services/ar-bridge');
-    (isMockLocationEnabled as jest.Mock).mockResolvedValue(true);
+    const {getCurrentLocationFix, isMockedGeoPosition} =
+      require('../../../../common/utils/location');
+    (getCurrentLocationFix as jest.Mock).mockResolvedValue({
+      coords: {latitude: 12.34, longitude: 56.78, accuracy: 5},
+      mocked: true,
+    });
 
-    // Verify the function returns true
-    const result = await isMockLocationEnabled();
+    // Verify mocked fixes are detected
+    const result = isMockedGeoPosition(await getCurrentLocationFix());
     expect(result).toBe(true);
   });
 });

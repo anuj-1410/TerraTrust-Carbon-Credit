@@ -14,7 +14,7 @@ import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityI
 
 import type {RootStackParamList} from '../../../types/navigation';
 import {useAppDispatch, useAppSelector} from '../../../store/hooks';
-import {submitAudit} from '../store/auditSlice';
+import {cleanupAuditSession, submitAudit} from '../store/auditSlice';
 import {estimateTco2eFromTrees} from '../../../common/utils/chave';
 import {COLORS} from '../../../common/constants/colors';
 import {setPendingMint} from '../../dashboard/store/creditsSlice';
@@ -86,18 +86,28 @@ const AuditCompleteScreen = () => {
   const handleExitReview = useCallback(() => {
     Alert.alert(
       'Exit without submitting?',
-      'You cannot go back once submitted. Exit now if you want to leave review without sending this audit yet.',
+      'You can save this audit draft for later, or discard the unsent tree scans from this device.',
       [
         {text: 'Stay', style: 'cancel'},
         {
-          text: 'Exit Review',
-          style: 'destructive',
+          text: 'Save for Later',
           onPress: () =>
             navigation.reset({index: 0, routes: [{name: 'HomeScreen'}]}),
         },
+        {
+          text: 'Discard Audit',
+          style: 'destructive',
+          onPress: () => {
+            void dispatch(cleanupAuditSession())
+              .unwrap()
+              .finally(() => {
+                navigation.reset({index: 0, routes: [{name: 'HomeScreen'}]});
+              });
+          },
+        },
       ],
     );
-  }, [navigation]);
+  }, [dispatch, navigation]);
 
   const isProcessing =
     uploadStatus === 'uploading' || uploadStatus === 'processing';

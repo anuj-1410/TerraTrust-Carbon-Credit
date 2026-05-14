@@ -7,6 +7,7 @@ import {
   Alert,
   BackHandler,
   Image,
+  Linking,
 } from 'react-native';
 import {useNavigation, useRoute} from '@react-navigation/native';
 import type {NativeStackNavigationProp} from '@react-navigation/native-stack';
@@ -16,13 +17,13 @@ import DeviceInfo from 'react-native-device-info';
 import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
 import type {RootStackParamList} from '../../../types/navigation';
 import {useAppDispatch, useAppSelector} from '../../../store/hooks';
-import {fetchZones, setOriginTab} from '../store/auditSlice';
+import {detectAndSetARTier, fetchZones, setOriginTab} from '../store/auditSlice';
 import type {FetchZonesError} from '../store/auditSlice';
-import {isMockLocationEnabled} from '../../../services/ar-bridge';
 import {hectaresToAcres} from '../../../common/utils/units';
 import {ensureLocationPermission} from '../../../common/utils/permissions';
 import {COLORS} from '../../../common/constants/colors';
 import {IS_AUDIT_DEMO_MODE} from '../utils/demoMode';
+import {getCurrentLocationFix, isMockedGeoPosition} from '../../../common/utils/location';
 
 type NavProp = NativeStackNavigationProp<RootStackParamList, 'AuditStartScreen'>;
 type RouteType = RouteProp<RootStackParamList, 'AuditStartScreen'>;
@@ -38,11 +39,16 @@ const AuditStartScreen = () => {
 
   const parcels = useAppSelector(state => state.land.parcels);
   const audit = useAppSelector(state => state.audit);
+  const arTierResolved = useAppSelector(state => state.audit.arTierResolved);
   const parcel = parcels.find(p => p.id === landId);
 
   const [loading, setLoading] = useState(false);
   const [showRootWarning, setShowRootWarning] = useState(false);
   const [mockBlocked, setMockBlocked] = useState(false);
+
+  const handleOpenSettings = useCallback(() => {
+    void Linking.openSettings();
+  }, []);
 
   React.useEffect(() => {
     const rootAwareDeviceInfo = DeviceInfo as RootAwareDeviceInfo;
@@ -57,6 +63,12 @@ const AuditStartScreen = () => {
       .then(setShowRootWarning)
       .catch(() => setShowRootWarning(false));
   }, []);
+
+  React.useEffect(() => {
+    if (!arTierResolved) {
+      dispatch(detectAndSetARTier());
+    }
+  }, [arTierResolved, dispatch]);
 
   const handleCancelAudit = useCallback(() => {
     Alert.alert('Cancel audit?', 'Your progress will be saved.', [
@@ -90,22 +102,44 @@ const AuditStartScreen = () => {
       setLoading(true);
 
       if (!IS_AUDIT_DEMO_MODE) {
-        const hasLocationPermission = await ensureLocationPermission();
-        if (!hasLocationPermission) {
-          Alert.alert(
-            'Location Permission Required',
-            'TerraTrust needs location access to navigate to your audit zones.',
-          );
+        const locationPermission = await ensureLocationPermission();
+        if (!locationPermission.granted) {
+          if (locationPermission.blocked) {
+            Alert.alert(
+              'Location Permission Blocked',
+              'TerraTrust cannot start an audit until location access is enabled in Settings.',
+              [
+                {text: 'Cancel', style: 'cancel'},
+                {text: 'Open Settings', onPress: handleOpenSettings},
+              ],
+            );
+          } else {
+            Alert.alert(
+              'Location Permission Required',
+              'TerraTrust needs location access to navigate to your audit zones.',
+            );
+          }
+
           setLoading(false);
           return;
         }
 
-        // FR-012: Mock GPS check — full blocking screen
-        const isMock = await isMockLocationEnabled();
-        if (isMock) {
-          setMockBlocked(true);
-          setLoading(false);
-          return;
+        try {
+          const liveFix = await getCurrentLocationFix({
+            enableHighAccuracy: true,
+            timeout: 8000,
+            maximumAge: 0,
+            distanceFilter: 0,
+            forceRequestLocation: true,
+          });
+
+          if (isMockedGeoPosition(liveFix)) {
+            setMockBlocked(true);
+            setLoading(false);
+            return;
+          }
+        } catch {
+          // Do not hard-block audit start if a live fix is temporarily unavailable.
         }
       }
 
@@ -136,7 +170,14 @@ const AuditStartScreen = () => {
     } finally {
       setLoading(false);
     }
-  }, [dispatch, landId, navigation, audit.errorMessage, originTab]);
+  }, [
+    audit.errorMessage,
+    dispatch,
+    handleOpenSettings,
+    landId,
+    navigation,
+    originTab,
+  ]);
 
   const areaAcres = parcel
     ? hectaresToAcres(parcel.area_hectares).toFixed(1)

@@ -1,41 +1,95 @@
 import {PermissionsAndroid, Platform, type Permission} from 'react-native';
 
+export type PermissionStatus = 'granted' | 'denied' | 'blocked';
+
+export interface PermissionRequestResult {
+  status: PermissionStatus;
+  granted: boolean;
+  blocked: boolean;
+}
+
+function buildPermissionResult(
+  status: PermissionStatus,
+): PermissionRequestResult {
+  return {
+    status,
+    granted: status === 'granted',
+    blocked: status === 'blocked',
+  };
+}
+
+function mapAndroidPermissionResult(
+  result: string,
+): PermissionRequestResult {
+  if (result === PermissionsAndroid.RESULTS.GRANTED) {
+    return buildPermissionResult('granted');
+  }
+
+  if (result === PermissionsAndroid.RESULTS.NEVER_ASK_AGAIN) {
+    return buildPermissionResult('blocked');
+  }
+
+  return buildPermissionResult('denied');
+}
+
 async function requestAndroidPermission(
   permission: Permission,
   title: string,
   message: string,
-): Promise<boolean> {
+): Promise<PermissionRequestResult> {
   if (Platform.OS !== 'android') {
-    return true;
+    return buildPermissionResult('granted');
   }
 
-  const granted = await PermissionsAndroid.request(permission, {
+  const alreadyGranted = await PermissionsAndroid.check(permission);
+  if (alreadyGranted) {
+    return buildPermissionResult('granted');
+  }
+
+  const result = await PermissionsAndroid.request(permission, {
     title,
     message,
     buttonPositive: 'Allow',
     buttonNegative: 'Not now',
   });
 
-  return granted === PermissionsAndroid.RESULTS.GRANTED;
+  return mapAndroidPermissionResult(result);
 }
 
-export async function ensureLocationPermission(): Promise<boolean> {
+export async function ensureLocationPermission(): Promise<PermissionRequestResult> {
   if (Platform.OS !== 'android') {
-    return true;
+    return buildPermissionResult('granted');
   }
 
-  const result = await PermissionsAndroid.requestMultiple([
+  const permissions = [
     PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION,
     PermissionsAndroid.PERMISSIONS.ACCESS_COARSE_LOCATION,
-  ]);
+  ] as const;
 
-  return [
-    PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION,
-    PermissionsAndroid.PERMISSIONS.ACCESS_COARSE_LOCATION,
-  ].every(permission => result[permission] === PermissionsAndroid.RESULTS.GRANTED);
+  const permissionChecks = await Promise.all(
+    permissions.map(permission => PermissionsAndroid.check(permission)),
+  );
+  if (permissionChecks.every(Boolean)) {
+    return buildPermissionResult('granted');
+  }
+
+  const result = await PermissionsAndroid.requestMultiple([...permissions]);
+
+  const statuses = permissions.map(permission =>
+    mapAndroidPermissionResult(result[permission]),
+  );
+  if (statuses.every(status => status.granted)) {
+    return buildPermissionResult('granted');
+  }
+
+  if (statuses.some(status => status.blocked)) {
+    return buildPermissionResult('blocked');
+  }
+
+  return buildPermissionResult('denied');
 }
 
-export async function ensureCameraPermission(): Promise<boolean> {
+export async function ensureCameraPermission(): Promise<PermissionRequestResult> {
   return requestAndroidPermission(
     PermissionsAndroid.PERMISSIONS.CAMERA,
     'Camera Permission Required',

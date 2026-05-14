@@ -21,11 +21,6 @@ export interface SpeciesInferenceResult {
   all_scores: number[];
 }
 
-export interface HeightMeasurementResult {
-  captured: 'base' | 'top';
-  height_m?: number;
-}
-
 export interface HeightMeasurementCompleteResult {
   height_m: number;
 }
@@ -53,25 +48,6 @@ export async function measureTreeDiameter(
 export async function measureTreeHeight(): Promise<HeightMeasurementCompleteResult> {
   const raw: string = await ARModule.launchHeightMeasurement();
   return JSON.parse(raw) as HeightMeasurementCompleteResult;
-}
-
-export async function beginHeightMeasurement(): Promise<void> {
-  await ARModule.beginHeightMeasurement();
-}
-
-export async function captureHeightPoint(
-  pointType: 'base' | 'top',
-): Promise<HeightMeasurementResult> {
-  const raw: string = await ARModule.captureHeightPoint(pointType);
-  return JSON.parse(raw) as HeightMeasurementResult;
-}
-
-export async function cancelHeightMeasurement(): Promise<void> {
-  await ARModule.cancelHeightMeasurement();
-}
-
-export async function isMockLocationEnabled(): Promise<boolean> {
-  return ARModule.checkMockLocation();
 }
 
 export async function moveAppToBackground(): Promise<boolean> {

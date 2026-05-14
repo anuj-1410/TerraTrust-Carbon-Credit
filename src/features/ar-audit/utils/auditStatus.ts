@@ -16,6 +16,16 @@ interface SyncAuditStatusArgs {
   getState: () => RootState;
 }
 
+export function isAuditResultProcessingStatus(
+  status: AuditResultResponse['status'] | null | undefined,
+): boolean {
+  return (
+    status === 'PROCESSING' ||
+    status === 'CALCULATING' ||
+    status === 'READY_TO_MINT'
+  );
+}
+
 export async function syncAuditStatus({
   auditId,
   dispatch,
@@ -29,11 +39,7 @@ export async function syncAuditStatus({
   dispatch(setAuditResult(result));
   dispatch(setLastPolledAt(new Date().toISOString()));
 
-  if (
-    result.status === 'PROCESSING' ||
-    result.status === 'CALCULATING' ||
-    result.status === 'READY_TO_MINT'
-  ) {
+  if (isAuditResultProcessingStatus(result.status)) {
     dispatch(setUploadStatus('processing'));
     dispatch(setPendingMint(true));
     return result;

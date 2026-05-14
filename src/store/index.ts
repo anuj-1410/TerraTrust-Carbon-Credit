@@ -98,8 +98,22 @@ async function migrateAuditState(state: any): Promise<any> {
     return state;
   }
 
+  const scannedTrees = Array.isArray(state.scannedTrees)
+    ? state.scannedTrees.map((tree: any) => ({
+        ...tree,
+        height_capture_method:
+          tree?.height_capture_method ??
+          (tree?.ar_height_m != null ? 'AR' : 'GEDI'),
+        evidence_photo_uri:
+          typeof tree?.evidence_photo_uri === 'string'
+            ? tree.evidence_photo_uri
+            : null,
+      }))
+    : auditInitialState.scannedTrees;
+
   return {
     ...state,
+    scannedTrees,
     arTier: auditInitialState.arTier,
     arTierResolved: auditInitialState.arTierResolved,
     uploadStatus: auditInitialState.uploadStatus,
@@ -125,7 +139,7 @@ const landPersistConfig: PersistConfig<LandState> = {
 
 const auditPersistConfig: PersistConfig<AuditState> = {
   key: 'audit',
-  version: 2,
+  version: 3,
   storage: mmkvStorage,
   blacklist: ['uploadStatus', 'arTier', 'arTierResolved'],
   migrate: migrateAuditState,
