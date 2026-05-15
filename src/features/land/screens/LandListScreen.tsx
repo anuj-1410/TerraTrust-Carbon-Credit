@@ -26,6 +26,7 @@ import Badge from '../../../common/components/Badge';
 import {hectaresToAcres} from '../../../common/utils/units';
 import {COLORS} from '../../../common/constants/colors';
 import {getLandStatusMeta} from '../../../common/utils/getLandStatus';
+import {useResponsiveScreen} from '../../../common/hooks/useResponsiveScreen';
 
 type Nav = NativeStackNavigationProp<RootStackParamList>;
 
@@ -34,13 +35,16 @@ const PAGE_SIZE = 10;
 const LandListScreen = () => {
   const navigation = useNavigation<Nav>();
   const dispatch = useAppDispatch();
+  const {horizontalPadding, topSpacing, bottomSpacing, contentMaxWidth} =
+    useResponsiveScreen();
   const parcels = useAppSelector(s => s.land.parcels);
   const parcelsRef = useRef(parcels);
+  const inFlightPagesRef = useRef<Set<number>>(new Set());
 
   const [isOffline, setIsOffline] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [currentPage, setCurrentPage] = useState(1);
-  const [hasMore, setHasMore] = useState(true);
+  const [hasMore, setHasMore] = useState(false);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
 
   useEffect(() => {
@@ -49,6 +53,11 @@ const LandListScreen = () => {
 
   const fetchParcels = useCallback(async (pageToLoad = 1) => {
     const isLoadMore = pageToLoad > 1;
+    if (inFlightPagesRef.current.has(pageToLoad)) {
+      return;
+    }
+
+    inFlightPagesRef.current.add(pageToLoad);
 
     if (isLoadMore) {
       setIsLoadingMore(true);
@@ -79,6 +88,7 @@ const LandListScreen = () => {
         setIsOffline(true);
       }
     } finally {
+      inFlightPagesRef.current.delete(pageToLoad);
       if (isLoadMore) {
         setIsLoadingMore(false);
       }
@@ -127,8 +137,8 @@ const LandListScreen = () => {
 
     return (
       <TouchableOpacity
-        className="mx-4 mb-3 rounded-xl bg-white p-4 flex-row"
-        style={{elevation: 2}}
+        className="mb-3 rounded-xl bg-white p-4 flex-row self-center w-full"
+        style={{elevation: 2, maxWidth: contentMaxWidth}}
         activeOpacity={0.82}
         onPress={() =>
           navigation.navigate('LandDetailScreen', {
@@ -137,11 +147,23 @@ const LandListScreen = () => {
           })
         }>
         {/* Satellite thumbnail */}
-        <Image
-          source={item.thumbnail_url ? {uri: item.thumbnail_url} : undefined}
-          className="w-16 h-16 rounded-lg bg-gray-200"
-          resizeMode="cover"
-        />
+        {item.thumbnail_url ? (
+          <Image
+            source={{uri: item.thumbnail_url}}
+            className="w-16 h-16 rounded-lg bg-gray-200"
+            resizeMode="cover"
+          />
+        ) : (
+          <View
+            className="h-16 w-16 items-center justify-center rounded-lg"
+            style={{backgroundColor: '#E5E7EB'}}>
+            <MaterialCommunityIcons
+              color={COLORS.FOREST_GREEN}
+              name="sprout"
+              size={24}
+            />
+          </View>
+        )}
 
         {/* Card content */}
         <View className="flex-1 ml-3">
@@ -214,7 +236,12 @@ const LandListScreen = () => {
     <View className="flex-1" style={{backgroundColor: COLORS.OFF_WHITE}}>
       {/* Offline banner */}
       {isOffline && (
-        <View className="px-4 py-2" style={{backgroundColor: COLORS.WARNING_ORANGE}}>
+        <View
+          className="py-2"
+          style={{
+            backgroundColor: COLORS.WARNING_ORANGE,
+            paddingHorizontal: horizontalPadding,
+          }}>
           <Text className="text-white text-sm text-center font-medium">
             You are offline. Showing saved data.
           </Text>
@@ -222,20 +249,19 @@ const LandListScreen = () => {
       )}
 
       {/* Header */}
-      <View className="flex-row items-center justify-between px-4 pt-4 pb-2">
-        <Text className="text-2xl font-bold tracking-tight" style={{color: COLORS.DARK_SLATE}}>
+      <View
+        className="self-center w-full pb-3"
+        style={{
+          maxWidth: contentMaxWidth,
+          paddingHorizontal: horizontalPadding,
+          paddingTop: topSpacing,
+        }}>
+        <Text className="text-3xl font-bold tracking-tight" style={{color: COLORS.DARK_SLATE}}>
           My Lands
         </Text>
-        <TouchableOpacity
-          className="min-h-[48px] min-w-[48px] items-center justify-center rounded-full"
-          onPress={() => navigation.navigate('DocumentUploadScreen')}
-          activeOpacity={0.7}>
-          <MaterialCommunityIcons
-            color={COLORS.FOREST_GREEN}
-            name="plus"
-            size={28}
-          />
-        </TouchableOpacity>
+        <Text className="mt-2 text-sm leading-6" style={{color: COLORS.DISABLED_GREY}}>
+          Review your verified parcels, current audit status, and add a new land record when needed.
+        </Text>
       </View>
 
       {/* Parcel list */}
@@ -243,7 +269,15 @@ const LandListScreen = () => {
         data={parcels}
         keyExtractor={item => item.id}
         renderItem={renderParcelCard}
-        contentContainerStyle={parcels.length === 0 ? {flex: 1} : {paddingBottom: 80}}
+        contentContainerStyle={
+          parcels.length === 0
+            ? {flex: 1, paddingHorizontal: horizontalPadding}
+            : {
+                paddingHorizontal: horizontalPadding,
+                paddingTop: 4,
+                paddingBottom: bottomSpacing + 64,
+              }
+        }
         ListEmptyComponent={renderEmptyState}
         onEndReached={onLoadMore}
         onEndReachedThreshold={0.35}
@@ -266,8 +300,12 @@ const LandListScreen = () => {
 
       {/* FAB */}
       <TouchableOpacity
-        className="absolute bottom-6 right-5 w-14 h-14 rounded-full items-center justify-center shadow-2xl"
-        style={{backgroundColor: COLORS.FOREST_GREEN}}
+        className="absolute w-14 h-14 rounded-full items-center justify-center shadow-2xl"
+        style={{
+          backgroundColor: COLORS.FOREST_GREEN,
+          right: horizontalPadding,
+          bottom: bottomSpacing,
+        }}
         onPress={() => navigation.navigate('DocumentUploadScreen')}
         activeOpacity={0.7}>
         <MaterialCommunityIcons color="#FFFFFF" name="plus" size={28} />

@@ -20,16 +20,110 @@ import {useAppDispatch, useAppSelector} from '../../../store/hooks';
 import {detectAndSetARTier, fetchZones, setOriginTab} from '../store/auditSlice';
 import type {FetchZonesError} from '../store/auditSlice';
 import {hectaresToAcres} from '../../../common/utils/units';
-import {ensureLocationPermission} from '../../../common/utils/permissions';
+import {
+  ensureCameraPermission,
+  ensureLocationPermission,
+} from '../../../common/utils/permissions';
+import Button from '../../../common/components/Button';
+import Card from '../../../common/components/Card';
 import {COLORS} from '../../../common/constants/colors';
+import {useResponsiveScreen} from '../../../common/hooks/useResponsiveScreen';
 import {IS_AUDIT_DEMO_MODE} from '../utils/demoMode';
 import {getCurrentLocationFix, isMockedGeoPosition} from '../../../common/utils/location';
+import {
+  openArCoreStoreListing,
+  type ARSupportState,
+} from '../../../services/ar-bridge';
 
 type NavProp = NativeStackNavigationProp<RootStackParamList, 'AuditStartScreen'>;
 type RouteType = RouteProp<RootStackParamList, 'AuditStartScreen'>;
 type RootAwareDeviceInfo = typeof DeviceInfo & {
   isRooted?: () => Promise<boolean>;
 };
+
+function getArSupportCopy(
+  supportState: ARSupportState,
+  arTier: 1 | 2 | 3,
+  arTierResolved: boolean,
+) {
+  if (supportState === 'camera-permission-required') {
+    return {
+      title: 'Camera Permission Needed',
+      description:
+        'Allow camera access so TerraTrust can verify whether this phone supports high-precision AR or needs manual measurement.',
+      icon: 'camera-lock-outline' as const,
+      iconColor: COLORS.WARNING_ORANGE,
+    };
+  }
+
+  if (supportState === 'arcore-install-required') {
+    return {
+      title: 'AR Services Need Installation',
+      description:
+        'This phone looks AR-compatible, but Google Play Services for AR is not installed yet. Install it once to unlock scanning.',
+      icon: 'download-outline' as const,
+      iconColor: COLORS.TEAL,
+    };
+  }
+
+  if (supportState === 'arcore-update-required') {
+    return {
+      title: 'AR Services Need Update',
+      description:
+        'Update Google Play Services for AR so TerraTrust can use this phone’s scanning capability correctly.',
+      icon: 'update' as const,
+      iconColor: COLORS.TEAL,
+    };
+  }
+
+  if (supportState === 'temporarily-unavailable') {
+    return {
+      title: 'Capability Check Paused',
+      description:
+        'TerraTrust will retry AR verification when the camera becomes available. You can also retry from this screen.',
+      icon: 'camera-alert-outline' as const,
+      iconColor: COLORS.WARNING_ORANGE,
+    };
+  }
+
+  if (!arTierResolved || supportState === 'checking') {
+    return {
+      title: 'Checking Device Capability',
+      description:
+        'TerraTrust is verifying whether this phone should use depth AR, motion-based AR, or manual fallback for this audit.',
+      icon: 'progress-clock' as const,
+      iconColor: COLORS.WARNING_ORANGE,
+    };
+  }
+
+  if (arTier === 1) {
+    return {
+      title: 'High Precision',
+      description:
+        'Your phone supports full depth AR. TerraTrust will guide a still 3-second diameter scan.',
+      icon: 'crosshairs-gps' as const,
+      iconColor: COLORS.FOREST_GREEN,
+    };
+  }
+
+  if (arTier === 2) {
+    return {
+      title: 'Standard Precision',
+      description:
+        'Your phone supports motion-based AR. TerraTrust will guide a left-right measurement scan.',
+      icon: 'tune-variant' as const,
+      iconColor: COLORS.TEAL,
+    };
+  }
+
+  return {
+    title: 'Manual Measurement Fallback',
+    description:
+      'Your phone will use the documented string-measurement fallback during tree scans.',
+    icon: 'ruler' as const,
+    iconColor: COLORS.DARK_SLATE,
+  };
+}
 
 const AuditStartScreen = () => {
   const navigation = useNavigation<NavProp>();
@@ -39,16 +133,68 @@ const AuditStartScreen = () => {
 
   const parcels = useAppSelector(state => state.land.parcels);
   const audit = useAppSelector(state => state.audit);
+  const arTier = useAppSelector(state => state.audit.arTier);
   const arTierResolved = useAppSelector(state => state.audit.arTierResolved);
+  const arSupportState = useAppSelector(state => state.audit.arSupportState);
   const parcel = parcels.find(p => p.id === landId);
+  const {horizontalPadding, topSpacing, bottomSpacing, contentMaxWidth} =
+    useResponsiveScreen();
 
   const [loading, setLoading] = useState(false);
   const [showRootWarning, setShowRootWarning] = useState(false);
   const [mockBlocked, setMockBlocked] = useState(false);
+  const arSupportCopy = getArSupportCopy(
+    arSupportState,
+    arTier as 1 | 2 | 3,
+    arTierResolved,
+  );
 
   const handleOpenSettings = useCallback(() => {
     void Linking.openSettings();
   }, []);
+
+  const handleOpenArCoreStore = useCallback(() => {
+    void openArCoreStoreListing();
+  }, []);
+
+  const handleResolveCapability = useCallback(async () => {
+    if (arSupportState === 'camera-permission-required') {
+      const permission = await ensureCameraPermission();
+
+      if (!permission.granted) {
+        if (permission.blocked) {
+          Alert.alert(
+            'Camera Permission Blocked',
+            'Enable camera access in Settings so TerraTrust can verify AR precision and scan trees during the audit.',
+            [
+              {text: 'Cancel', style: 'cancel'},
+              {text: 'Open Settings', onPress: handleOpenSettings},
+            ],
+          );
+        }
+
+        return;
+      }
+
+      await dispatch(detectAndSetARTier());
+      return;
+    }
+
+    if (
+      arSupportState === 'arcore-install-required' ||
+      arSupportState === 'arcore-update-required'
+    ) {
+      handleOpenArCoreStore();
+      return;
+    }
+
+    await dispatch(detectAndSetARTier());
+  }, [
+    arSupportState,
+    dispatch,
+    handleOpenArCoreStore,
+    handleOpenSettings,
+  ]);
 
   React.useEffect(() => {
     const rootAwareDeviceInfo = DeviceInfo as RootAwareDeviceInfo;
@@ -143,6 +289,70 @@ const AuditStartScreen = () => {
         }
       }
 
+      const cameraPermission = await ensureCameraPermission();
+      if (!cameraPermission.granted) {
+        if (cameraPermission.blocked) {
+          Alert.alert(
+            'Camera Permission Blocked',
+            'TerraTrust cannot verify AR precision or scan trees until camera access is enabled in Settings.',
+            [
+              {text: 'Cancel', style: 'cancel'},
+              {text: 'Open Settings', onPress: handleOpenSettings},
+            ],
+          );
+        } else {
+          Alert.alert(
+            'Camera Permission Required',
+            'TerraTrust needs camera access to verify AR precision and scan trees during the audit.',
+          );
+        }
+
+        setLoading(false);
+        return;
+      }
+
+      try {
+        const capability = await dispatch(detectAndSetARTier()).unwrap();
+
+        if (!capability.resolved) {
+          if (capability.supportState === 'camera-permission-required') {
+            Alert.alert(
+              'Camera Permission Needed',
+              'TerraTrust still needs camera access to verify this phone’s AR precision.',
+            );
+          } else if (capability.supportState === 'arcore-install-required') {
+            Alert.alert(
+              'Install AR Services',
+              'This phone looks AR-compatible, but Google Play Services for AR must be installed before scanning can begin.',
+              [
+                {text: 'Cancel', style: 'cancel'},
+                {text: 'Install', onPress: handleOpenArCoreStore},
+              ],
+            );
+          } else if (capability.supportState === 'arcore-update-required') {
+            Alert.alert(
+              'Update AR Services',
+              'Update Google Play Services for AR before starting the audit so TerraTrust can use this phone’s scanning capability correctly.',
+              [
+                {text: 'Cancel', style: 'cancel'},
+                {text: 'Update', onPress: handleOpenArCoreStore},
+              ],
+            );
+          } else {
+            Alert.alert(
+              'AR Capability Still Checking',
+              'TerraTrust could not verify this phone’s AR mode right now. Please try again in a moment.',
+            );
+          }
+
+          setLoading(false);
+          return;
+        }
+      } catch {
+        setLoading(false);
+        return;
+      }
+
       dispatch(setOriginTab(originTab));
       const result = await dispatch(fetchZones(landId)).unwrap();
       navigation.navigate('ZoneNavigationScreen', {
@@ -173,6 +383,7 @@ const AuditStartScreen = () => {
   }, [
     audit.errorMessage,
     dispatch,
+    handleOpenArCoreStore,
     handleOpenSettings,
     landId,
     navigation,
@@ -208,7 +419,13 @@ const AuditStartScreen = () => {
   return (
     <View className="flex-1" style={{backgroundColor: COLORS.OFF_WHITE}}>
       {/* Header */}
-      <View className="pt-12 pb-5 px-5 flex-row items-center" style={{backgroundColor: COLORS.DARK_SLATE}}>
+      <View
+        className="flex-row items-center pb-5"
+        style={{
+          backgroundColor: COLORS.DARK_SLATE,
+          paddingTop: topSpacing,
+          paddingHorizontal: horizontalPadding,
+        }}>
         <TouchableOpacity
           onPress={handleCancelAudit}
           className="w-12 h-12 items-center justify-center rounded-full"
@@ -221,20 +438,28 @@ const AuditStartScreen = () => {
       </View>
 
       <ScrollView
-        className="flex-1 px-5"
-        contentContainerStyle={{paddingBottom: 32}}>
+        className="flex-1"
+        contentContainerStyle={{
+          alignSelf: 'center',
+          width: '100%',
+          maxWidth: contentMaxWidth,
+          paddingHorizontal: horizontalPadding,
+          paddingBottom: bottomSpacing,
+        }}>
         {/* Rooted device warning — FR-013 */}
         {showRootWarning && (
-          <View className="mt-4 rounded-2xl px-4 py-3 flex-row items-center" style={{backgroundColor: '#FEF3C7'}}>
+          <Card
+            className="mt-4 flex-row items-center rounded-2xl px-4 py-3"
+            style={{backgroundColor: '#FEF3C7'}}>
             <MaterialCommunityIcons color="#92400E" name="alert-outline" size={20} />
             <Text className="flex-1 text-sm leading-5" style={{color: '#92400E'}}>
               This device appears to be rooted. For your security, some features may not work correctly.
             </Text>
-          </View>
+          </Card>
         )}
 
         {/* Land Info Card — from Stitch design */}
-        <View className="mt-5 bg-white rounded-2xl p-5 shadow-sm">
+        <Card className="mt-5 rounded-2xl p-5">
           <View className="mb-4 flex-row items-center">
             {parcel?.thumbnail_url ? (
               <Image
@@ -299,27 +524,57 @@ const AuditStartScreen = () => {
               Ready to start
             </Text>
           </View>
-        </View>
+        </Card>
 
-        <View className="mt-4 rounded-2xl bg-white p-5 shadow-sm">
+        <Card className="mt-4 rounded-2xl p-5">
           <Text className="text-sm uppercase tracking-widest" style={{color: COLORS.DISABLED_GREY}}>
             AR Precision
           </Text>
-          <Text className="mt-2 text-lg font-bold" style={{color: COLORS.DARK_SLATE}}>
-            {audit.arTier === 1
-              ? 'High Precision'
-              : audit.arTier === 2
-                ? 'Standard Precision'
-                : 'Manual Measurement Fallback'}
-          </Text>
-          <Text className="mt-2 text-sm leading-6" style={{color: COLORS.DISABLED_GREY}}>
-            {audit.arTier === 1
-              ? 'Your phone supports full depth AR. TerraTrust will guide a still 3-second diameter scan.'
-              : audit.arTier === 2
-                ? 'Your phone supports motion-based AR. TerraTrust will guide a left-right measurement scan.'
-                : 'Your phone will use the documented string-measurement fallback during tree scans.'}
-          </Text>
-        </View>
+          <View className="mt-4 flex-row items-start">
+            <View
+              className="mr-4 h-12 w-12 items-center justify-center rounded-2xl"
+              style={{backgroundColor: `${arSupportCopy.iconColor}18`}}>
+              <MaterialCommunityIcons
+                color={arSupportCopy.iconColor}
+                name={arSupportCopy.icon}
+                size={24}
+              />
+            </View>
+            <View className="flex-1">
+              <Text className="text-lg font-bold" style={{color: COLORS.DARK_SLATE}}>
+                {arSupportCopy.title}
+              </Text>
+              <Text className="mt-2 text-sm leading-6" style={{color: COLORS.DISABLED_GREY}}>
+                {arSupportCopy.description}
+              </Text>
+            </View>
+          </View>
+          {(arSupportState === 'camera-permission-required' ||
+            arSupportState === 'arcore-install-required' ||
+            arSupportState === 'arcore-update-required' ||
+            arSupportState === 'temporarily-unavailable') && (
+            <Button
+              className="mt-4"
+              label={
+                arSupportState === 'camera-permission-required'
+                  ? 'Allow Camera Access'
+                  : arSupportState === 'arcore-install-required'
+                    ? 'Install AR Services'
+                    : arSupportState === 'arcore-update-required'
+                      ? 'Update AR Services'
+                      : 'Retry Capability Check'
+              }
+              onPress={() => {
+                void handleResolveCapability();
+              }}
+              variant={
+                arSupportState === 'temporarily-unavailable'
+                  ? 'secondary'
+                  : 'primary'
+              }
+            />
+          )}
+        </Card>
 
         {/* Center illustration / Lottie area */}
         <View className="items-center mt-8">
@@ -345,17 +600,22 @@ const AuditStartScreen = () => {
       </ScrollView>
 
       {/* Start Audit CTA */}
-      <View className="px-5 pb-8 pt-3" style={{backgroundColor: COLORS.OFF_WHITE}}>
-        <TouchableOpacity
-          onPress={handleStartAudit}
-          disabled={loading}
-          className="h-14 rounded-xl items-center justify-center"
-          style={{backgroundColor: loading ? 'rgba(47,133,90,0.6)' : COLORS.FOREST_GREEN}}
-          activeOpacity={0.7}>
-          <Text className="text-white text-base font-bold">
-            {loading ? 'Generating Zones...' : 'Start Audit'}
-          </Text>
-        </TouchableOpacity>
+      <View
+        style={{
+          backgroundColor: COLORS.OFF_WHITE,
+          paddingHorizontal: horizontalPadding,
+          paddingTop: 12,
+          paddingBottom: bottomSpacing,
+        }}>
+        <View style={{alignSelf: 'center', width: '100%', maxWidth: contentMaxWidth}}>
+          <Button
+            label={loading ? 'Preparing Your Scanning Map...' : 'Start Audit'}
+            onPress={() => {
+              void handleStartAudit();
+            }}
+            disabled={loading}
+          />
+        </View>
       </View>
     </View>
   );

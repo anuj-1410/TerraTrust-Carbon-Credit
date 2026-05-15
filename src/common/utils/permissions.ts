@@ -56,6 +56,14 @@ async function requestAndroidPermission(
   return mapAndroidPermissionResult(result);
 }
 
+async function hasAndroidPermission(permission: Permission): Promise<boolean> {
+  if (Platform.OS !== 'android') {
+    return true;
+  }
+
+  return PermissionsAndroid.check(permission);
+}
+
 export async function ensureLocationPermission(): Promise<PermissionRequestResult> {
   if (Platform.OS !== 'android') {
     return buildPermissionResult('granted');
@@ -95,4 +103,8 @@ export async function ensureCameraPermission(): Promise<PermissionRequestResult>
     'Camera Permission Required',
     'TerraTrust needs camera access to capture land documents and scan trees.',
   );
+}
+
+export async function hasCameraPermission(): Promise<boolean> {
+  return hasAndroidPermission(PermissionsAndroid.PERMISSIONS.CAMERA);
 }

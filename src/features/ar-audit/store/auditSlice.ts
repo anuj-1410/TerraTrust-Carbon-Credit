@@ -1,10 +1,15 @@
 import {createSlice, createAsyncThunk, type PayloadAction} from '@reduxjs/toolkit';
 import api from '../../../services/api';
-import {detectARTier as detectARTierBridge} from '../../../services/ar-bridge';
+import {
+  detectARCapability,
+  type ARCapabilityDetectionResult,
+  type ARSupportState,
+} from '../../../services/ar-bridge';
 import {deleteFile, readFileAsBase64} from '../../../common/utils/hash';
 import type {RootState} from '../../../store/index';
 import type {MainAppOriginTab} from '../../../types/navigation';
 import {mmkv} from '../../../store/mmkvStorage';
+import {hasCameraPermission} from '../../../common/utils/permissions';
 
 export type ARTier = 1 | 2 | 3;
 export type SpeciesSource =
@@ -103,6 +108,7 @@ export interface AuditState {
   scannedTrees: TreeSample[];
   arTier: ARTier;
   arTierResolved: boolean;
+  arSupportState: ARSupportState;
   sessionComplete: boolean;
   uploadStatus: UploadStatus;
   walkingPathMetres: number;
@@ -116,6 +122,26 @@ type TreeSampleWithLegacyEvidence = TreeSample & {
   evidence_photo_base64?: string | null;
 };
 
+function getResolvedSupportState(tier: ARTier): ARSupportState {
+  if (tier === 1) {
+    return 'full-depth';
+  }
+
+  if (tier === 2) {
+    return 'slam-only';
+  }
+
+  return 'manual';
+}
+
+function isActionableUnresolvedSupportState(state: ARSupportState): boolean {
+  return (
+    state === 'camera-permission-required' ||
+    state === 'arcore-install-required' ||
+    state === 'arcore-update-required'
+  );
+}
+
 export const auditInitialState: AuditState = {
   activeAuditId: null,
   activeLandId: null,
@@ -125,6 +151,7 @@ export const auditInitialState: AuditState = {
   scannedTrees: [],
   arTier: 3,
   arTierResolved: false,
+  arSupportState: 'checking',
   sessionComplete: false,
   uploadStatus: 'idle',
   walkingPathMetres: 0,
@@ -176,10 +203,27 @@ export const fetchZones = createAsyncThunk<
   }
 });
 
-export const detectAndSetARTier = createAsyncThunk<ARTier>(
+export const detectAndSetARTier = createAsyncThunk<
+  ARCapabilityDetectionResult,
+  void,
+  {state: RootState}
+>(
   'audit/detectAndSetARTier',
-  async () => {
-    return await detectARTierBridge();
+  async (_, {getState}) => {
+    const {arTier, arTierResolved, arSupportState} = getState().audit;
+
+    const fallbackCapability =
+      arTierResolved || (await hasCameraPermission())
+        ? {
+            tier: arTier,
+            resolved: arTierResolved,
+            supportState: arTierResolved
+              ? getResolvedSupportState(arTier)
+              : arSupportState,
+          }
+        : undefined;
+
+    return detectARCapability(fallbackCapability);
   },
 );
 
@@ -310,6 +354,7 @@ const auditSlice = createSlice({
     setArTier(state, action: PayloadAction<ARTier>) {
       state.arTier = action.payload;
       state.arTierResolved = true;
+      state.arSupportState = getResolvedSupportState(action.payload);
     },
     setUploadStatus(state, action: PayloadAction<UploadStatus>) {
       state.uploadStatus = action.payload;
@@ -363,15 +408,24 @@ const auditSlice = createSlice({
       })
       // detectAndSetARTier
       .addCase(detectAndSetARTier.pending, state => {
-        state.arTierResolved = false;
+        if (
+          !state.arTierResolved &&
+          !isActionableUnresolvedSupportState(state.arSupportState)
+        ) {
+          state.arSupportState = 'checking';
+        }
       })
       .addCase(detectAndSetARTier.fulfilled, (state, action) => {
-        state.arTier = action.payload;
-        state.arTierResolved = true;
+        state.arTier = action.payload.tier;
+        state.arTierResolved = action.payload.resolved;
+        state.arSupportState = action.payload.supportState;
       })
       .addCase(detectAndSetARTier.rejected, state => {
-        state.arTier = 3;
-        state.arTierResolved = true;
+        if (!state.arTierResolved) {
+          state.arTier = 3;
+          state.arTierResolved = true;
+          state.arSupportState = 'manual';
+        }
       })
       // submitAudit
       .addCase(submitAudit.pending, state => {

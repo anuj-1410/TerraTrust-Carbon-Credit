@@ -16,32 +16,54 @@ import auditReducer, {
 } from '../auditSlice';
 
 describe('audit AR tier refresh', () => {
-  it('marks stale persisted tier values unresolved while detection is running', () => {
-    const staleState = {
+  it('keeps the last resolved tier visible while a background refresh runs', () => {
+    const resolvedState = {
       ...auditInitialState,
-      arTier: 3 as const,
+      arTier: 2 as const,
       arTierResolved: true,
+      arSupportState: 'slam-only' as const,
     };
 
-    const pendingState = auditReducer(staleState, {
+    const pendingState = auditReducer(resolvedState, {
       type: detectAndSetARTier.pending.type,
     });
 
-    expect(pendingState.arTier).toBe(3);
-    expect(pendingState.arTierResolved).toBe(false);
+    expect(pendingState.arTier).toBe(2);
+    expect(pendingState.arTierResolved).toBe(true);
+    expect(pendingState.arSupportState).toBe('slam-only');
   });
 
   it('stores SLAM-only ARCore support as Tier 2', () => {
     const nextState = auditReducer(auditInitialState, {
       type: detectAndSetARTier.fulfilled.type,
-      payload: 2,
+      payload: {
+        tier: 2,
+        resolved: true,
+        supportState: 'slam-only',
+      },
     });
 
     expect(nextState.arTier).toBe(2);
     expect(nextState.arTierResolved).toBe(true);
+    expect(nextState.arSupportState).toBe('slam-only');
   });
 
-  it('falls back to Tier 3 only when detection rejects', () => {
+  it('stores actionable unresolved states instead of forcing a manual fallback', () => {
+    const nextState = auditReducer(auditInitialState, {
+      type: detectAndSetARTier.fulfilled.type,
+      payload: {
+        tier: 3,
+        resolved: false,
+        supportState: 'arcore-install-required',
+      },
+    });
+
+    expect(nextState.arTier).toBe(3);
+    expect(nextState.arTierResolved).toBe(false);
+    expect(nextState.arSupportState).toBe('arcore-install-required');
+  });
+
+  it('falls back to Tier 3 only when detection rejects without a prior result', () => {
     const nextState = auditReducer(
       {...auditInitialState, arTier: 2, arTierResolved: false},
       {type: detectAndSetARTier.rejected.type},
@@ -49,5 +71,6 @@ describe('audit AR tier refresh', () => {
 
     expect(nextState.arTier).toBe(3);
     expect(nextState.arTierResolved).toBe(true);
+    expect(nextState.arSupportState).toBe('manual');
   });
 });

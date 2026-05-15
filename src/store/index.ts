@@ -114,8 +114,24 @@ async function migrateAuditState(state: any): Promise<any> {
   return {
     ...state,
     scannedTrees,
-    arTier: auditInitialState.arTier,
-    arTierResolved: auditInitialState.arTierResolved,
+    arTier:
+      state.arTier === 1 || state.arTier === 2 || state.arTier === 3
+        ? state.arTier
+        : auditInitialState.arTier,
+    arTierResolved:
+      typeof state.arTierResolved === 'boolean'
+        ? state.arTierResolved
+        : auditInitialState.arTierResolved,
+    arSupportState:
+      typeof state.arSupportState === 'string'
+        ? state.arSupportState
+        : state.arTier === 1
+          ? 'full-depth'
+          : state.arTier === 2
+            ? 'slam-only'
+            : state.arTierResolved
+              ? 'manual'
+              : auditInitialState.arSupportState,
     uploadStatus: auditInitialState.uploadStatus,
   };
 }
@@ -141,7 +157,7 @@ const auditPersistConfig: PersistConfig<AuditState> = {
   key: 'audit',
   version: 3,
   storage: mmkvStorage,
-  blacklist: ['uploadStatus', 'arTier', 'arTierResolved'],
+  blacklist: ['uploadStatus'],
   migrate: migrateAuditState,
   stateReconciler: autoMergeLevel2,
 };

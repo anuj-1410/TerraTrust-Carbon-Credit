@@ -1,10 +1,10 @@
 import React, {useEffect, useRef, useState} from 'react';
 import {
   BackHandler,
-  Dimensions,
   ScrollView,
   Text,
   TouchableOpacity,
+  useWindowDimensions,
   View,
 } from 'react-native';
 import {useNavigation} from '@react-navigation/native';
@@ -18,9 +18,9 @@ import {COLORS} from '../../../common/constants/colors';
 import {useAppDispatch} from '../../../store/hooks';
 import {setOnboardingComplete} from '../../profile/store/profileSlice';
 import type {RootStackParamList} from '../../../types/navigation';
+import {useResponsiveScreen} from '../../../common/hooks/useResponsiveScreen';
 
 type Nav = NativeStackNavigationProp<RootStackParamList, 'OnboardingScreen'>;
-const SCREEN_WIDTH = Dimensions.get('window').width;
 
 const ONBOARDING_CARDS = [
   {
@@ -43,6 +43,8 @@ const ONBOARDING_CARDS = [
 const OnboardingScreen = () => {
   const navigation = useNavigation<Nav>();
   const dispatch = useAppDispatch();
+  const {width} = useWindowDimensions();
+  const {horizontalPadding, topSpacing, bottomSpacing} = useResponsiveScreen();
   const [activeIndex, setActiveIndex] = useState(0);
   const scrollRef = useRef<ScrollView>(null);
 
@@ -63,18 +65,25 @@ const OnboardingScreen = () => {
 
   const scrollToIndex = (nextIndex: number) => {
     scrollRef.current?.scrollTo({
-      x: SCREEN_WIDTH * nextIndex,
+      x: width * nextIndex,
       animated: true,
     });
     setActiveIndex(nextIndex);
   };
 
   return (
-    <View className="flex-1 pt-16 pb-10" style={{backgroundColor: COLORS.OFF_WHITE}}>
+    <View
+      className="flex-1"
+      style={{
+        backgroundColor: COLORS.OFF_WHITE,
+        paddingTop: topSpacing,
+        paddingBottom: bottomSpacing,
+      }}>
       <View className="items-end">
         {activeIndex < ONBOARDING_CARDS.length - 1 && (
           <TouchableOpacity
-            className="min-h-[48px] min-w-[48px] items-center justify-center px-6"
+            className="min-h-[48px] min-w-[48px] items-center justify-center"
+            style={{paddingHorizontal: horizontalPadding}}
             onPress={finishOnboarding}
             activeOpacity={0.7}>
             <Text style={{color: COLORS.DISABLED_GREY}}>Skip</Text>
@@ -90,14 +99,14 @@ const OnboardingScreen = () => {
           showsHorizontalScrollIndicator={false}
           onMomentumScrollEnd={event => {
             const nextIndex = Math.round(
-              event.nativeEvent.contentOffset.x / SCREEN_WIDTH,
+              event.nativeEvent.contentOffset.x / width,
             );
             setActiveIndex(nextIndex);
           }}>
           {ONBOARDING_CARDS.map(card => (
             <View
               key={card.title}
-              style={{width: SCREEN_WIDTH, paddingHorizontal: 24}}
+              style={{width, paddingHorizontal: horizontalPadding}}
               className="justify-center">
               <Card className="rounded-[24px] px-6 py-8">
                 <View className="h-24 w-24 items-center justify-center self-center rounded-full" style={{backgroundColor: 'rgba(47,133,90,0.12)'}}>

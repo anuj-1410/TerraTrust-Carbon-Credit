@@ -19,6 +19,11 @@ import com.google.ar.core.Config
 import com.google.ar.core.Frame
 import com.google.ar.core.Session
 import com.google.ar.core.exceptions.CameraNotAvailableException
+import com.google.ar.core.exceptions.UnavailableApkTooOldException
+import com.google.ar.core.exceptions.UnavailableArcoreNotInstalledException
+import com.google.ar.core.exceptions.UnavailableDeviceNotCompatibleException
+import com.google.ar.core.exceptions.UnavailableSdkTooOldException
+import com.google.ar.core.exceptions.UnavailableUserDeclinedInstallationException
 import org.tensorflow.lite.Interpreter
 import java.io.File
 import java.io.FileInputStream
@@ -37,8 +42,8 @@ class ARModule(private val reactContext: ReactApplicationContext) :
         private const val TAG = "TerraTrustAR"
         private const val DIAMETER_MEASUREMENT_REQUEST_CODE = 44001
         private const val HEIGHT_MEASUREMENT_REQUEST_CODE = 44002
-        private const val ARCORE_AVAILABILITY_MAX_ATTEMPTS = 8
-        private const val ARCORE_AVAILABILITY_RETRY_DELAY_MS = 200L
+        private const val ARCORE_AVAILABILITY_MAX_ATTEMPTS = 4
+        private const val ARCORE_AVAILABILITY_RETRY_DELAY_MS = 150L
     }
 
     override fun getName(): String = "ARModule"
@@ -148,9 +153,10 @@ class ARModule(private val reactContext: ReactApplicationContext) :
 
     @ReactMethod
     fun checkDepthSupport(promise: Promise) {
+        val arCore = ArCoreApk.getInstance()
+        var availability = arCore.checkAvailability(reactContext)
+
         try {
-            val arCore = ArCoreApk.getInstance()
-            var availability = arCore.checkAvailability(reactContext)
             var attempts = 0
             while (
                 availability.isTransient &&
@@ -161,10 +167,39 @@ class ARModule(private val reactContext: ReactApplicationContext) :
                 attempts += 1
             }
 
-            if (availability.isUnsupported) {
-                Log.d(TAG, "ARCore availability=${availability.name} support=UNSUPPORTED")
-                promise.resolve("UNSUPPORTED")
+            if (availability.isTransient) {
+                Log.d(TAG, "ARCore availability still transient (${availability.name}); support=CHECKING")
+                promise.resolve("CHECKING")
                 return
+            }
+
+            when (availability) {
+                ArCoreApk.Availability.SUPPORTED_NOT_INSTALLED -> {
+                    Log.d(TAG, "ARCore availability=${availability.name} support=ARCORE_INSTALL_REQUIRED")
+                    promise.resolve("ARCORE_INSTALL_REQUIRED")
+                    return
+                }
+
+                ArCoreApk.Availability.SUPPORTED_APK_TOO_OLD -> {
+                    Log.d(TAG, "ARCore availability=${availability.name} support=ARCORE_UPDATE_REQUIRED")
+                    promise.resolve("ARCORE_UPDATE_REQUIRED")
+                    return
+                }
+
+                ArCoreApk.Availability.UNSUPPORTED_DEVICE_NOT_CAPABLE -> {
+                    Log.d(TAG, "ARCore availability=${availability.name} support=UNSUPPORTED")
+                    promise.resolve("UNSUPPORTED")
+                    return
+                }
+
+                ArCoreApk.Availability.UNKNOWN_ERROR,
+                ArCoreApk.Availability.UNKNOWN_TIMED_OUT -> {
+                    Log.d(TAG, "ARCore availability=${availability.name} support=TEMPORARY_UNAVAILABLE")
+                    promise.resolve("TEMPORARY_UNAVAILABLE")
+                    return
+                }
+
+                else -> Unit
             }
 
             val session = Session(reactContext)
@@ -177,21 +212,30 @@ class ARModule(private val reactContext: ReactApplicationContext) :
             } finally {
                 session.close()
             }
-        } catch (_: CameraNotAvailableException) {
-            Log.d(TAG, "ARCore session camera transient; support=SLAM_ONLY")
-            promise.resolve("SLAM_ONLY")
-        } catch (e: Exception) {
-            val exceptionName = e.javaClass.simpleName
-            if (
-                exceptionName.contains("NotInstalled", ignoreCase = true) ||
-                exceptionName.contains("ApkTooOld", ignoreCase = true)
-            ) {
-                Log.d(TAG, "ARCore install/update needed ($exceptionName); support=SLAM_ONLY")
-                promise.resolve("SLAM_ONLY")
-            } else {
-                Log.d(TAG, "ARCore detection failed ($exceptionName); support=UNSUPPORTED")
-                promise.resolve("UNSUPPORTED")
-            }
+        } catch (exception: CameraNotAvailableException) {
+            Log.d(TAG, "ARCore session camera transient (${exception.javaClass.simpleName}); support=TEMPORARY_UNAVAILABLE")
+            promise.resolve("TEMPORARY_UNAVAILABLE")
+        } catch (exception: SecurityException) {
+            Log.d(TAG, "ARCore detection blocked by camera permission (${exception.javaClass.simpleName}); support=CAMERA_PERMISSION_REQUIRED")
+            promise.resolve("CAMERA_PERMISSION_REQUIRED")
+        } catch (exception: UnavailableArcoreNotInstalledException) {
+            Log.d(TAG, "ARCore install needed (${exception.javaClass.simpleName}); support=ARCORE_INSTALL_REQUIRED")
+            promise.resolve("ARCORE_INSTALL_REQUIRED")
+        } catch (exception: UnavailableApkTooOldException) {
+            Log.d(TAG, "ARCore update needed (${exception.javaClass.simpleName}); support=ARCORE_UPDATE_REQUIRED")
+            promise.resolve("ARCORE_UPDATE_REQUIRED")
+        } catch (exception: UnavailableSdkTooOldException) {
+            Log.d(TAG, "ARCore SDK update needed (${exception.javaClass.simpleName}); support=ARCORE_UPDATE_REQUIRED")
+            promise.resolve("ARCORE_UPDATE_REQUIRED")
+        } catch (exception: UnavailableUserDeclinedInstallationException) {
+            Log.d(TAG, "ARCore install declined (${exception.javaClass.simpleName}); support=ARCORE_INSTALL_REQUIRED")
+            promise.resolve("ARCORE_INSTALL_REQUIRED")
+        } catch (exception: UnavailableDeviceNotCompatibleException) {
+            Log.d(TAG, "ARCore not compatible (${exception.javaClass.simpleName}); support=UNSUPPORTED")
+            promise.resolve("UNSUPPORTED")
+        } catch (exception: Exception) {
+            Log.d(TAG, "ARCore detection failed (${exception.javaClass.simpleName}); support=TEMPORARY_UNAVAILABLE")
+            promise.resolve("TEMPORARY_UNAVAILABLE")
         }
     }
 

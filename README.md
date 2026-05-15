@@ -1,6 +1,6 @@
 # TerraTrust-AR
 
-TerraTrust-AR is the Android React Native client for the TerraTrust tree-audit and carbon-credit workflow. The app handles farmer auth, land registration, AR-assisted tree measurement, offline audit retry, and dashboard credit visibility while relying on Supabase, backend APIs, MMKV persistence, and native Android AR/TFLite integrations.
+TerraTrust-AR is the Android React Native client for the TerraTrust tree-audit and carbon-credit workflow. The app handles farmer auth, land registration, AR-assisted tree measurement, offline audit retry, and dashboard credit visibility while relying on Firebase phone auth, backend APIs, MMKV persistence, and native Android AR/TFLite integrations.
 
 ## Stack
 
@@ -10,10 +10,10 @@ TerraTrust-AR is the Android React Native client for the TerraTrust tree-audit a
 - React Navigation 7
 - react-native-vision-camera
 - react-native-background-fetch
-- react-native-quick-crypto
+- @react-native-firebase/app + @react-native-firebase/auth
 - react-native-keychain
 - ethers v6
-- Supabase JS
+- native Android hash bridge
 
 ## Prerequisites
 
@@ -34,8 +34,6 @@ Required variables:
 
 ```env
 API_BASE_URL=
-SUPABASE_URL=
-SUPABASE_ANON_KEY=
 GOOGLE_MAPS_API_KEY=
 ALCHEMY_POLYGON_AMOY_URL=
 CONTRACT_ADDRESS=
@@ -44,8 +42,13 @@ CONTRACT_ADDRESS=
 Notes:
 
 - `API_BASE_URL` must be the server root only, for example `http://10.0.2.2:8000`.
+- Firebase Android configuration is loaded from `android/app/google-services.json`, not from `react-native-config`.
+- `ALCHEMY_POLYGON_AMOY_URL` and `CONTRACT_ADDRESS` are used by `src/services/blockchain.ts` for the direct ERC-1155 dashboard balance read.
+- If that chain read fails, the app falls back to `balance_ctt` returned by `GET /api/v1/credits/balance`.
 - `CONTRACT_ADDRESS` is still a deployment-time input and must not remain the zero address.
 - `GOOGLE_MAPS_API_KEY` must be configured for Android Maps usage.
+- For **release APK OTP** to work, register the release keystore SHA-1 and SHA-256 in Firebase Android app settings.
+- Enable Firebase Phone Auth and configure Play Integrity/App Check for production to avoid OTP verification timeouts in release builds.
 
 ## Install
 
@@ -79,25 +82,20 @@ npm test
 - The file currently exists as a placeholder in the repository and must be replaced with the real trained model before production use.
 - Lottie assets are expected in `src/assets/lottie/`.
 
-## Congratulations! :tada:
+## Architecture Notes
 
-You've successfully run and modified your React Native App. :partying_face:
+- Offline audit retry is stored in MMKV under `pending_upload` and retried through `react-native-background-fetch`.
+- Sensitive wallet material is stored in Keychain, not Redux or MMKV.
+- Aadhaar is hashed on-device before being persisted to Redux.
+- AR measurement and species inference are bridged through `android/app/src/main/java/com/terratrustar/ar/ARModule.kt`.
+- The main dashboard is exposed through a bottom-tab navigator hosted inside the root app shell.
 
-### Now what?
+## Known External Dependencies
 
-- If you want to add this new React Native code to an existing application, check out the [Integration guide](https://reactnative.dev/docs/integration-with-existing-apps).
-- If you're curious to learn more about React Native, check out the [docs](https://reactnative.dev/docs/getting-started).
+- Real Polygon/Alchemy environment values are still required.
+- The production-ready TFLite model file is still required.
+- Maps functionality depends on a valid Android Maps API key.
 
-# Troubleshooting
+## Scope
 
-If you're having issues getting the above steps to work, see the [Troubleshooting](https://reactnative.dev/docs/troubleshooting) page.
-
-# Learn More
-
-To learn more about React Native, take a look at the following resources:
-
-- [React Native Website](https://reactnative.dev) - learn more about React Native.
-- [Getting Started](https://reactnative.dev/docs/environment-setup) - an **overview** of React Native and how setup your environment.
-- [Learn the Basics](https://reactnative.dev/docs/getting-started) - a **guided tour** of the React Native **basics**.
-- [Blog](https://reactnative.dev/blog) - read the latest official React Native **Blog** posts.
-- [`@facebook/react-native`](https://github.com/facebook/react-native) - the Open Source; GitHub **repository** for React Native.
+This workspace targets the Android mobile client. iOS scaffold files may exist from the React Native project template, but Android is the supported platform for current development and validation.

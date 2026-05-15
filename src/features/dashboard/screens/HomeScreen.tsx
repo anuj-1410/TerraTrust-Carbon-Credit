@@ -29,12 +29,20 @@ import {
 import type {RootStackParamList} from '../../../types/navigation';
 import Badge from '../../../common/components/Badge';
 import {hectaresToAcres} from '../../../common/utils/units';
+import {useResponsiveScreen} from '../../../common/hooks/useResponsiveScreen';
 
 type Nav = NativeStackNavigationProp<RootStackParamList>;
 
 const HomeScreen = () => {
   const navigation = useNavigation<Nav>();
   const dispatch = useAppDispatch();
+  const {
+    width,
+    horizontalPadding,
+    topSpacing,
+    bottomSpacing,
+    contentMaxWidth,
+  } = useResponsiveScreen();
 
   const walletAddress = useAppSelector(s => s.auth.walletAddress);
   const firstName = useAppSelector(s => {
@@ -110,6 +118,7 @@ const HomeScreen = () => {
   const prevPendingMint = useRef(pendingMint);
   const prevBalance = useRef(balance);
   const [showCelebration, setShowCelebration] = useState(false);
+  const celebrationSize = Math.min(width * 0.72, 300);
 
   useEffect(() => {
     if (
@@ -190,7 +199,16 @@ const HomeScreen = () => {
 
   return (
     <View className="flex-1" style={{backgroundColor: COLORS.OFF_WHITE}}>
-      <ScrollView className="flex-1 px-4 pt-12 pb-6">
+      <ScrollView
+        className="flex-1"
+        contentContainerStyle={{
+          width: '100%',
+          alignSelf: 'center',
+          maxWidth: contentMaxWidth,
+          paddingHorizontal: horizontalPadding,
+          paddingTop: topSpacing,
+          paddingBottom: bottomSpacing,
+        }}>
         {/* Header */}
         <View className="flex-row items-center justify-between mb-6">
           <View>
@@ -484,7 +502,7 @@ const HomeScreen = () => {
             autoPlay
             loop={false}
             onAnimationFinish={() => setShowCelebration(false)}
-            style={{width: 300, height: 300}}
+            style={{width: celebrationSize, height: celebrationSize}}
           />
         </View>
       )}

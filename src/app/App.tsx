@@ -1,5 +1,7 @@
-import React, {useEffect, useRef} from 'react';
+import React, {useCallback, useEffect, useRef} from 'react';
 import {
+  AppState,
+  type AppStateStatus,
   BackHandler,
   Platform,
   Text,
@@ -37,6 +39,7 @@ import api, {retryPendingAuditUpload} from '../services/api';
 import {COLORS} from '../common/constants/colors';
 import {setPendingMint} from '../features/dashboard/store/creditsSlice';
 import {
+  detectAndSetARTier,
   setAuditResult,
   setUploadStatus,
 } from '../features/ar-audit/store/auditSlice';
@@ -386,11 +389,35 @@ function AppLifecycleEffects() {
   const auditResultStatus = useAppSelector(
     state => state.audit.auditResult?.status ?? null,
   );
+  const isAuthenticated = useAppSelector(state => state.auth.isAuthenticated);
   const onboardingComplete = useAppSelector(
     state => state.profile.onboardingComplete,
   );
   const wasOfflineRef = useRef(false);
   const lastBackPressRef = useRef(0);
+  const backgroundFetchConfiguredRef = useRef(false);
+  const auditPollInFlightRef = useRef(false);
+  const arTierRefreshInFlightRef = useRef<Promise<unknown> | null>(null);
+  const appStateRef = useRef<AppStateStatus>(AppState.currentState);
+
+  const refreshARTier = useCallback(async () => {
+    if (arTierRefreshInFlightRef.current) {
+      await arTierRefreshInFlightRef.current;
+      return;
+    }
+
+    const pendingRefresh = dispatch(detectAndSetARTier())
+      .unwrap()
+      .catch(() => undefined)
+      .finally(() => {
+        if (arTierRefreshInFlightRef.current === pendingRefresh) {
+          arTierRefreshInFlightRef.current = null;
+        }
+      });
+
+    arTierRefreshInFlightRef.current = pendingRefresh;
+    await pendingRefresh;
+  }, [dispatch]);
 
   useEffect(() => {
     const persistedOnboardingComplete = isOnboardingComplete();
@@ -400,10 +427,34 @@ function AppLifecycleEffects() {
   }, [dispatch, onboardingComplete]);
 
   useEffect(() => {
+    void refreshARTier();
+  }, [refreshARTier]);
+
+  useEffect(() => {
+    const subscription = AppState.addEventListener('change', nextState => {
+      const wasInactive = appStateRef.current !== 'active';
+      appStateRef.current = nextState;
+
+      if (nextState === 'active' && wasInactive) {
+        void refreshARTier();
+      }
+    });
+
+    return () => subscription.remove();
+  }, [refreshARTier]);
+
+  useEffect(() => {
     let isMounted = true;
 
     const bootstrapApp = async () => {
-      await configureBackgroundFetch();
+      if (!backgroundFetchConfiguredRef.current) {
+        await configureBackgroundFetch();
+        backgroundFetchConfiguredRef.current = true;
+      }
+
+      if (!isAuthenticated) {
+        return;
+      }
 
       try {
         const networkState = await NetInfo.fetch();
@@ -450,7 +501,7 @@ function AppLifecycleEffects() {
     return () => {
       isMounted = false;
     };
-  }, [dispatch]);
+  }, [dispatch, isAuthenticated]);
 
   useEffect(() => {
     const unsubscribe = NetInfo.addEventListener(state => {
@@ -474,32 +525,37 @@ function AppLifecycleEffects() {
 
       if (wasOfflineRef.current) {
         wasOfflineRef.current = false;
-        void (async () => {
-          const retriedUpload = await retryPendingAuditUpload();
+        if (isAuthenticated) {
+          void (async () => {
+            const retriedUpload = await retryPendingAuditUpload();
 
-          if (retriedUpload) {
-            primeAuditProcessingState(dispatch);
-          }
+            if (retriedUpload) {
+              primeAuditProcessingState(dispatch);
+            }
 
-          const auditState = store.getState().audit;
-          if (shouldSyncActiveAudit(auditState, retriedUpload)) {
-            await syncAuditStatus({
-              auditId: auditState.activeAuditId as string,
-              dispatch,
-              getState: store.getState,
-            });
-          }
-        })();
+            const auditState = store.getState().audit;
+            if (shouldSyncActiveAudit(auditState, retriedUpload)) {
+              await syncAuditStatus({
+                auditId: auditState.activeAuditId as string,
+                dispatch,
+                getState: store.getState,
+              });
+            }
+          })();
+        }
       }
 
-      void api.get('/api/v1/status').catch(() => undefined);
+      if (isAuthenticated) {
+        void api.get('/api/v1/status').catch(() => undefined);
+      }
     });
 
     return unsubscribe;
-  }, [activeAuditId, auditUploadStatus, bannerType, dispatch]);
+  }, [activeAuditId, auditUploadStatus, bannerType, dispatch, isAuthenticated]);
 
   useEffect(() => {
     if (
+      !isAuthenticated ||
       !activeAuditId ||
       !shouldSyncActiveAudit(
         {
@@ -519,10 +575,15 @@ function AppLifecycleEffects() {
     }
 
     const pollAuditInShell = async () => {
+      if (auditPollInFlightRef.current) {
+        return;
+      }
+
       if (navigationRef.getCurrentRoute()?.name === 'AuditStatusScreen') {
         return;
       }
 
+      auditPollInFlightRef.current = true;
       try {
         await syncAuditStatus({
           auditId: activeAuditId,
@@ -531,6 +592,8 @@ function AppLifecycleEffects() {
         });
       } catch {
         // Ignore transient polling failures in the app shell.
+      } finally {
+        auditPollInFlightRef.current = false;
       }
     };
 
@@ -538,10 +601,10 @@ function AppLifecycleEffects() {
 
     const intervalId = setInterval(() => {
       void pollAuditInShell();
-    }, 5000);
+    }, 15000);
 
     return () => clearInterval(intervalId);
-  }, [activeAuditId, auditResultStatus, auditUploadStatus, dispatch]);
+  }, [activeAuditId, auditResultStatus, auditUploadStatus, dispatch, isAuthenticated]);
 
   useEffect(() => {
     if (!maintenanceMode || !navigationRef.isReady()) {
