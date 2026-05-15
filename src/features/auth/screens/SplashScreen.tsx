@@ -12,9 +12,15 @@ import {
 import {bootstrapAuthenticatedProfile} from '../../../services/authBootstrap';
 import {useAppDispatch} from '../../../store/hooks';
 import {setUser, setWalletAddress, setKycCompleted} from '../store/authSlice';
-import {getAuthenticatedEntryRoute} from '../../../common/utils/onboarding';
+import {
+  getAuthenticatedEntryRoute,
+  markOnboardingComplete,
+} from '../../../common/utils/onboarding';
 import {showBanner} from '../../../store/uiSlice';
-import {setWalletRecoveryState} from '../../profile/store/profileSlice';
+import {
+  setOnboardingComplete,
+  setWalletRecoveryState,
+} from '../../profile/store/profileSlice';
 
 type Nav = NativeStackNavigationProp<RootStackParamList, 'SplashScreen'>;
 
@@ -109,6 +115,10 @@ const SplashScreen = () => {
             requestedAt: profile.wallet_recovery_requested_at,
           }),
         );
+        if (profile.kyc_completed) {
+          markOnboardingComplete();
+          dispatch(setOnboardingComplete(true));
+        }
 
         if (warning) {
           dispatch(showBanner({message: warning.message, type: 'info'}));

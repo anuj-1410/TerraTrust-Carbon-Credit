@@ -31,11 +31,23 @@ jest.mock('react-native-keychain', () => ({
   },
 }));
 
-jest.mock('ethers', () => ({
-  ethers: {
-    Wallet: mockWalletConstructor,
-  },
-}));
+jest.mock('ethers', () => {
+  const Wallet = function (this: {address?: string}, privateKey: string) {
+    mockWalletConstructor.call(this, privateKey);
+  } as unknown as typeof mockWalletConstructor & {
+    createRandom?: typeof mockCreateRandom;
+  };
+
+  Wallet.createRandom = (...args: unknown[]) => mockCreateRandom(...args);
+
+  return {
+    __esModule: true,
+    ethers: {
+      Wallet,
+    },
+    Wallet,
+  };
+});
 
 import {
   createFarmerWallet,

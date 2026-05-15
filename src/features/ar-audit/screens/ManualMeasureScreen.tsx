@@ -1,36 +1,44 @@
-import React, {useState, useCallback, useEffect} from 'react';
+import React, {useCallback, useEffect, useState} from 'react';
 import {
-  View,
+  Keyboard,
+  ScrollView,
   Text,
   TextInput,
   TouchableOpacity,
-  ScrollView,
-  Keyboard,
+  View,
 } from 'react-native';
 import {CommonActions, useNavigation, useRoute} from '@react-navigation/native';
 import type {NativeStackNavigationProp} from '@react-navigation/native-stack';
 import type {RouteProp} from '@react-navigation/native';
 import LottieView from 'lottie-react-native';
 import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
-import type {RootStackParamList} from '../../../types/navigation';
+
 import Badge from '../../../common/components/Badge';
+import Button from '../../../common/components/Button';
+import Card from '../../../common/components/Card';
+import {COLORS} from '../../../common/constants/colors';
+import {useResponsiveScreen} from '../../../common/hooks/useResponsiveScreen';
+import type {RootStackParamList} from '../../../types/navigation';
 import {mmkv} from '../../../store/mmkvStorage';
 
-type NavProp = NativeStackNavigationProp<RootStackParamList, 'ManualMeasureScreen'>;
+type NavProp = NativeStackNavigationProp<
+  RootStackParamList,
+  'ManualMeasureScreen'
+>;
 type RouteType = RouteProp<RootStackParamList, 'ManualMeasureScreen'>;
 
 const ManualMeasureScreen = () => {
   const navigation = useNavigation<NavProp>();
   const route = useRoute<RouteType>();
   const {zoneId, zoneIndex, mode = 'diameter'} = route.params;
+  const {horizontalPadding, topSpacing, bottomSpacing, contentMaxWidth} =
+    useResponsiveScreen();
   const isHeightMode = mode === 'height';
 
   const [showTutorial, setShowTutorial] = useState(false);
-  const [circumference, setCircumference] = useState('');
+  const [measurementInput, setMeasurementInput] = useState('');
   const [error, setError] = useState<string | null>(null);
-  const [calculatedDiameter, setCalculatedDiameter] = useState<number | null>(
-    null,
-  );
+  const [calculatedValue, setCalculatedValue] = useState<number | null>(null);
 
   useEffect(() => {
     if (isHeightMode) {
@@ -50,43 +58,50 @@ const ManualMeasureScreen = () => {
 
   const handleCalculate = useCallback(() => {
     Keyboard.dismiss();
-    const trimmed = circumference.trim();
+    const trimmed = measurementInput.trim();
+
     if (!/^\d+(\.\d+)?$/.test(trimmed)) {
-      setError('Please enter a valid number');
-      setCalculatedDiameter(null);
+      setError('Please enter a valid number.');
+      setCalculatedValue(null);
       return;
     }
-    const num = parseFloat(trimmed);
+
+    const numericValue = parseFloat(trimmed);
+
     if (isHeightMode) {
-      if (num < 0.5 || num > 80) {
-        setError('Height must be between 0.5 m and 80 m');
-        setCalculatedDiameter(null);
+      if (numericValue < 0.5 || numericValue > 80) {
+        setError('Height must be between 0.5 m and 80 m.');
+        setCalculatedValue(null);
         return;
       }
 
       setError(null);
-      setCalculatedDiameter(Math.round(num * 10) / 10);
+      setCalculatedValue(Math.round(numericValue * 10) / 10);
       return;
     }
 
-    if (num <= 0) {
-      setError('Circumference must be greater than zero');
-      setCalculatedDiameter(null);
+    if (numericValue <= 0) {
+      setError('Circumference must be greater than zero.');
+      setCalculatedValue(null);
       return;
     }
-    const dbh = Math.round((num / Math.PI) * 10) / 10;
+
+    const dbh = Math.round((numericValue / Math.PI) * 10) / 10;
     if (dbh < 5 || dbh > 200) {
-      setError('Calculated DBH must be between 5 cm and 200 cm');
-      setCalculatedDiameter(null);
+      setError('Calculated DBH must be between 5 cm and 200 cm.');
+      setCalculatedValue(null);
       return;
     }
 
     setError(null);
-    setCalculatedDiameter(dbh);
-  }, [circumference, isHeightMode]);
+    setCalculatedValue(dbh);
+  }, [isHeightMode, measurementInput]);
 
   const handleConfirm = useCallback(() => {
-    if (calculatedDiameter === null) return;
+    if (calculatedValue === null) {
+      return;
+    }
+
     navigation.dispatch(
       CommonActions.navigate({
         name: 'ARCameraScreen',
@@ -94,180 +109,206 @@ const ManualMeasureScreen = () => {
           zoneId,
           zoneIndex,
           ...(isHeightMode
-            ? {returnHeight: calculatedDiameter}
-            : {returnDiameter: calculatedDiameter}),
+            ? {returnHeight: calculatedValue}
+            : {returnDiameter: calculatedValue}),
         },
         merge: true,
       }),
     );
-  }, [calculatedDiameter, isHeightMode, navigation, zoneId, zoneIndex]);
+  }, [calculatedValue, isHeightMode, navigation, zoneId, zoneIndex]);
 
   return (
-    <View className="flex-1 bg-[#F8FAF8]">
-      {/* Header */}
-      <View className="bg-[#1B4332] pt-12 pb-5 px-5">
+    <View className="flex-1" style={{backgroundColor: COLORS.OFF_WHITE}}>
+      <ScrollView
+        className="flex-1"
+        contentContainerStyle={{
+          alignSelf: 'center',
+          width: '100%',
+          maxWidth: contentMaxWidth,
+          paddingHorizontal: horizontalPadding,
+          paddingTop: topSpacing,
+          paddingBottom: bottomSpacing,
+        }}
+        keyboardShouldPersistTaps="handled">
         <View className="flex-row items-center">
           <TouchableOpacity
             onPress={() => navigation.goBack()}
-            className="w-12 h-12 items-center justify-center rounded-full"
+            className="min-h-[48px] min-w-[48px] items-center justify-center rounded-full"
+            style={{backgroundColor: COLORS.CARD_WHITE}}
             accessibilityLabel="Go back">
-            <MaterialCommunityIcons color="#FFFFFF" name="arrow-left" size={24} />
+            <MaterialCommunityIcons
+              color={COLORS.DARK_SLATE}
+              name="arrow-left"
+              size={22}
+            />
           </TouchableOpacity>
-          <View className="flex-1 items-center mr-12">
-            <Text className="text-white text-xl font-bold">
-              {isHeightMode ? 'Manual Height' : 'Manual Measurement'}
+          <View className="ml-3 flex-1">
+            <Text
+              className="text-[13px] font-semibold uppercase tracking-[1.6px]"
+              style={{color: COLORS.FOREST_GREEN}}>
+              Manual Fallback
             </Text>
-            <Text className="text-white/60 text-sm mt-0.5">
-              {isHeightMode ? 'Enter Tree Height' : 'Measure Using a String'}
+            <Text
+              className="mt-1 text-3xl font-bold"
+              style={{color: COLORS.DARK_SLATE}}>
+              {isHeightMode ? 'Enter tree height' : 'Measure with a string'}
             </Text>
           </View>
         </View>
-      </View>
 
-      <ScrollView
-        className="flex-1 px-5"
-        contentContainerStyle={{paddingBottom: 32}}
-        keyboardShouldPersistTaps="handled">
-        {!isHeightMode && showTutorial && (
-          <View className="items-center mt-8 mb-6 bg-white rounded-2xl p-5 shadow-sm">
+        <Text className="mt-4 text-sm leading-6" style={{color: COLORS.DISABLED_GREY}}>
+          {isHeightMode
+            ? 'Use this only when GEDI or AR height is unavailable for the current tree.'
+            : 'Measure the trunk circumference at chest height and TerraTrust will calculate the DBH for you.'}
+        </Text>
+
+        {!isHeightMode && showTutorial ? (
+          <Card className="mt-6 items-center px-5 py-6">
             <LottieView
               source={require('../../../assets/lottie/string_wrap_tutorial.json')}
               autoPlay
               loop
               style={{width: 120, height: 120}}
             />
-            <Text className="text-[#191C1B] text-base font-bold mt-4 text-center">
-              Wrap a string around the tree trunk at chest height (1.3m from ground)
+            <Text
+              className="mt-4 text-center text-lg font-semibold"
+              style={{color: COLORS.DARK_SLATE}}>
+              Wrap the string once around the trunk at 1.3 m height
             </Text>
-            <Text className="text-[#6B7280] text-sm text-center mt-2">
-              Mark where the string meets, then measure that circumference length with a ruler
+            <Text
+              className="mt-2 text-center text-sm leading-6"
+              style={{color: COLORS.DISABLED_GREY}}>
+              Mark where the string meets, then measure that circumference using
+              a ruler or measuring tape.
             </Text>
-            <TouchableOpacity
-              onPress={dismissTutorial}
-              className="mt-4 h-12 px-8 rounded-xl bg-[#2D6A4F] items-center justify-center"
-              activeOpacity={0.7}>
-              <Text className="text-white text-base font-bold">Got it</Text>
-            </TouchableOpacity>
-          </View>
-        )}
+            <Button className="mt-5 self-stretch" label="Got it" onPress={dismissTutorial} />
+          </Card>
+        ) : null}
 
-        {/* Tutorial illustration area */}
-        <View className="items-center mt-8 mb-6">
-          {/* Trunk cross-section diagram */}
-          <View className="w-36 h-36 rounded-full border-4 border-dashed border-[#F59E0B] bg-[#D1FAE5] items-center justify-center">
-            <View className="w-24 h-24 rounded-full bg-[#2D6A4F] items-center justify-center">
+        <Card className="mt-6 px-5 py-5">
+          <View className="flex-row items-center">
+            <View
+              className="h-14 w-14 items-center justify-center rounded-2xl"
+              style={{
+                backgroundColor: isHeightMode
+                  ? 'rgba(56,178,172,0.12)'
+                  : 'rgba(47,133,90,0.12)',
+              }}>
               <MaterialCommunityIcons
-                color="#FFFFFF"
-                name={isHeightMode ? 'arrow-expand-vertical' : 'sprout'}
-                size={32}
+                color={isHeightMode ? COLORS.TEAL : COLORS.FOREST_GREEN}
+                name={isHeightMode ? 'arrow-expand-vertical' : 'ruler'}
+                size={28}
               />
             </View>
+            <View className="ml-4 flex-1">
+              <Text
+                className="text-lg font-semibold"
+                style={{color: COLORS.DARK_SLATE}}>
+                {isHeightMode ? 'Height in metres' : 'Circumference in centimetres'}
+              </Text>
+              <Text
+                className="mt-1 text-sm leading-6"
+                style={{color: COLORS.DISABLED_GREY}}>
+                {isHeightMode
+                  ? 'Enter the best available tree height.'
+                  : 'TerraTrust converts circumference to DBH automatically.'}
+              </Text>
+            </View>
           </View>
-          <Text className="text-[#6B7280] text-sm text-center mt-4">
-            {isHeightMode
-              ? 'Enter fallback tree height only when GEDI or AR height is unavailable'
-              : 'Wrap the string at DBH height: 1.3m above the ground'}
-          </Text>
-          <Text className="text-[#2D6A4F] text-xs text-center mt-2">
-            {isHeightMode
-              ? 'Used only where GEDI and AR height are unavailable'
-              : "We'll calculate the diameter for you"}
-          </Text>
-        </View>
 
-        {/* Input section */}
-        <View className="bg-white rounded-2xl p-5 shadow-sm">
-          <Text className="text-[#6B7280] text-sm mb-2">
-            {isHeightMode ? 'Height in metres' : 'Length in centimetres'}
-          </Text>
-          <View className="flex-row items-center">
+          <View
+            className="mt-6 flex-row items-center rounded-2xl border px-4 py-3"
+            style={{
+              borderColor: error
+                ? '#FCA5A5'
+                : measurementInput
+                  ? '#A7D7BE'
+                  : '#E2E8F0',
+            }}>
             <TextInput
-              className={`flex-1 text-[#191C1B] text-2xl font-bold border-b-2 pb-2 ${
-                error
-                  ? 'border-[#EF4444]'
-                  : circumference
-                    ? 'border-[#2D6A4F]'
-                    : 'border-[#E5E7EB]'
-              }`}
+              className="flex-1 text-3xl font-bold"
               placeholder={isHeightMode ? 'e.g. 12.5' : 'e.g. 62.8'}
-              placeholderTextColor="#9CA3AF"
+              placeholderTextColor="#A0AEC0"
               keyboardType="decimal-pad"
-              value={circumference}
-              onChangeText={t => {
-                setCircumference(t);
+              value={measurementInput}
+              onChangeText={text => {
+                setMeasurementInput(text);
                 setError(null);
               }}
-              style={{fontFamily: 'RobotoMono-Bold'}}
+              style={{color: COLORS.DARK_SLATE, fontFamily: 'RobotoMono-Bold'}}
               accessibilityLabel={
                 isHeightMode
                   ? 'Height input in metres'
-                  : 'Circumference input in centimeters'
+                  : 'Circumference input in centimetres'
               }
             />
-            <Text className="text-[#6B7280] text-lg ml-3">
+            <Text className="ml-3 text-lg" style={{color: COLORS.DISABLED_GREY}}>
               {isHeightMode ? 'm' : 'cm'}
             </Text>
           </View>
-          {error && (
-            <Text className="text-[#EF4444] text-xs mt-2">{error}</Text>
-          )}
 
-          {/* Calculate button */}
-          <TouchableOpacity
-            onPress={handleCalculate}
-            disabled={!circumference.trim()}
-            className={`mt-4 h-12 rounded-xl items-center justify-center ${
-              circumference.trim() ? 'bg-[#40916C]' : 'bg-[#9CA3AF]'
-            }`}>
-            <Text className="text-white text-base font-semibold">
-              {isHeightMode ? 'Use Height' : 'Calculate Diameter'}
+          {error ? (
+            <Text className="mt-3 text-sm" style={{color: COLORS.ERROR_RED}}>
+              {error}
             </Text>
-          </TouchableOpacity>
-        </View>
+          ) : null}
 
-        {/* Result display */}
-        {calculatedDiameter !== null && (
-          <View className="mt-5 bg-[#D1FAE5]/40 rounded-2xl p-5 border border-[#D1FAE5]">
-            <View className="flex-row items-center justify-between mb-2">
-              <Text className="text-[#6B7280] text-sm">
-                {isHeightMode ? 'Entered Height' : 'Calculated Diameter'}
+          <Button
+            className="mt-5"
+            label={isHeightMode ? 'Use this height' : 'Calculate diameter'}
+            onPress={handleCalculate}
+            disabled={!measurementInput.trim()}
+          />
+        </Card>
+
+        {calculatedValue !== null ? (
+          <Card className="mt-6 px-5 py-5" style={{backgroundColor: '#F2FBF7'}}>
+            <View className="flex-row items-center justify-between">
+              <Text
+                className="text-sm font-semibold uppercase tracking-[1.2px]"
+                style={{color: COLORS.FOREST_GREEN}}>
+                {isHeightMode ? 'Height ready' : 'Diameter ready'}
               </Text>
               <Badge label="Manual Measurement" variant="manual" />
             </View>
-            <Text className="text-[#191C1B] text-3xl font-bold mb-2"
-              style={{fontFamily: 'RobotoMono-Bold'}}>
-              {calculatedDiameter.toFixed(1)} {isHeightMode ? 'm' : 'cm'}
+            <Text
+              className="mt-3 text-4xl font-bold"
+              style={{color: COLORS.DARK_SLATE, fontFamily: 'RobotoMono-Bold'}}>
+              {calculatedValue.toFixed(1)} {isHeightMode ? 'm' : 'cm'}
             </Text>
-            <Text className="text-[#6B7280] text-xs">
+            <Text className="mt-3 text-sm leading-6" style={{color: COLORS.DISABLED_GREY}}>
               {isHeightMode
-                ? `Height: ${calculatedDiameter.toFixed(1)} m`
-                : `Diameter: ${calculatedDiameter.toFixed(1)} cm (calculated from ${circumference} cm circumference)`}
+                ? `This manual height will be attached to the current tree scan.`
+                : `DBH calculated from ${measurementInput} cm circumference.`}
             </Text>
-          </View>
-        )}
+          </Card>
+        ) : null}
       </ScrollView>
 
-      {/* Bottom buttons */}
-      <View className="px-5 pb-8 pt-3 bg-[#F8FAF8]">
-        <TouchableOpacity
-          onPress={handleConfirm}
-          disabled={calculatedDiameter === null}
-          className={`h-14 rounded-xl items-center justify-center ${
-            calculatedDiameter !== null ? 'bg-[#2D6A4F]' : 'bg-[#9CA3AF]'
-          }`}
-          activeOpacity={0.7}>
-          <Text className="text-white text-base font-bold">
-            {isHeightMode ? 'Confirm & Use This Height' : 'Confirm & Use This Measurement'}
-          </Text>
-        </TouchableOpacity>
-        <TouchableOpacity
-          onPress={() => navigation.goBack()}
-          className="mt-3 h-12 rounded-xl border-2 border-[#D1D5DB] items-center justify-center"
-          activeOpacity={0.7}>
-          <Text className="text-[#6B7280] text-base font-semibold">
-            Go Back
-          </Text>
-        </TouchableOpacity>
+      <View
+        className="border-t px-4 pt-4"
+        style={{
+          borderTopColor: '#E2E8F0',
+          backgroundColor: COLORS.OFF_WHITE,
+          paddingBottom: bottomSpacing,
+        }}>
+        <View className="self-center w-full" style={{maxWidth: contentMaxWidth}}>
+          <Button
+            label={
+              isHeightMode
+                ? 'Confirm and use this height'
+                : 'Confirm and use this measurement'
+            }
+            onPress={handleConfirm}
+            disabled={calculatedValue === null}
+          />
+          <Button
+            className="mt-3"
+            label="Go back"
+            onPress={() => navigation.goBack()}
+            variant="secondary"
+          />
+        </View>
       </View>
     </View>
   );

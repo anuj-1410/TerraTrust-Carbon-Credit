@@ -11,10 +11,12 @@ const mockGetAuthenticatedEntryRoute = jest.fn(
   (kycCompleted: boolean): PostAuthRoute =>
     (kycCompleted ? 'HomeScreen' : 'KYCScreen'),
 );
+const mockMarkOnboardingComplete = jest.fn();
 
 jest.mock('../../../../common/utils/onboarding', () => ({
   getAuthenticatedEntryRoute: (kycCompleted: boolean) =>
     mockGetAuthenticatedEntryRoute(kycCompleted),
+  markOnboardingComplete: () => mockMarkOnboardingComplete(),
 }));
 
 // Mock navigation
@@ -131,8 +133,7 @@ describe('SplashScreen', () => {
     });
   });
 
-  it('navigates to OnboardingScreen when completed KYC still needs onboarding', async () => {
-    mockGetAuthenticatedEntryRoute.mockReturnValue('OnboardingScreen');
+  it('still routes returning users to HomeScreen after completed KYC', async () => {
     mockGetCurrentFirebaseUser.mockReturnValue({uid: 'firebase-user-1'});
     mockBootstrapAuthenticatedProfile.mockResolvedValue({
       profile: {
@@ -160,8 +161,9 @@ describe('SplashScreen', () => {
     });
 
     await waitFor(() => {
-      expect(mockReplace).toHaveBeenCalledWith('OnboardingScreen');
+      expect(mockReplace).toHaveBeenCalledWith('HomeScreen');
     });
+    expect(mockMarkOnboardingComplete).toHaveBeenCalled();
   });
 
   it('navigates to KYCScreen when /auth/me reports incomplete KYC', async () => {

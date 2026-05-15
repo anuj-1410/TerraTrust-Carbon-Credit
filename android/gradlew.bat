@@ -31,6 +31,14 @@
 @rem Set local scope for the variables with windows NT shell
 if "%OS%"=="Windows_NT" setlocal
 
+@rem Ensure Node.js is available to Gradle child processes, especially when
+@rem this machine uses NVM and the active node path is not on the global PATH.
+where node >NUL 2>&1
+if %ERRORLEVEL% neq 0 (
+    if defined NVM_SYMLINK if exist "%NVM_SYMLINK%\node.exe" set "PATH=%NVM_SYMLINK%;%PATH%"
+    if exist "%ProgramFiles%\nodejs\node.exe" set "PATH=%ProgramFiles%\nodejs;%PATH%"
+)
+
 set DIRNAME=%~dp0
 if "%DIRNAME%"=="" set DIRNAME=.
 @rem This is normally unused

@@ -167,26 +167,53 @@ function primeAuditProcessingState(dispatch: typeof store.dispatch) {
 
 function TabIcon({
   name,
+  label,
   color,
   size,
+  focused,
   showDot = false,
 }: {
   name: React.ComponentProps<typeof MaterialCommunityIcons>['name'];
+  label: string;
   color: string;
   size: number;
+  focused: boolean;
   showDot?: boolean;
 }) {
   return (
-    <View>
-      <MaterialCommunityIcons color={color} name={name} size={size} />
-      {showDot ? (
-        <View
-          className="absolute -right-1 top-0 h-2.5 w-2.5 rounded-full"
-          style={{backgroundColor: COLORS.ERROR_RED}}
-        />
-      ) : null}
+    <View
+      className="min-w-[78px] items-center rounded-2xl px-3 py-2"
+      style={{
+        backgroundColor: focused ? 'rgba(47, 133, 90, 0.12)' : 'transparent',
+      }}>
+      <View>
+        <MaterialCommunityIcons color={color} name={name} size={size} />
+        {showDot ? (
+          <View
+            className="absolute -right-1 top-0 h-2.5 w-2.5 rounded-full"
+            style={{backgroundColor: COLORS.ERROR_RED}}
+          />
+        ) : null}
+      </View>
+      <Text
+        className="mt-1 text-[11px] font-medium"
+        style={{color, fontFamily: 'Roboto-Regular'}}>
+        {label}
+      </Text>
     </View>
   );
+}
+
+function getBaseTabBarStyle(bottomInset: number) {
+  return {
+    backgroundColor: COLORS.CARD_WHITE,
+    borderTopColor: '#E2E8F0',
+    borderTopWidth: 1,
+    height: 68 + bottomInset,
+    paddingBottom: Math.max(bottomInset, 10),
+    paddingTop: 8,
+    paddingHorizontal: 8,
+  };
 }
 
 function HomeStackNavigator() {
@@ -250,14 +277,7 @@ function MainTabs() {
   const walletRecoveryPending = useAppSelector(
     state => state.profile.walletRecoveryPending,
   );
-  const baseTabBarStyle = {
-    backgroundColor: COLORS.CARD_WHITE,
-    borderTopColor: '#E2E8F0',
-    borderTopWidth: 1,
-    height: 56 + insets.bottom,
-    paddingBottom: Math.max(insets.bottom, 8),
-    paddingTop: 6,
-  };
+  const baseTabBarStyle = getBaseTabBarStyle(insets.bottom);
 
   return (
     <Tab.Navigator
@@ -268,13 +288,9 @@ function MainTabs() {
         tabBarActiveTintColor: COLORS.FOREST_GREEN,
         tabBarInactiveTintColor: COLORS.DISABLED_GREY,
         tabBarHideOnKeyboard: true,
-        tabBarLabelPosition: 'below-icon',
-        tabBarLabelStyle: {
-          fontSize: 11,
-          fontFamily: 'Roboto-Regular',
-        },
-        tabBarIconStyle: {
-          marginTop: 2,
+        tabBarShowLabel: false,
+        tabBarItemStyle: {
+          paddingVertical: 2,
         },
         tabBarStyle: baseTabBarStyle,
       }}>
@@ -283,9 +299,11 @@ function MainTabs() {
         component={HomeStackNavigator}
         options={{
           title: 'Home',
-          tabBarIcon: ({color, size}) => (
+          tabBarIcon: ({color, size, focused}) => (
             <TabIcon
               color={color}
+              focused={focused}
+              label="Home"
               name="home-outline"
               showDot={unreadNotifications > 0}
               size={size}
@@ -298,8 +316,14 @@ function MainTabs() {
         component={LandStackNavigator}
         options={{
           title: 'My Lands',
-          tabBarIcon: ({color, size}) => (
-            <TabIcon color={color} name="sprout-outline" size={size} />
+          tabBarIcon: ({color, size, focused}) => (
+            <TabIcon
+              color={color}
+              focused={focused}
+              label="My Lands"
+              name="sprout-outline"
+              size={size}
+            />
           ),
         }}
       />
@@ -308,8 +332,14 @@ function MainTabs() {
         component={HistoryStackNavigator}
         options={{
           title: 'History',
-          tabBarIcon: ({color, size}) => (
-            <TabIcon color={color} name="chart-timeline-variant" size={size} />
+          tabBarIcon: ({color, size, focused}) => (
+            <TabIcon
+              color={color}
+              focused={focused}
+              label="History"
+              name="chart-timeline-variant"
+              size={size}
+            />
           ),
         }}
       />
@@ -324,11 +354,13 @@ function MainTabs() {
           return {
             title: 'Profile',
             tabBarStyle: shouldHideTabBar
-              ? {...baseTabBarStyle, display: 'none'}
-              : baseTabBarStyle,
-            tabBarIcon: ({color, size}) => (
+              ? {...getBaseTabBarStyle(insets.bottom), display: 'none'}
+              : getBaseTabBarStyle(insets.bottom),
+            tabBarIcon: ({color, size, focused}) => (
               <TabIcon
                 color={color}
+                focused={focused}
+                label="Profile"
                 name="account-outline"
                 showDot={walletRecoveryPending}
                 size={size}

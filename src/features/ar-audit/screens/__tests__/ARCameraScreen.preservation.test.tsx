@@ -343,7 +343,7 @@ describe('AR Camera Operations - Preservation Property Tests', () => {
           // Generate scenarios after measurement completes
           measurementCompleted: fc.constant(true),
         }),
-        async ({measurementCompleted}) => {
+        async ({measurementCompleted: _measurementCompleted}) => {
           const cameraSimulator = new CameraStateSimulator();
           
           // Simulate measurement completion - camera should be restored to active
@@ -383,7 +383,7 @@ describe('AR Camera Operations - Preservation Property Tests', () => {
           hasSpecies: fc.constant(true),
           hasDiameter: fc.constant(true),
         }),
-        async ({hasSpecies, hasDiameter}) => {
+        async ({hasSpecies: _hasSpecies, hasDiameter: _hasDiameter}) => {
           const cameraSimulator = new CameraStateSimulator();
           
           // Start with active camera

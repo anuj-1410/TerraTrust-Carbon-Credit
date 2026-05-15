@@ -21,8 +21,14 @@ import {bootstrapAuthenticatedProfile} from '../../../services/authBootstrap';
 import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
 import {useAppDispatch} from '../../../store/hooks';
 import {setUser, setWalletAddress, setKycCompleted} from '../store/authSlice';
-import {getAuthenticatedEntryRoute} from '../../../common/utils/onboarding';
-import {setWalletRecoveryState} from '../../profile/store/profileSlice';
+import {
+  getAuthenticatedEntryRoute,
+  markOnboardingComplete,
+} from '../../../common/utils/onboarding';
+import {
+  setOnboardingComplete,
+  setWalletRecoveryState,
+} from '../../profile/store/profileSlice';
 import {useResponsiveScreen} from '../../../common/hooks/useResponsiveScreen';
 import {showBanner} from '../../../store/uiSlice';
 import Button from '../../../common/components/Button';
@@ -89,12 +95,19 @@ const OTPScreen = ({route, navigation}: Props) => {
     '$1 XXXXXX$3',
   );
   const otpCellSize = Math.max(
-    44,
+    46,
     Math.min(
-      56,
-      Math.floor((Math.min(width, contentMaxWidth) - horizontalPadding * 2 - 20) / OTP_LENGTH),
+      54,
+      Math.floor(
+        (Math.min(width, contentMaxWidth) -
+          horizontalPadding * 2 -
+          52 -
+          10 * (OTP_LENGTH - 1)) /
+          OTP_LENGTH,
+      ),
     ),
   );
+  const otpGap = 10;
   const otpValue = digits.join('');
   const isOtpComplete = otpValue.length === OTP_LENGTH;
 
@@ -138,6 +151,10 @@ const OTPScreen = ({route, navigation}: Props) => {
     }
 
     applyProfile(profile);
+    if (profile.kyc_completed) {
+      markOnboardingComplete();
+      dispatch(setOnboardingComplete(true));
+    }
 
     const nextRoute = getAuthenticatedEntryRoute(profile.kyc_completed);
 
@@ -319,7 +336,9 @@ const OTPScreen = ({route, navigation}: Props) => {
             <Text className="text-sm leading-5 text-gray-600">
               Enter the verification code below to continue securely.
             </Text>
-            <View className="mt-6 flex-row justify-between">
+            <View
+              className="mt-6 flex-row items-center justify-center"
+              style={{gap: otpGap}}>
               {digits.map((digit, index) => (
                 <TextInput
                   key={index}
@@ -334,8 +353,8 @@ const OTPScreen = ({route, navigation}: Props) => {
                   style={{
                     width: otpCellSize,
                     height: otpCellSize,
-                    minWidth: 44,
-                    minHeight: 44,
+                    minWidth: 46,
+                    minHeight: 46,
                   }}
                   keyboardType="number-pad"
                   maxLength={1}

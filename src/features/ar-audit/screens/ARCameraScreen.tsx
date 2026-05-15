@@ -18,6 +18,7 @@ import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityI
 
 import type {RootStackParamList} from '../../../types/navigation';
 import Badge from '../../../common/components/Badge';
+import Button from '../../../common/components/Button';
 import BottomSheet from '../../../common/components/BottomSheet';
 import {isPointInsidePolygon} from '../../../common/utils/geoJson';
 import {useAppSelector} from '../../../store/hooks';
@@ -140,7 +141,7 @@ const ARCameraScreen = () => {
   );
   const [measureConfidence, setMeasureConfidence] = useState<number | null>(null);
   const [tierUsed, setTierUsed] = useState<1 | 2 | 3>(arTier as 1 | 2 | 3);
-  const [consecutiveFailures, setConsecutiveFailures] = useState(0);
+  const [, setConsecutiveFailures] = useState(0);
   const [, setConsecutiveHeightFailures] = useState(0);
 
   // Evidence
@@ -421,14 +422,51 @@ const ARCameraScreen = () => {
   const needsArHeight = Boolean(currentZone && !currentZone.gedi_available);
   const canMeasureArHeight = needsArHeight && arTier !== 3;
   const requiresArHeightBeforeSave = needsArHeight;
-  const canStartDiameterMeasurement = Boolean(resolvedSpeciesName);
-  const canStartHeightMeasurement = diameterCm !== null && needsArHeight;
+  const canStartHeightMeasurement = needsArHeight;
+  const canSaveTree = Boolean(
+    resolvedSpeciesName &&
+      resolvedSpeciesSource &&
+      diameterCm !== null &&
+      (!requiresArHeightBeforeSave || arHeightM !== null),
+  );
   const hasReliableGpsFix =
     gpsHasFix &&
     hasValidGpsCoordinates(gpsLat, gpsLng) &&
     Number.isFinite(gpsAccuracy) &&
     gpsAccuracy > 0 &&
     gpsAccuracy <= GPS_RELIABLE_ACCURACY_METRES;
+  const getReadyPhase = useCallback((): MeasurePhase => {
+    if (diameterCm !== null) {
+      return 'result';
+    }
+
+    if (
+      resolvedSpeciesName ||
+      arHeightM !== null ||
+      IS_AUDIT_SPECIES_DETECTION_DISABLED
+    ) {
+      return 'species_done';
+    }
+
+    return 'idle';
+  }, [arHeightM, diameterCm, resolvedSpeciesName]);
+  const getReadyStatusText = useCallback((): string => {
+    if (diameterCm !== null) {
+      return 'Measurement complete';
+    }
+
+    if (resolvedSpeciesName) {
+      return DIAMETER_READY_STATUS_TEXT;
+    }
+
+    if (arHeightM !== null) {
+      return heightCaptureMethod === 'MANUAL'
+        ? `Height entered: ${arHeightM.toFixed(1)} m`
+        : `Height measured: ${arHeightM.toFixed(1)} m`;
+    }
+
+    return getDefaultArCameraStatusText(IS_AUDIT_SPECIES_DETECTION_DISABLED);
+  }, [arHeightM, diameterCm, heightCaptureMethod, resolvedSpeciesName]);
 
   const applySpeciesSelection = useCallback(
     (
@@ -443,10 +481,10 @@ const ARCameraScreen = () => {
       setSpeciesResolutionMode('none');
       setSuggestedSpecies(null);
       setSuggestedConfidence(0);
-      setPhase('species_done');
-      setStatusText(DIAMETER_READY_STATUS_TEXT);
+      setPhase(diameterCm !== null ? 'result' : 'species_done');
+      setStatusText(diameterCm !== null ? 'Measurement complete' : DIAMETER_READY_STATUS_TEXT);
     },
-    [],
+    [diameterCm],
   );
 
   const openManualSpeciesPicker = useCallback((confidence: number) => {
@@ -568,7 +606,7 @@ const ARCameraScreen = () => {
               'Low Confidence',
               'Move closer to the tree and hold still, then try again.',
             );
-            setPhase('species_done');
+            setPhase(getReadyPhase());
             setStatusText('Try again — Measure diameter');
           }
           return next;
@@ -591,7 +629,7 @@ const ARCameraScreen = () => {
               'Unusual Measurement',
               'This seems unusual. Please measure again.',
             );
-            setPhase('species_done');
+            setPhase(getReadyPhase());
             setStatusText('Try again — Measure diameter');
           }
           return next;
@@ -626,17 +664,8 @@ const ARCameraScreen = () => {
           : '';
 
       if (errorCode === 'MEASUREMENT_CANCELLED') {
-        // User pressed back inside the AR activity — not a failure, just reset quietly
-        setPhase(
-          IS_AUDIT_SPECIES_DETECTION_DISABLED ? 'species_done' : (speciesName ? 'species_done' : 'idle'),
-        );
-        setStatusText(
-          speciesName
-            ? 'Try again — Measure diameter'
-            : getDefaultArCameraStatusText(
-                IS_AUDIT_SPECIES_DETECTION_DISABLED,
-              ),
-        );
+        setPhase(getReadyPhase());
+        setStatusText(getReadyStatusText());
         return;
       }
 
@@ -646,7 +675,7 @@ const ARCameraScreen = () => {
           'Camera Unavailable',
           'The camera is currently in use. Please wait a moment and try again.',
         );
-        setPhase('species_done');
+        setPhase(getReadyPhase());
         setStatusText('Try again — Measure diameter');
         return;
       }
@@ -672,7 +701,7 @@ const ARCameraScreen = () => {
             'Measurement Failed',
             errorMessage || 'Move closer to the tree and hold still, then try again.',
           );
-          setPhase('species_done');
+          setPhase(getReadyPhase());
           setStatusText('Try again — Measure diameter');
         }
         return next;
@@ -681,9 +710,10 @@ const ARCameraScreen = () => {
   }, [
     arTier,
     captureEvidencePhoto,
+    getReadyPhase,
+    getReadyStatusText,
     navigation,
     runWithExclusiveArCameraAccess,
-    speciesName,
     zoneId,
     zoneIndex,
   ]);
@@ -720,7 +750,7 @@ const ARCameraScreen = () => {
           ? `Height measured: ${heightM.toFixed(1)} m`
           : 'Height measured',
       );
-      setPhase(diameterCm !== null ? 'result' : 'species_done');
+      setPhase(getReadyPhase());
     } catch (error: unknown) {
       const errorCode =
         error != null &&
@@ -745,7 +775,7 @@ const ARCameraScreen = () => {
             speciesDetectionDisabled: IS_AUDIT_SPECIES_DETECTION_DISABLED,
           }),
         );
-        setPhase(diameterCm !== null ? 'result' : 'species_done');
+        setPhase(getReadyPhase());
         return;
       }
 
@@ -762,7 +792,7 @@ const ARCameraScreen = () => {
             speciesDetectionDisabled: IS_AUDIT_SPECIES_DETECTION_DISABLED,
           }),
         );
-        setPhase(diameterCm !== null ? 'result' : 'species_done');
+        setPhase(getReadyPhase());
         return;
       }
 
@@ -789,7 +819,7 @@ const ARCameraScreen = () => {
           speciesDetectionDisabled: IS_AUDIT_SPECIES_DETECTION_DISABLED,
         }),
       );
-      setPhase(diameterCm !== null ? 'result' : 'species_done');
+      setPhase(getReadyPhase());
     }
   }, [
     canMeasureArHeight,
@@ -797,13 +827,26 @@ const ARCameraScreen = () => {
     resolvedSpeciesName,
     navigation,
     needsArHeight,
+    getReadyPhase,
     runWithExclusiveArCameraAccess,
     zoneId,
     zoneIndex,
   ]);
 
   const handleAcceptSave = useCallback(async () => {
-    if (!resolvedSpeciesName || !resolvedSpeciesSource || diameterCm === null) {
+    if (!resolvedSpeciesName || !resolvedSpeciesSource) {
+      Alert.alert(
+        'Select Species First',
+        'Identify or choose an approved species before saving this tree.',
+      );
+      return;
+    }
+
+    if (diameterCm === null) {
+      Alert.alert(
+        'Measure Diameter First',
+        'Capture the trunk diameter before saving this tree scan.',
+      );
       return;
     }
 
@@ -917,9 +960,9 @@ const ARCameraScreen = () => {
     setEvidenceHash(null);
     setDiameterCm(null);
     setMeasureConfidence(null);
-    setPhase('species_done');
+    setPhase(getReadyPhase());
     setStatusText('Try again — Measure diameter');
-  }, [evidenceUri]);
+  }, [evidenceUri, getReadyPhase]);
 
   const precisionBadge = (() => {
     if (tierUsed === 1) {
@@ -1082,11 +1125,11 @@ const ARCameraScreen = () => {
                 }}>
                 <MaterialCommunityIcons
                   color="#FFFFFF"
-                  name={speciesName ? 'check-circle-outline' : 'magnify'}
+                  name={speciesName ? 'refresh' : 'magnify'}
                   size={18}
                 />
                 <Text className="mt-1 text-center text-xs font-semibold text-white">
-                  {speciesName ? 'Species Ready' : 'Identify Species'}
+                  {speciesName ? 'Update Species' : 'Identify Species'}
                 </Text>
               </TouchableOpacity>
             ) : null}
@@ -1095,16 +1138,13 @@ const ARCameraScreen = () => {
               onPress={() => {
                 void handleMeasureDiameter();
               }}
-              disabled={!canStartDiameterMeasurement}
               className="mx-1 flex-1 rounded-xl items-center justify-center px-3 py-3"
               style={{
-                backgroundColor: canStartDiameterMeasurement
-                  ? '#2D6A4F'
-                  : 'rgba(107, 114, 128, 0.75)',
+                backgroundColor: '#2D6A4F',
               }}>
               <MaterialCommunityIcons color="#FFFFFF" name="ruler" size={18} />
               <Text className="mt-1 text-center text-xs font-semibold text-white">
-                Measure Diameter
+                {diameterCm !== null ? 'Re-measure DBH' : 'Measure Diameter'}
               </Text>
             </TouchableOpacity>
 
@@ -1113,7 +1153,6 @@ const ARCameraScreen = () => {
                 onPress={() => {
                   void handleStartHeightMeasurement();
                 }}
-                disabled={!canStartHeightMeasurement}
                 className="mx-1 flex-1 rounded-xl items-center justify-center px-3 py-3"
                 style={{
                   backgroundColor: canStartHeightMeasurement
@@ -1122,7 +1161,11 @@ const ARCameraScreen = () => {
                 }}>
                 <MaterialCommunityIcons color="#FFFFFF" name="arrow-expand-vertical" size={18} />
                 <Text className="mt-1 text-center text-xs font-semibold text-white">
-                  {canMeasureArHeight ? 'Measure Height' : 'Enter Height'}
+                  {arHeightM !== null
+                    ? 'Update Height'
+                    : canMeasureArHeight
+                      ? 'Measure Height'
+                      : 'Enter Height'}
                 </Text>
               </TouchableOpacity>
             ) : null}
@@ -1135,6 +1178,18 @@ const ARCameraScreen = () => {
         <View className="absolute bottom-0 left-0 right-0 bg-white rounded-t-3xl px-5 pt-3 pb-8">
           {/* Handle bar */}
           <View className="self-center w-10 h-1 bg-[#D1D5DB] rounded-full mb-4" />
+
+          <Text className="text-[#6B7280] text-sm mb-1">Species</Text>
+          <Text
+            className="text-[#191C1B] text-2xl font-bold"
+            numberOfLines={1}>
+            {resolvedSpeciesName ?? 'Not selected yet'}
+          </Text>
+          <Text className="mb-4 mt-2 text-sm" style={{color: '#6B7280'}}>
+            {resolvedSpeciesName
+              ? `${resolvedSpeciesSource === 'MANUAL_SELECTED' ? 'Manual selection' : 'Detected with camera'}${resolvedSpeciesConfidence > 0 ? ` • ${Math.round(resolvedSpeciesConfidence * 100)}% confidence` : ''}`
+              : 'Required before saving this tree'}
+          </Text>
 
           <Text className="text-[#6B7280] text-sm mb-1">Diameter</Text>
           <Text
@@ -1199,31 +1254,61 @@ const ARCameraScreen = () => {
             </TouchableOpacity>
           )}
 
-          {/* Buttons */}
-          <View className="flex-row space-x-3">
-            <TouchableOpacity
-              onPress={handleRetry}
-              className="flex-1 h-14 rounded-xl border-2 border-[#D1D5DB] items-center justify-center">
-              <Text className="text-[#6B7280] text-base font-semibold">
-                Retry
-              </Text>
-            </TouchableOpacity>
-            <TouchableOpacity
+          <View className="mb-3 gap-3">
+            {!IS_AUDIT_SPECIES_DETECTION_DISABLED ? (
+              <Button
+                label={resolvedSpeciesName ? 'Update species' : 'Identify species'}
+                onPress={() => {
+                  void handleIdentifySpecies();
+                }}
+                variant="secondary"
+              />
+            ) : null}
+            <Button
+              label={diameterCm !== null ? 'Re-measure diameter' : 'Measure diameter'}
               onPress={() => {
-                void handleAcceptSave();
+                if (diameterCm !== null) {
+                  handleRetry();
+                  return;
+                }
+                void handleMeasureDiameter();
               }}
-              disabled={requiresArHeightBeforeSave && arHeightM === null}
-              className="flex-1 h-14 rounded-xl items-center justify-center"
-              style={{
-                backgroundColor:
-                  requiresArHeightBeforeSave && arHeightM === null
-                    ? 'rgba(45,106,79,0.5)'
-                    : '#2D6A4F',
-              }}>
-              <Text className="text-white text-base font-bold">
-                Accept & Save
-              </Text>
-            </TouchableOpacity>
+              variant="secondary"
+            />
+            {needsArHeight ? (
+              <Button
+                label={
+                  arHeightM !== null
+                    ? 'Update height'
+                    : canMeasureArHeight
+                      ? 'Measure height'
+                      : 'Enter height'
+                }
+                onPress={() => {
+                  void handleStartHeightMeasurement();
+                }}
+                variant="secondary"
+              />
+            ) : null}
+          </View>
+
+          <View className="flex-row" style={{gap: 12}}>
+            <View className="flex-1">
+              <Button
+                label="Reset diameter"
+                onPress={handleRetry}
+                variant="secondary"
+              />
+            </View>
+            <View className="flex-1">
+              <Button
+                label={canSaveTree ? 'Accept & Save' : 'Complete Required Steps'}
+                onPress={() => {
+                  void handleAcceptSave();
+                }}
+                disabled={!canSaveTree}
+              />
+            </View>
           </View>
         </View>
       )}

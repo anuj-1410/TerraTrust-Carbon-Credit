@@ -32,14 +32,17 @@ jest.mock('react-native-config', () => ({
 }));
 
 jest.mock('@react-native-firebase/auth', () => {
-  const authModule = jest.fn(() => mockAuthInstance);
-  authModule.PhoneAuthProvider = {
-    credential: mockPhoneAuthCredential,
+  const phoneAuthProvider = {
+    credential: (...args: [string, string]) => mockPhoneAuthCredential(...args),
   };
+  const authModule = Object.assign(jest.fn(() => mockAuthInstance), {
+    PhoneAuthProvider: phoneAuthProvider,
+  });
 
   return {
     __esModule: true,
     default: authModule,
+    PhoneAuthProvider: phoneAuthProvider,
   };
 });
 
@@ -102,7 +105,7 @@ describe('firebase phone auth helpers', () => {
   });
 
   it('configures Firebase test-phone autofill when matching env values are present', async () => {
-    (Config as any).FIREBASE_TEST_PHONE_NUMBER = '99999 99999';
+    (Config as any).FIREBASE_TEST_PHONE_NUMBER = '+91 99999 99999';
     (Config as any).FIREBASE_TEST_OTP_CODE = '123456';
 
     mockSignInWithPhoneNumber.mockResolvedValue({

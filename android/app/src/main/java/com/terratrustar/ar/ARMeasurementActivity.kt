@@ -23,6 +23,7 @@ import android.view.WindowManager
 import android.widget.FrameLayout
 import android.widget.ProgressBar
 import android.widget.TextView
+import androidx.activity.OnBackPressedCallback
 import androidx.appcompat.app.AppCompatActivity
 import com.google.ar.core.Anchor
 import com.google.ar.core.ArCoreApk
@@ -195,6 +196,19 @@ class ARMeasurementActivity : AppCompatActivity(), GLSurfaceView.Renderer {
             "TerraTrust is starting the AR camera.",
             null,
         )
+
+        onBackPressedDispatcher.addCallback(
+            this,
+            object : OnBackPressedCallback(true) {
+                override fun handleOnBackPressed() {
+                    if (!measurementCompleted) {
+                        measurementCompleted = true
+                        setResult(Activity.RESULT_CANCELED)
+                    }
+                    finish()
+                }
+            },
+        )
     }
 
     override fun onResume() {
@@ -230,15 +244,6 @@ class ARMeasurementActivity : AppCompatActivity(), GLSurfaceView.Renderer {
         session = null
 
         super.onDestroy()
-    }
-
-    @Suppress("DEPRECATION")
-    override fun onBackPressed() {
-        if (!measurementCompleted) {
-            measurementCompleted = true
-            setResult(Activity.RESULT_CANCELED)
-        }
-        super.onBackPressed()
     }
 
     override fun onSurfaceCreated(gl: GL10?, config: EGLConfig?) {

@@ -1,30 +1,49 @@
 import React, {useCallback, useEffect, useRef, useState} from 'react';
 import {
   BackHandler,
-  View,
-  Text,
-  TouchableOpacity,
   Image,
-  ScrollView,
   Linking,
   Platform,
+  ScrollView,
+  Text,
+  TouchableOpacity,
+  View,
 } from 'react-native';
 import {useNavigation} from '@react-navigation/native';
 import type {NativeStackNavigationProp} from '@react-navigation/native-stack';
 import {Camera, useCameraDevice} from 'react-native-vision-camera';
-import {pick, types, isErrorWithCode, errorCodes} from '@react-native-documents/picker';
+import {
+  errorCodes,
+  isErrorWithCode,
+  pick,
+  types,
+} from '@react-native-documents/picker';
 import Geolocation from 'react-native-geolocation-service';
 import NetInfo from '@react-native-community/netinfo';
 import LottieView from 'lottie-react-native';
 import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
 
+import Button from '../../../common/components/Button';
+import Card from '../../../common/components/Card';
+import {COLORS} from '../../../common/constants/colors';
+import {useResponsiveScreen} from '../../../common/hooks/useResponsiveScreen';
 import type {RootStackParamList} from '../../../types/navigation';
 import {useAppDispatch, useAppSelector} from '../../../store/hooks';
-import {setCurrentDraft, clearCurrentDraft, type OCRResult} from '../store/landSlice';
+import {
+  clearCurrentDraft,
+  setCurrentDraft,
+  type OCRResult,
+} from '../store/landSlice';
 import api from '../../../services/api';
 
 type Nav = NativeStackNavigationProp<RootStackParamList>;
-type ScreenState = 'capture' | 'camera' | 'preview' | 'loading' | 'ocr_result' | 'error';
+type ScreenState =
+  | 'capture'
+  | 'camera'
+  | 'preview'
+  | 'loading'
+  | 'ocr_result'
+  | 'error';
 
 const MAX_FILE_SIZE = 10 * 1024 * 1024;
 const NAME_MATCH_THRESHOLD = 0.8;
@@ -95,6 +114,8 @@ const DocumentUploadScreen = () => {
   const registeredOwnerName = useAppSelector(
     state => state.auth.user?.name ?? '',
   );
+  const {horizontalPadding, topSpacing, bottomSpacing, contentMaxWidth} =
+    useResponsiveScreen();
   const cameraRef = useRef<Camera>(null);
   const device = useCameraDevice('back');
 
@@ -104,7 +125,9 @@ const DocumentUploadScreen = () => {
   const [ocrResult, setOcrResult] = useState<OCRResult | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [isOffline, setIsOffline] = useState(false);
-  const [loadingMessage, setLoadingMessage] = useState('Reading your document...');
+  const [loadingMessage, setLoadingMessage] = useState(
+    'Reading your document...',
+  );
 
   const closeRegistrationFlow = useCallback(() => {
     dispatch(clearCurrentDraft());
@@ -141,12 +164,10 @@ const DocumentUploadScreen = () => {
         NAME_MATCH_THRESHOLD,
   );
 
-  // ---- Capture handlers ----
-
   const openCamera = useCallback(async () => {
     const permission = await Camera.requestCameraPermission();
     if (permission !== 'granted') {
-      setErrorMessage('Camera access is needed to photograph your document');
+      setErrorMessage('Camera access is needed to photograph your document.');
       setScreenState('error');
       return;
     }
@@ -154,23 +175,27 @@ const DocumentUploadScreen = () => {
   }, []);
 
   const takePhoto = useCallback(async () => {
-    if (!cameraRef.current) return;
-    const photo = await cameraRef.current.takePhoto({
-      flash: 'off',
-    });
+    if (!cameraRef.current) {
+      return;
+    }
+
+    const photo = await cameraRef.current.takePhoto({flash: 'off'});
     const uri = Platform.OS === 'android' ? `file://${photo.path}` : photo.path;
-    // Size check
+
     try {
-      const resp = await fetch(uri);
-      const blob = await resp.blob();
+      const response = await fetch(uri);
+      const blob = await response.blob();
       if (blob.size > MAX_FILE_SIZE) {
-        setErrorMessage('Image is too large. Please take a clearer, smaller photo.');
+        setErrorMessage(
+          'Image is too large. Please take a clearer, smaller photo.',
+        );
         setScreenState('error');
         return;
       }
     } catch {
-      // Proceed if size check fails
+      // Continue even if blob size cannot be checked.
     }
+
     setImageUri(uri);
     setImageMime('image/jpeg');
     setScreenState('preview');
@@ -179,27 +204,32 @@ const DocumentUploadScreen = () => {
   const pickFromGallery = useCallback(async () => {
     try {
       const [result] = await pick({type: [types.images]});
+
       if (result.size && result.size > MAX_FILE_SIZE) {
-        setErrorMessage('Image is too large. Please take a clearer, smaller photo.');
+        setErrorMessage(
+          'Image is too large. Please choose a clearer, smaller photo.',
+        );
         setScreenState('error');
         return;
       }
+
       setImageUri(result.uri);
       setImageMime(result.nativeType ?? 'image/jpeg');
       setScreenState('preview');
-    } catch (err: unknown) {
-      if (isErrorWithCode(err) && err.code === errorCodes.OPERATION_CANCELED) {
+    } catch (error: unknown) {
+      if (isErrorWithCode(error) && error.code === errorCodes.OPERATION_CANCELED) {
         return;
       }
+
       setErrorMessage('Failed to pick image. Please try again.');
       setScreenState('error');
     }
   }, []);
 
-  // ---- Upload + OCR ----
-
   const onConfirmAndProcess = useCallback(async () => {
-    if (!imageUri) return;
+    if (!imageUri) {
+      return;
+    }
 
     const netInfo = await NetInfo.fetch();
     if (!netInfo.isConnected) {
@@ -223,34 +253,40 @@ const DocumentUploadScreen = () => {
         headers: {'Content-Type': 'multipart/form-data'},
         timeout: 60_000,
       });
+
       const result = data as OCRResult;
       setOcrResult(result);
       dispatch(setCurrentDraft({ocrResult: result}));
       setScreenState('ocr_result');
-    } catch (err: unknown) {
-      const axiosErr = err as {response?: {status?: number; data?: {error?: string}}};
+    } catch (error: unknown) {
+      const axiosErr = error as {
+        response?: {status?: number; data?: {error?: string}};
+      };
+
       if (!axiosErr.response) {
         setIsOffline(true);
         setScreenState('preview');
         return;
       }
+
       if (axiosErr.response.status === 422) {
         setErrorMessage(
-          'Could not extract required fields. Image quality too low. Please retake photo.',
+          'Could not extract the required fields. Please retake the document in better lighting.',
         );
       } else {
         setErrorMessage(
-          axiosErr.response.data?.error ?? 'Something went wrong. Please try again.',
+          axiosErr.response.data?.error ??
+            'Something went wrong. Please try again.',
         );
       }
       setScreenState('error');
     }
-  }, [imageUri, imageMime, dispatch]);
-
-  // ---- Continue → boundary fetch ----
+  }, [dispatch, imageMime, imageUri]);
 
   const onContinue = useCallback(async () => {
-    if (!ocrResult || ownerNameMismatch) return;
+    if (!ocrResult || ownerNameMismatch) {
+      return;
+    }
 
     const netInfo = await NetInfo.fetch();
     if (!netInfo.isConnected) {
@@ -272,6 +308,7 @@ const DocumentUploadScreen = () => {
         village: ocrResult.village,
         state: ocrResult.state,
       };
+
       if (gps) {
         params.user_lat = gps.lat;
         params.user_lng = gps.lng;
@@ -286,30 +323,35 @@ const DocumentUploadScreen = () => {
           geojson: {geometry: object; properties: object};
           satellite_thumbnail_url: string;
         };
+
         dispatch(
           setCurrentDraft({
-            boundary: successData.geojson.geometry as import('../store/landSlice').GeoJSONPolygon,
-            boundarySource: successData.boundary_source as import('../store/landSlice').BoundarySource,
+            boundary:
+              successData.geojson
+                .geometry as import('../store/landSlice').GeoJSONPolygon,
+            boundarySource:
+              successData.boundary_source as import('../store/landSlice').BoundarySource,
             satelliteThumbnailUrl: successData.satellite_thumbnail_url,
             fetchStatus: 'success',
           }),
         );
         navigation.navigate('BoundaryConfirmScreen');
-      } else if ((data as {status: string}).status === 'manual_required') {
+        return;
+      }
+
+      if ((data as {status: string}).status === 'manual_required') {
         dispatch(setCurrentDraft({fetchStatus: 'manual_required'}));
         navigation.navigate('ManualUploadGuideScreen');
       }
-    } catch (err: unknown) {
-      const axiosErr = err as {response?: unknown};
+    } catch (error: unknown) {
+      const axiosErr = error as {response?: unknown};
       dispatch(setCurrentDraft({fetchStatus: 'error'}));
       if (!axiosErr.response) {
         setIsOffline(true);
       }
       setScreenState('ocr_result');
     }
-  }, [ocrResult, ownerNameMismatch, dispatch, navigation]);
-
-  // ---- Try Again ----
+  }, [dispatch, navigation, ocrResult, ownerNameMismatch]);
 
   const onTryAgain = useCallback(() => {
     dispatch(clearCurrentDraft());
@@ -326,9 +368,6 @@ const DocumentUploadScreen = () => {
     setScreenState('capture');
   }, []);
 
-  // ---- Render states ----
-
-  // Camera view
   if (screenState === 'camera' && device) {
     return (
       <View className="flex-1 bg-black">
@@ -339,36 +378,50 @@ const DocumentUploadScreen = () => {
           isActive={true}
           photo={true}
         />
+        <View className="absolute left-0 right-0 top-0 px-5 pt-12">
+          <TouchableOpacity
+            className="min-h-[48px] min-w-[48px] self-start items-center justify-center rounded-full bg-black/35"
+            onPress={() => setScreenState('capture')}
+            activeOpacity={0.7}>
+            <MaterialCommunityIcons color="#FFFFFF" name="arrow-left" size={22} />
+          </TouchableOpacity>
+          <View className="mt-6 rounded-3xl bg-black/35 px-5 py-4">
+            <Text className="text-lg font-semibold text-white">
+              Capture the full document
+            </Text>
+            <Text className="mt-2 text-sm leading-6 text-white/75">
+              Keep the page flat, readable, and fully inside the frame.
+            </Text>
+          </View>
+        </View>
+
         <View className="absolute bottom-8 left-0 right-0 items-center">
           <TouchableOpacity
-            className="w-16 h-16 rounded-full bg-white items-center justify-center"
+            className="h-16 w-16 items-center justify-center rounded-full bg-white"
             onPress={takePhoto}
             activeOpacity={0.7}>
-            <View className="w-14 h-14 rounded-full border-4 border-[#2F855A]" />
+            <View
+              className="h-14 w-14 rounded-full border-4"
+              style={{borderColor: COLORS.FOREST_GREEN}}
+            />
           </TouchableOpacity>
         </View>
-        <TouchableOpacity
-          className="absolute top-12 left-4 min-h-[48px] min-w-[48px] flex-row items-center justify-center"
-          onPress={() => setScreenState('capture')}
-          activeOpacity={0.7}>
-          <MaterialCommunityIcons color="#FFFFFF" name="arrow-left" size={20} />
-          <Text className="ml-1 text-white text-base font-semibold">Back</Text>
-        </TouchableOpacity>
       </View>
     );
   }
 
-  // Loading
   if (screenState === 'loading') {
     return (
-      <View className="flex-1 bg-[#2D3748] items-center justify-center px-8">
+      <View
+        className="flex-1 items-center justify-center px-8"
+        style={{backgroundColor: COLORS.DARK_SLATE}}>
         <LottieView
           source={require('../../../assets/lottie/spinning_leaf.json')}
           autoPlay
           loop
           style={{width: 120, height: 120}}
         />
-        <Text className="text-white text-lg mt-6 font-medium">
+        <Text className="mt-6 text-center text-lg font-medium text-white">
           {loadingMessage}
         </Text>
       </View>
@@ -377,224 +430,342 @@ const DocumentUploadScreen = () => {
 
   return (
     <ScrollView
-      className="flex-1 bg-[#2D3748]"
-      contentContainerStyle={{flexGrow: 1}}>
-      <View className="flex-row items-center justify-between px-6 pt-6">
-        <TouchableOpacity
-          className="min-h-[48px] min-w-[48px] items-center justify-center"
-          onPress={closeRegistrationFlow}
-          activeOpacity={0.7}>
-          <MaterialCommunityIcons color="#FFFFFF" name="close" size={24} />
-        </TouchableOpacity>
-        <View className="items-center">
-          <Text className="text-lg font-bold text-white">Register Land</Text>
-          <View className="mt-2 flex-row items-center gap-2">
-            <View className="h-2.5 w-2.5 rounded-full bg-white" />
-            <View className="h-2.5 w-2.5 rounded-full bg-white/30" />
-            <View className="h-2.5 w-2.5 rounded-full bg-white/30" />
-          </View>
-        </View>
-        <View className="h-12 w-12" />
-      </View>
+      className="flex-1"
+      contentContainerStyle={{
+        flexGrow: 1,
+        alignItems: 'center',
+        paddingBottom: bottomSpacing,
+      }}
+      style={{backgroundColor: COLORS.OFF_WHITE}}>
+      <View
+        className="w-full"
+        style={{
+          maxWidth: contentMaxWidth,
+          paddingHorizontal: horizontalPadding,
+          paddingTop: topSpacing,
+        }}>
+        <View className="flex-row items-start justify-between">
+          <TouchableOpacity
+            className="min-h-[48px] min-w-[48px] items-center justify-center rounded-full"
+            style={{backgroundColor: COLORS.CARD_WHITE}}
+            onPress={closeRegistrationFlow}
+            activeOpacity={0.7}>
+            <MaterialCommunityIcons color={COLORS.DARK_SLATE} name="close" size={22} />
+          </TouchableOpacity>
 
-      {/* Offline banner */}
-      {isOffline && (
-        <View className="bg-amber-600 px-4 py-2">
-          <Text className="text-white text-sm text-center font-medium">
-            You are offline. Please check your connection.
-          </Text>
-        </View>
-      )}
-
-      {/* CAPTURE STATE */}
-      {screenState === 'capture' && (
-        <View className="flex-1 px-6 pt-6">
-          <Text className="text-white text-2xl font-bold tracking-tight">
-            Upload Land Document
-          </Text>
-          <Text className="text-white/50 text-sm mt-2 tracking-wide">
-            Take a photo of your 7/12 Extract or Record of Rights
-          </Text>
-
-          <View className="mt-10 gap-4">
-            <TouchableOpacity
-              className="bg-[#114D3A] rounded-xl p-6 flex-row items-center min-h-[72px]"
-              onPress={openCamera}
-              activeOpacity={0.7}>
-              <MaterialCommunityIcons color="#FFFFFF" name="camera-outline" size={28} />
-              <View>
-                <Text className="text-white text-base font-semibold">Take Photo</Text>
-                <Text className="text-white/50 text-xs mt-0.5">
-                  Use your camera to capture the document
-                </Text>
-              </View>
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              className="bg-[#114D3A] rounded-xl p-6 flex-row items-center min-h-[72px]"
-              onPress={pickFromGallery}
-              activeOpacity={0.7}>
-              <MaterialCommunityIcons color="#FFFFFF" name="image-outline" size={28} />
-              <View>
-                <Text className="text-white text-base font-semibold">
-                  Upload from Gallery
-                </Text>
-                <Text className="text-white/50 text-xs mt-0.5">
-                  Select a saved image from your device
-                </Text>
-              </View>
-            </TouchableOpacity>
+          <View className="flex-1 px-4">
+            <Text
+              className="text-center text-[13px] font-semibold uppercase tracking-[1.8px]"
+              style={{color: COLORS.FOREST_GREEN}}>
+              Land Registration
+            </Text>
+            <Text
+              className="mt-2 text-center text-[30px] font-bold leading-9"
+              style={{color: COLORS.DARK_SLATE}}>
+              Upload your land document
+            </Text>
+            <Text
+              className="mt-3 text-center text-sm leading-6"
+              style={{color: COLORS.DISABLED_GREY}}>
+              Start with a clear 7/12 extract or record of rights so TerraTrust
+              can verify the parcel correctly.
+            </Text>
+            <View className="mt-5 flex-row items-center justify-center gap-2">
+              <View
+                className="h-2.5 w-8 rounded-full"
+                style={{backgroundColor: COLORS.FOREST_GREEN}}
+              />
+              <View
+                className="h-2.5 w-2.5 rounded-full"
+                style={{backgroundColor: '#CBD5E0'}}
+              />
+              <View
+                className="h-2.5 w-2.5 rounded-full"
+                style={{backgroundColor: '#CBD5E0'}}
+              />
+            </View>
           </View>
 
-          <View className="flex-row items-center mt-8 px-2">
-            <Text className="text-white/40 text-xs">ℹ️</Text>
-            <Text className="text-white/40 text-xs ml-2">
-              Make sure the document text is clearly visible
+          <View className="h-12 w-12" />
+        </View>
+
+        {isOffline ? (
+          <View
+            className="mt-6 rounded-2xl px-4 py-3"
+            style={{backgroundColor: 'rgba(221,107,32,0.12)'}}>
+            <Text
+              className="text-center text-sm font-medium"
+              style={{color: COLORS.WARNING_ORANGE}}>
+              You are offline. Reconnect to upload or verify this document.
             </Text>
           </View>
-        </View>
-      )}
+        ) : null}
 
-      {/* PREVIEW STATE */}
-      {screenState === 'preview' && imageUri && (
-        <View className="flex-1 px-6 pt-6">
-          <Text className="text-white text-2xl font-bold tracking-tight">
-            Upload Land Document
-          </Text>
+        {screenState === 'capture' ? (
+          <View className="pb-6 pt-8">
+            <View className="gap-4">
+              <TouchableOpacity
+                className="rounded-[26px]"
+                onPress={openCamera}
+                activeOpacity={0.82}>
+                <Card className="px-5 py-5">
+                  <View className="flex-row items-center">
+                    <View
+                      className="h-14 w-14 items-center justify-center rounded-2xl"
+                      style={{backgroundColor: 'rgba(47,133,90,0.12)'}}>
+                      <MaterialCommunityIcons
+                        color={COLORS.FOREST_GREEN}
+                        name="camera-outline"
+                        size={28}
+                      />
+                    </View>
+                    <View className="ml-4 flex-1">
+                      <Text
+                        className="text-lg font-semibold"
+                        style={{color: COLORS.DARK_SLATE}}>
+                        Take a fresh photo
+                      </Text>
+                      <Text
+                        className="mt-1 text-sm leading-6"
+                        style={{color: COLORS.DISABLED_GREY}}>
+                        Use the phone camera for the clearest OCR result.
+                      </Text>
+                    </View>
+                    <MaterialCommunityIcons
+                      color={COLORS.FOREST_GREEN}
+                      name="arrow-right"
+                      size={22}
+                    />
+                  </View>
+                </Card>
+              </TouchableOpacity>
 
-          <View className="mt-6 rounded-xl overflow-hidden">
-            <Image
-              source={{uri: imageUri}}
-              className="w-full h-72"
-              resizeMode="cover"
-            />
-            <View className="absolute top-0 left-0 right-0 bg-black/60 px-4 py-3">
-              <Text className="text-white text-xs text-center">
-                Make sure all text is clearly visible and the document is not tilted
-              </Text>
+              <TouchableOpacity
+                className="rounded-[26px]"
+                onPress={pickFromGallery}
+                activeOpacity={0.82}>
+                <Card className="px-5 py-5">
+                  <View className="flex-row items-center">
+                    <View
+                      className="h-14 w-14 items-center justify-center rounded-2xl"
+                      style={{backgroundColor: 'rgba(56,178,172,0.12)'}}>
+                      <MaterialCommunityIcons
+                        color={COLORS.TEAL}
+                        name="image-outline"
+                        size={28}
+                      />
+                    </View>
+                    <View className="ml-4 flex-1">
+                      <Text
+                        className="text-lg font-semibold"
+                        style={{color: COLORS.DARK_SLATE}}>
+                        Choose from gallery
+                      </Text>
+                      <Text
+                        className="mt-1 text-sm leading-6"
+                        style={{color: COLORS.DISABLED_GREY}}>
+                        Upload an existing scan or photo from this device.
+                      </Text>
+                    </View>
+                    <MaterialCommunityIcons
+                      color={COLORS.TEAL}
+                      name="arrow-right"
+                      size={22}
+                    />
+                  </View>
+                </Card>
+              </TouchableOpacity>
             </View>
-          </View>
 
-          <View className="mt-6 gap-3">
-            <TouchableOpacity
-              className="bg-[#EC5B13] rounded-xl h-12 items-center justify-center min-h-[48px]"
-              onPress={onConfirmAndProcess}
-              activeOpacity={0.7}>
-              <Text className="text-white font-semibold text-base">
-                Use This Photo
+            <Card className="mt-6 px-5 py-5" style={{backgroundColor: '#F2FBF7'}}>
+              <Text
+                className="text-sm font-semibold uppercase tracking-[1.2px]"
+                style={{color: COLORS.FOREST_GREEN}}>
+                Helpful tips
               </Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              className="rounded-xl h-12 items-center justify-center border border-white/20 min-h-[48px]"
-              onPress={onRetake}
-              activeOpacity={0.7}>
-              <Text className="text-white/80 font-semibold text-base">Retake</Text>
-            </TouchableOpacity>
+              <Text
+                className="mt-3 text-sm leading-6"
+                style={{color: COLORS.DARK_SLATE}}>
+                Keep the whole page inside the frame, avoid shadows, and make sure
+                the owner name and survey number are easy to read.
+              </Text>
+              <Text className="mt-3 text-sm" style={{color: COLORS.DISABLED_GREY}}>
+                Supported formats: JPG, PNG up to 10 MB
+              </Text>
+            </Card>
           </View>
-        </View>
-      )}
+        ) : null}
 
-      {/* OCR RESULT STATE */}
-      {screenState === 'ocr_result' && ocrResult && (
-        <View className="flex-1 px-6 pt-6">
-          <Text className="text-white text-2xl font-bold tracking-tight">
-            Document Details
-          </Text>
-
-          <View className="mt-6 bg-[#114D3A] rounded-xl p-5 gap-4">
-            {[
-              {label: 'Survey Number', value: ocrResult.survey_number},
-              {label: 'Owner Name', value: ocrResult.owner_name},
-              {label: 'Village', value: ocrResult.village},
-              {label: 'Taluka', value: ocrResult.taluka},
-              {label: 'District', value: ocrResult.district},
-            ].map(field => (
-              <View key={field.label}>
-                <Text className="text-white/50 text-xs uppercase tracking-widest">
-                  {field.label}
+        {screenState === 'preview' && imageUri ? (
+          <View className="pb-6 pt-8">
+            <Card className="overflow-hidden p-0">
+              <View className="px-5 pb-4 pt-5">
+                <Text
+                  className="text-lg font-semibold"
+                  style={{color: COLORS.DARK_SLATE}}>
+                  Review before continuing
                 </Text>
-                <Text className="text-white text-base font-medium mt-0.5">
-                  {field.value}
+                <Text
+                  className="mt-2 text-sm leading-6"
+                  style={{color: COLORS.DISABLED_GREY}}>
+                  Make sure the document is straight, sharp, and fully visible.
                 </Text>
               </View>
-            ))}
-          </View>
+              <Image
+                source={{uri: imageUri}}
+                className="h-80 w-full"
+                resizeMode="cover"
+              />
+            </Card>
 
-          {ownerNameMismatch ? (
-            <View className="mt-4 rounded-xl bg-red-900/40 p-4">
-              <Text className="text-sm font-semibold text-[#92400E]">
-                Owner name mismatch detected.
-              </Text>
-              <Text className="mt-2 text-sm leading-6 text-red-200">
-                This document lists {ocrResult.owner_name}, but your verified TerraTrust profile is {registeredOwnerName}. Please retake the document with the correct owner name before continuing.
-              </Text>
+            <View className="mt-5 gap-3">
+              <Button
+                label="Use this photo"
+                onPress={() => {
+                  void onConfirmAndProcess();
+                }}
+              />
+              <Button
+                label="Retake or choose again"
+                onPress={onRetake}
+                variant="secondary"
+              />
             </View>
-          ) : null}
+          </View>
+        ) : null}
 
-          <View className="mt-6 gap-3 pb-6">
-            {!ownerNameMismatch ? (
-              <TouchableOpacity
-                className="rounded-xl h-12 items-center justify-center flex-row min-h-[48px] bg-[#2F855A]"
-                onPress={onContinue}
-                activeOpacity={0.7}>
-                <Text className="text-white font-semibold text-base">
-                  This looks correct — Continue
+        {screenState === 'ocr_result' && ocrResult ? (
+          <View className="pb-6 pt-8">
+            <Card className="px-5 py-5">
+              <Text
+                className="text-lg font-semibold"
+                style={{color: COLORS.DARK_SLATE}}>
+                Document details
+              </Text>
+              <Text
+                className="mt-2 text-sm leading-6"
+                style={{color: COLORS.DISABLED_GREY}}>
+                Confirm that the extracted fields match your land record before
+                TerraTrust fetches the boundary.
+              </Text>
+
+              <View className="mt-5 gap-3">
+                {[
+                  {label: 'Survey Number', value: ocrResult.survey_number},
+                  {label: 'Owner Name', value: ocrResult.owner_name},
+                  {label: 'Village', value: ocrResult.village},
+                  {label: 'Taluka', value: ocrResult.taluka},
+                  {label: 'District', value: ocrResult.district},
+                ].map(field => (
+                  <View
+                    key={field.label}
+                    className="rounded-2xl px-4 py-3"
+                    style={{backgroundColor: COLORS.OFF_WHITE}}>
+                    <Text
+                      className="text-[11px] font-semibold uppercase tracking-[1.4px]"
+                      style={{color: COLORS.DISABLED_GREY}}>
+                      {field.label}
+                    </Text>
+                    <Text
+                      className="mt-1 text-base font-medium"
+                      style={{color: COLORS.DARK_SLATE}}>
+                      {field.value}
+                    </Text>
+                  </View>
+                ))}
+              </View>
+            </Card>
+
+            {ownerNameMismatch ? (
+              <Card
+                className="mt-4 px-5 py-5"
+                style={{backgroundColor: '#FFF5F5', borderColor: '#FED7D7'}}>
+                <Text
+                  className="text-base font-semibold"
+                  style={{color: COLORS.ERROR_RED}}>
+                  Owner name mismatch detected
                 </Text>
-                <MaterialCommunityIcons
-                  color="#FFFFFF"
-                  name="arrow-right"
-                  size={18}
+                <Text
+                  className="mt-2 text-sm leading-6"
+                  style={{color: COLORS.DARK_SLATE}}>
+                  This document lists {ocrResult.owner_name}, but your verified
+                  TerraTrust profile is {registeredOwnerName}. Use the land
+                  document where you are listed as the owner before continuing.
+                </Text>
+              </Card>
+            ) : null}
+
+            <View className="mt-5 gap-3">
+              {!ownerNameMismatch ? (
+                <Button
+                  label="Continue to boundary check"
+                  onPress={() => {
+                    void onContinue();
+                  }}
                 />
+              ) : null}
+              <Button
+                label="Try another document"
+                onPress={onTryAgain}
+                variant="secondary"
+              />
+            </View>
+          </View>
+        ) : null}
+
+        {screenState === 'error' ? (
+          <View className="pb-6 pt-8">
+            <Card
+              className="px-5 py-5"
+              style={{backgroundColor: '#FFF5F5', borderColor: '#FED7D7'}}>
+              <View className="flex-row items-center">
+                <View
+                  className="h-12 w-12 items-center justify-center rounded-2xl"
+                  style={{backgroundColor: 'rgba(229,62,62,0.12)'}}>
+                  <MaterialCommunityIcons
+                    color={COLORS.ERROR_RED}
+                    name="alert-circle-outline"
+                    size={24}
+                  />
+                </View>
+                <View className="ml-4 flex-1">
+                  <Text
+                    className="text-lg font-semibold"
+                    style={{color: COLORS.ERROR_RED}}>
+                    Extraction failed
+                  </Text>
+                  <Text
+                    className="mt-1 text-sm leading-6"
+                    style={{color: COLORS.DARK_SLATE}}>
+                    {errorMessage ??
+                      'Could not extract the required fields from this document yet.'}
+                  </Text>
+                </View>
+              </View>
+            </Card>
+
+            {errorMessage?.includes('Camera access') ? (
+              <TouchableOpacity
+                className="mt-4 self-start"
+                onPress={() => Linking.openSettings()}
+                activeOpacity={0.7}>
+                <Text className="font-semibold" style={{color: COLORS.TEAL}}>
+                  Open phone settings
+                </Text>
               </TouchableOpacity>
             ) : null}
-            <TouchableOpacity
-              className="rounded-xl h-12 items-center justify-center border border-white/20 min-h-[48px]"
-              onPress={onTryAgain}
-              activeOpacity={0.7}>
-              <Text className="text-white/80 font-semibold text-base">
-                Try Again
-              </Text>
-            </TouchableOpacity>
+
+            <View className="mt-5 gap-3">
+              <Button label="Retake document" onPress={onRetake} />
+              <Button
+                label="Back to upload options"
+                onPress={onTryAgain}
+                variant="secondary"
+              />
+            </View>
           </View>
-        </View>
-      )}
-
-      {/* ERROR STATE */}
-      {screenState === 'error' && (
-        <View className="flex-1 px-6 pt-6">
-          <Text className="text-white text-2xl font-bold tracking-tight">
-            Upload Land Document
-          </Text>
-
-          <View className="mt-8 bg-red-900/40 rounded-xl p-5">
-            <Text className="text-red-300 text-base font-semibold mb-2">
-              Extraction Failed
-            </Text>
-            <Text className="text-white/80 text-sm">
-              {errorMessage ??
-                'Could not extract required fields. Image quality too low. Please retake photo.'}
-            </Text>
-          </View>
-
-          {errorMessage?.includes('Camera access') && (
-            <TouchableOpacity
-              className="mt-4 min-h-[48px] justify-center"
-              onPress={() => Linking.openSettings()}
-              activeOpacity={0.7}>
-              <Text className="text-[#EC5B13] text-sm font-semibold underline">
-                Go to Settings
-              </Text>
-            </TouchableOpacity>
-          )}
-
-          <TouchableOpacity
-            className="mt-6 rounded-xl h-12 items-center justify-center border border-white/20 min-h-[48px]"
-            onPress={onRetake}
-            activeOpacity={0.7}>
-            <Text className="text-white/80 font-semibold text-base">Retake</Text>
-          </TouchableOpacity>
-        </View>
-      )}
+        ) : null}
+      </View>
     </ScrollView>
   );
 };

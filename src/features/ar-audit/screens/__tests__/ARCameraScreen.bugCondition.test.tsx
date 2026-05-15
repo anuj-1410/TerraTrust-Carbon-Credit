@@ -29,9 +29,6 @@ const mockARModule = {
 
 NativeModules.ARModule = mockARModule;
 
-// Import after mocking
-import {measureTreeDiameter} from '../../../../services/ar-bridge';
-
 type VisionCameraState = 'starting' | 'active' | 'inactive';
 
 /**
@@ -186,7 +183,7 @@ class CameraStateSimulator {
  */
 async function simulateARMeasurementLaunch(
   cameraSimulator: CameraStateSimulator,
-  tier: 1 | 2,
+  _tier: 1 | 2,
 ): Promise<{
   arSessionCreated: boolean;
   cameraAccessError: boolean;
@@ -270,7 +267,7 @@ describe('AR Measurement Camera Freeze - Bug Condition Exploration', () => {
           cameraDeviceReleaseDelayMs: fc.integer({min: 100, max: 300}),
           measurementAction: fc.constantFrom('measureDiameter' as const, 'measureHeight' as const),
         }),
-        async ({tier, cameraTransitionDelayMs, cameraDeviceReleaseDelayMs, measurementAction}) => {
+        async ({tier, cameraTransitionDelayMs, cameraDeviceReleaseDelayMs, measurementAction: _measurementAction}) => {
           // Setup: Create camera simulator with realistic transition delays
           const cameraSimulator = new CameraStateSimulator(
             cameraTransitionDelayMs,

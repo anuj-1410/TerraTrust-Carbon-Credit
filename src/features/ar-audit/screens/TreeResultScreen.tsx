@@ -1,17 +1,22 @@
 import React, {useCallback, useEffect, useRef, useState} from 'react';
-import {View, Text, TouchableOpacity, ScrollView, Image} from 'react-native';
+import {Image, ScrollView, Text, TouchableOpacity, View} from 'react-native';
 import {CommonActions, useNavigation, useRoute} from '@react-navigation/native';
 import type {NativeStackNavigationProp} from '@react-navigation/native-stack';
 import type {RouteProp} from '@react-navigation/native';
 import LottieView from 'lottie-react-native';
 import ReactNativeHapticFeedback from 'react-native-haptic-feedback';
 import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
-import type {RootStackParamList} from '../../../types/navigation';
+
 import Badge from '../../../common/components/Badge';
+import Button from '../../../common/components/Button';
 import BottomSheet from '../../../common/components/BottomSheet';
-import {useAppDispatch, useAppSelector} from '../../../store/hooks';
-import {addScannedTree, setCurrentZoneIndex} from '../store/auditSlice';
+import Card from '../../../common/components/Card';
+import {COLORS} from '../../../common/constants/colors';
+import {useResponsiveScreen} from '../../../common/hooks/useResponsiveScreen';
 import {deleteFile} from '../../../common/utils/hash';
+import {useAppDispatch, useAppSelector} from '../../../store/hooks';
+import type {RootStackParamList} from '../../../types/navigation';
+import {addScannedTree, setCurrentZoneIndex} from '../store/auditSlice';
 
 type NavProp = NativeStackNavigationProp<RootStackParamList, 'TreeResultScreen'>;
 type RouteType = RouteProp<RootStackParamList, 'TreeResultScreen'>;
@@ -29,20 +34,22 @@ function getHeightSourceLabel(tree: RouteType['params']['pendingTree']): string 
     tree.height_capture_method ?? (tree.ar_height_m !== null ? 'AR' : 'GEDI');
 
   if (heightCaptureMethod === 'GEDI' || tree.ar_height_m === null) {
-    return 'From GEDI Satellite';
+    return 'GEDI satellite estimate';
   }
 
   if (heightCaptureMethod === 'MANUAL') {
-    return `Manual Height: ${tree.ar_height_m.toFixed(1)} m`;
+    return `Manual height: ${tree.ar_height_m.toFixed(1)} m`;
   }
 
-  return `AR Measured: ${tree.ar_height_m.toFixed(1)} m`;
+  return `AR measured height: ${tree.ar_height_m.toFixed(1)} m`;
 }
 
 const TreeResultScreen = () => {
   const navigation = useNavigation<NavProp>();
   const route = useRoute<RouteType>();
   const dispatch = useAppDispatch();
+  const {horizontalPadding, topSpacing, bottomSpacing, contentMaxWidth} =
+    useResponsiveScreen();
   const audit = useAppSelector(state => state.audit);
   const {scannedTrees, zones, currentZoneIndex, minTreesRequired} = audit;
   const [hasSavedTree, setHasSavedTree] = useState(false);
@@ -54,9 +61,8 @@ const TreeResultScreen = () => {
   const nextZone = zones[currentZoneIndex + 1] ?? null;
   const zoneName = currentZone?.label ?? `Zone ${currentZoneIndex + 1}`;
 
-  const treesInZone = scannedTrees.filter(
-    t => t.zone_id === currentZone?.zone_id,
-  ).length + 1; // +1 for pending tree
+  const treesInZone =
+    scannedTrees.filter(item => item.zone_id === currentZone?.zone_id).length + 1;
   const minimumTreesPerZone = Math.max(
     3,
     Math.floor(minTreesRequired / Math.max(zones.length, 1)),
@@ -66,21 +72,15 @@ const TreeResultScreen = () => {
   const isLastZone = currentZoneIndex >= zones.length - 1;
 
   const precisionBadge = (() => {
-    if (!tree) return {label: '', variant: 'manual' as const};
-    if (tree.measurement_tier === 1)
-      return {
-        label: '◉ High Precision',
-        variant: 'high-precision' as const,
-      };
-    if (tree.measurement_tier === 2)
-      return {
-        label: '◉ Standard Precision',
-        variant: 'standard-precision' as const,
-      };
-    return {
-      label: '◎ Manual Measurement',
-      variant: 'manual' as const,
-    };
+    if (tree.measurement_tier === 1) {
+      return {label: 'High Precision', variant: 'high-precision' as const};
+    }
+
+    if (tree.measurement_tier === 2) {
+      return {label: 'Standard Precision', variant: 'standard-precision' as const};
+    }
+
+    return {label: 'Manual Measurement', variant: 'manual' as const};
   })();
 
   const navigateBackToCamera = useCallback(() => {
@@ -100,7 +100,9 @@ const TreeResultScreen = () => {
   }, [currentZone, currentZoneIndex, navigation, tree.zone_id]);
 
   const handleConfirmSave = useCallback(() => {
-    if (!tree || hasSavedTree) return;
+    if (hasSavedTree) {
+      return;
+    }
 
     dispatch(addScannedTree(tree));
     setHasSavedTree(true);
@@ -114,13 +116,7 @@ const TreeResultScreen = () => {
 
       navigateBackToCamera();
     }, 1500);
-  }, [
-    zoneMinReached,
-    dispatch,
-    hasSavedTree,
-    navigateBackToCamera,
-    tree,
-  ]);
+  }, [dispatch, hasSavedTree, navigateBackToCamera, tree, zoneMinReached]);
 
   useEffect(() => {
     return () => {
@@ -176,195 +172,219 @@ const TreeResultScreen = () => {
     navigation,
   ]);
 
-  if (!tree) {
-    return (
-      <View className="flex-1 items-center justify-center bg-[#F8FAF8]">
-        <Text className="text-[#6B7280]">No tree data available</Text>
-      </View>
-    );
-  }
-
   return (
-    <View className="flex-1 bg-[#F8FAF8]">
-      {/* Header */}
-      <View className="bg-[#1B4332] pt-12 pb-5 px-5 flex-row items-center">
-        <TouchableOpacity
-          onPress={handleRescan}
-          className="w-12 h-12 items-center justify-center rounded-full"
-          accessibilityLabel="Go back">
-          <MaterialCommunityIcons color="#FFFFFF" name="arrow-left" size={24} />
-        </TouchableOpacity>
-        <Text className="flex-1 text-white text-xl font-bold text-center mr-12">
-          Tree Scan Result
-        </Text>
-      </View>
-
+    <View className="flex-1" style={{backgroundColor: COLORS.OFF_WHITE}}>
       <ScrollView
-        className="flex-1 px-5"
-        contentContainerStyle={{paddingBottom: 32}}>
-        {/* Result Card */}
-        <View className="mt-5 bg-white rounded-2xl p-5 shadow-sm">
-          {/* Species */}
-          <View className="flex-row items-center justify-between mb-4">
-            <View className="flex-row items-center">
-              <MaterialCommunityIcons color="#2D6A4F" name="sprout" size={18} />
-              <Text className="text-[#191C1B] text-xl font-bold">
+        className="flex-1"
+        contentContainerStyle={{
+          alignSelf: 'center',
+          width: '100%',
+          maxWidth: contentMaxWidth,
+          paddingHorizontal: horizontalPadding,
+          paddingTop: topSpacing,
+          paddingBottom: bottomSpacing,
+        }}>
+        <View className="flex-row items-center">
+          <TouchableOpacity
+            onPress={handleRescan}
+            className="min-h-[48px] min-w-[48px] items-center justify-center rounded-full"
+            style={{backgroundColor: COLORS.CARD_WHITE}}
+            accessibilityLabel="Go back">
+            <MaterialCommunityIcons
+              color={COLORS.DARK_SLATE}
+              name="arrow-left"
+              size={22}
+            />
+          </TouchableOpacity>
+          <View className="ml-3 flex-1">
+            <Text
+              className="text-[13px] font-semibold uppercase tracking-[1.6px]"
+              style={{color: COLORS.FOREST_GREEN}}>
+              Tree Review
+            </Text>
+            <Text className="mt-1 text-3xl font-bold" style={{color: COLORS.DARK_SLATE}}>
+              Review this tree scan
+            </Text>
+          </View>
+        </View>
+
+        <Card className="mt-6 px-5 py-5">
+          <View className="flex-row items-start justify-between">
+            <View className="flex-1 pr-3">
+              <Text
+                className="text-[13px] font-semibold uppercase tracking-[1.4px]"
+                style={{color: COLORS.FOREST_GREEN}}>
+                Species
+              </Text>
+              <Text className="mt-2 text-2xl font-bold" style={{color: COLORS.DARK_SLATE}}>
                 {tree.species}
               </Text>
             </View>
-            <Badge label="Verified" variant="verified" />
+            <Badge label={precisionBadge.label} variant={precisionBadge.variant} />
           </View>
 
-          <View className="h-px bg-[#F2F4F2]" />
+          <View className="mt-5 gap-3">
+            <View
+              className="rounded-2xl px-4 py-3"
+              style={{backgroundColor: COLORS.OFF_WHITE}}>
+              <Text
+                className="text-[11px] font-semibold uppercase tracking-[1.4px]"
+                style={{color: COLORS.DISABLED_GREY}}>
+                Diameter
+              </Text>
+              <Text
+                className="mt-1 text-3xl font-bold"
+                style={{color: COLORS.DARK_SLATE, fontFamily: 'RobotoMono-Bold'}}>
+                {tree.dbh_cm.toFixed(1)} cm
+              </Text>
+            </View>
 
-          {/* Diameter */}
-          <View className="py-4">
-            <Text className="text-[#6B7280] text-sm mb-1">
-              Trunk Diameter (DBH)
-            </Text>
-            <Text
-              className="text-[#191C1B] text-4xl font-bold"
-              style={{fontFamily: 'RobotoMono-Bold'}}>
-              {tree.dbh_cm.toFixed(1)} cm
-            </Text>
-            <View className="mt-2 self-start">
-              <Badge label={precisionBadge.label} variant={precisionBadge.variant} />
+            <View
+              className="rounded-2xl px-4 py-3"
+              style={{backgroundColor: COLORS.OFF_WHITE}}>
+              <Text
+                className="text-[11px] font-semibold uppercase tracking-[1.4px]"
+                style={{color: COLORS.DISABLED_GREY}}>
+                Height source
+              </Text>
+              <Text className="mt-1 text-base font-semibold" style={{color: COLORS.DARK_SLATE}}>
+                {getHeightSourceLabel(tree)}
+              </Text>
+            </View>
+
+            <View
+              className="rounded-2xl px-4 py-3"
+              style={{backgroundColor: COLORS.OFF_WHITE}}>
+              <Text
+                className="text-[11px] font-semibold uppercase tracking-[1.4px]"
+                style={{color: COLORS.DISABLED_GREY}}>
+                GPS location
+              </Text>
+              <Text
+                className="mt-1 text-base font-semibold"
+                style={{color: COLORS.DARK_SLATE, fontFamily: 'RobotoMono-Regular'}}>
+                {formatLatitude(tree.gps_lat)}, {formatLongitude(tree.gps_lng)}
+              </Text>
+              <Text className="mt-1 text-sm" style={{color: COLORS.DISABLED_GREY}}>
+                Accuracy ± {tree.gps_accuracy_m.toFixed(1)} m
+              </Text>
             </View>
           </View>
+        </Card>
 
-          <View className="h-px bg-[#F2F4F2]" />
-
-          {/* Height */}
-          <View className="py-4">
-            <Text className="text-[#6B7280] text-sm mb-1">Height Source</Text>
-            <Text className="text-[#191C1B] text-base">
-              {getHeightSourceLabel(tree)}
+        <Card className="mt-4 overflow-hidden p-0">
+          <View className="px-5 pb-4 pt-5">
+            <Text className="text-lg font-semibold" style={{color: COLORS.DARK_SLATE}}>
+              Evidence photo
+            </Text>
+            <Text className="mt-2 text-sm leading-6" style={{color: COLORS.DISABLED_GREY}}>
+              This image hash is stored with the tree record for audit traceability.
             </Text>
           </View>
 
-          <View className="h-px bg-[#F2F4F2]" />
+          {tree.evidence_photo_uri ? (
+            <Image
+              source={{uri: tree.evidence_photo_uri}}
+              className="h-44 w-full bg-[#E5E7EB]"
+              resizeMode="cover"
+            />
+          ) : (
+            <View className="h-44 items-center justify-center bg-[#E5E7EB]">
+              <Text style={{color: COLORS.DISABLED_GREY}}>No photo captured</Text>
+            </View>
+          )}
 
-          {/* GPS */}
-          <View className="py-4">
-            <Text className="text-[#6B7280] text-sm mb-1">GPS Location</Text>
-            <Text
-              className="text-[#191C1B] text-sm"
-              style={{fontFamily: 'RobotoMono-Regular'}}>
-              {formatLatitude(tree.gps_lat)}, {formatLongitude(tree.gps_lng)}
-            </Text>
-            <Text className="text-[#9CA3AF] text-xs mt-0.5">
-              ± {tree.gps_accuracy_m.toFixed(1)}m
-            </Text>
-          </View>
-
-          <View className="h-px bg-[#F2F4F2]" />
-
-          {/* Evidence photo */}
-          <View className="py-4">
-            <Text className="text-[#6B7280] text-sm mb-2">Evidence Photo</Text>
-            {tree.evidence_photo_uri ? (
-              <Image
-                source={{
-                  uri: tree.evidence_photo_uri,
-                }}
-                className="w-full h-32 rounded-xl bg-[#E5E7EB]"
-                resizeMode="cover"
-              />
-            ) : (
-              <View className="w-full h-32 rounded-xl bg-[#E5E7EB] items-center justify-center">
-                <Text className="text-[#9CA3AF]">No photo</Text>
-              </View>
-            )}
-            {tree.evidence_photo_hash && (
+          {tree.evidence_photo_hash ? (
+            <View className="px-5 py-4">
               <Text
-                className="text-[#9CA3AF] text-[10px] mt-2"
-                style={{fontFamily: 'RobotoMono-Regular'}}>
-                SHA-256: {tree.evidence_photo_hash.substring(0, 16)}...
+                className="text-xs"
+                style={{color: COLORS.DISABLED_GREY, fontFamily: 'RobotoMono-Regular'}}>
+                SHA-256: {tree.evidence_photo_hash.substring(0, 24)}...
               </Text>
-            )}
-          </View>
-        </View>
+            </View>
+          ) : null}
+        </Card>
 
-        {/* Zone progress */}
-        <View className="mt-4 items-center">
-          <Text className="text-[#6B7280] text-sm">
-            {currentZone?.label ?? `Zone ${currentZoneIndex + 1}`}:{' '}
-            {treesInZone} of {MAX_TREES_PER_ZONE} trees scanned
+        <Card className="mt-4 px-5 py-5" style={{backgroundColor: '#F2FBF7'}}>
+          <Text
+            className="text-[13px] font-semibold uppercase tracking-[1.4px]"
+            style={{color: COLORS.FOREST_GREEN}}>
+            Zone progress
           </Text>
-          <Text className="mt-1 text-center text-xs text-[#9CA3AF]">
-            Minimum {minimumTreesPerZone} trees required in each zone.
+          <Text className="mt-2 text-lg font-semibold" style={{color: COLORS.DARK_SLATE}}>
+            {zoneName}: {treesInZone} of {MAX_TREES_PER_ZONE} trees
           </Text>
-          <View className="flex-row mt-2">
-            {Array.from({length: MAX_TREES_PER_ZONE}).map((_, i) => (
+          <Text className="mt-2 text-sm leading-6" style={{color: COLORS.DISABLED_GREY}}>
+            Minimum {minimumTreesPerZone} trees are required in each zone before
+            submission.
+          </Text>
+          <View className="mt-4 flex-row">
+            {Array.from({length: MAX_TREES_PER_ZONE}).map((_, index) => (
               <View
-                key={i}
-                className={`w-3 h-3 rounded-full mr-1.5 ${
-                  i < treesInZone ? 'bg-[#2D6A4F]' : 'bg-[#E5E7EB]'
-                }`}
+                key={index}
+                className="mr-2 h-3 w-3 rounded-full"
+                style={{
+                  backgroundColor:
+                    index < treesInZone ? COLORS.FOREST_GREEN : '#E2E8F0',
+                }}
               />
             ))}
           </View>
-        </View>
+        </Card>
       </ScrollView>
 
-      {/* Bottom buttons */}
-      <View className="px-5 pb-8 pt-3 bg-[#F8FAF8]">
-        <TouchableOpacity
-          onPress={handleConfirmSave}
-          disabled={hasSavedTree}
-          className="h-14 rounded-xl items-center justify-center flex-row"
-          style={{backgroundColor: hasSavedTree ? '#9CA3AF' : '#2D6A4F'}}
-          activeOpacity={0.7}>
-          <Text className="text-white text-base font-bold">
-            {hasSavedTree ? 'Tree Saved' : 'Confirm and Save Tree'}
-          </Text>
-          <MaterialCommunityIcons color="#FFFFFF" name="check" size={18} />
-        </TouchableOpacity>
-        <TouchableOpacity
-          onPress={handleRescan}
-          disabled={hasSavedTree}
-          className="mt-3 h-12 rounded-xl border-2 border-[#D1D5DB] items-center justify-center flex-row"
-          style={{opacity: hasSavedTree ? 0.5 : 1}}
-          activeOpacity={0.7}>
-          <Text className="text-[#6B7280] text-base font-semibold">
-            Rescan This Tree
-          </Text>
-        </TouchableOpacity>
+      <View
+        className="border-t px-4 pt-4"
+        style={{
+          borderTopColor: '#E2E8F0',
+          backgroundColor: COLORS.OFF_WHITE,
+          paddingBottom: bottomSpacing,
+        }}>
+        <View className="self-center w-full" style={{maxWidth: contentMaxWidth}}>
+          <Button
+            label={hasSavedTree ? 'Tree Saved' : 'Confirm and save tree'}
+            onPress={handleConfirmSave}
+            disabled={hasSavedTree}
+          />
+          <Button
+            className="mt-3"
+            label="Rescan this tree"
+            onPress={handleRescan}
+            disabled={hasSavedTree}
+            variant="secondary"
+          />
+        </View>
       </View>
 
       <BottomSheet visible={showZoneCompletionSheet} onClose={() => undefined}>
-        <Text className="text-[#191C1B] text-xl font-bold text-center">
-          {isLastZone ? 'All zones done!' : `${zoneName} complete!`}
+        <Text className="text-xl font-bold text-center" style={{color: COLORS.DARK_SLATE}}>
+          {isLastZone ? 'All zones complete' : `${zoneName} complete`}
         </Text>
-        <Text className="mt-2 text-center text-sm text-[#6B7280]">
+        <Text className="mt-3 text-center text-sm leading-6" style={{color: COLORS.DISABLED_GREY}}>
           {isLastZone
-            ? `${treesInZone} trees scanned in ${zoneName}. Review your audit and submit it for satellite verification.`
+            ? `${treesInZone} trees were scanned in ${zoneName}. Review the full audit and submit it for satellite verification.`
             : canScanMoreTrees
-              ? `${treesInZone} trees scanned in ${zoneName}. You can scan ${MAX_TREES_PER_ZONE - treesInZone} more tree${MAX_TREES_PER_ZONE - treesInZone === 1 ? '' : 's'} in this zone or continue to ${nextZone?.label ?? `Zone ${currentZoneIndex + 2}`}.`
+              ? `${treesInZone} trees were scanned in ${zoneName}. You can scan ${MAX_TREES_PER_ZONE - treesInZone} more tree${MAX_TREES_PER_ZONE - treesInZone === 1 ? '' : 's'} here or continue to ${nextZone?.label ?? `Zone ${currentZoneIndex + 2}`}.`
               : `You have reached the maximum of ${MAX_TREES_PER_ZONE} trees for ${zoneName}. Continue to ${nextZone?.label ?? `Zone ${currentZoneIndex + 2}`}.`}
         </Text>
 
-        {canScanMoreTrees && (
-          <TouchableOpacity
+        {canScanMoreTrees ? (
+          <Button
+            className="mt-6"
+            label="Scan more trees in this zone"
             onPress={handleScanMoreTrees}
-            className="mt-6 h-12 rounded-xl border-2 border-[#D1D5DB] items-center justify-center"
-            activeOpacity={0.7}>
-            <Text className="text-[#6B7280] text-base font-semibold">
-              Scan more trees in this zone
-            </Text>
-          </TouchableOpacity>
-        )}
-
-        <TouchableOpacity
+            variant="secondary"
+          />
+        ) : null}
+        <Button
+          className="mt-3"
+          label={
+            isLastZone
+              ? 'Review and submit'
+              : `Go to ${nextZone?.label ?? `Zone ${currentZoneIndex + 2}`}`
+          }
           onPress={handleContinue}
-          className="mt-3 h-14 rounded-xl bg-[#2D6A4F] items-center justify-center"
-          activeOpacity={0.7}>
-          <Text className="text-white text-base font-bold">
-            {isLastZone
-              ? 'Review and Submit'
-              : `Go to ${nextZone?.label ?? `Zone ${currentZoneIndex + 2}`} ->`}
-          </Text>
-        </TouchableOpacity>
+        />
       </BottomSheet>
 
       {hasSavedTree ? (
@@ -376,7 +396,7 @@ const TreeResultScreen = () => {
             style={{width: 180, height: 180}}
           />
           <Text className="mt-4 text-xl font-bold text-white">
-            Tree Scanned Successfully!
+            Tree saved successfully
           </Text>
         </View>
       ) : null}
