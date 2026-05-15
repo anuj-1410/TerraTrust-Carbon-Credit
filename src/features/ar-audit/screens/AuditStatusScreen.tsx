@@ -18,7 +18,6 @@ import {COLORS} from '../../../common/constants/colors';
 import {useAppDispatch, useAppSelector} from '../../../store/hooks';
 import {
   cleanupAuditSession,
-  setAuditResult,
   setLastPolledAt,
   setUploadStatus,
   type AuditResultResponse,
@@ -31,6 +30,7 @@ import {
 } from '../utils/auditStatus';
 import type {RootStackParamList} from '../../../types/navigation';
 import {moveAppToBackground} from '../../../services/ar-bridge';
+import {useResponsiveScreen} from '../../../common/hooks/useResponsiveScreen';
 
 type Nav = NativeStackNavigationProp<RootStackParamList, 'AuditStatusScreen'>;
 type RouteType = RouteProp<RootStackParamList, 'AuditStatusScreen'>;
@@ -53,6 +53,8 @@ const AuditStatusScreen = () => {
   );
   const [statusHint, setStatusHint] = useState('');
   const isInProgress = isAuditResultProcessingStatus(currentResult.status);
+  const {horizontalPadding, topSpacing, bottomSpacing, contentMaxWidth} =
+    useResponsiveScreen();
 
   const goHome = useCallback(
     (options?: {cleanupAudit?: boolean}) => {
@@ -222,7 +224,15 @@ const AuditStatusScreen = () => {
 
   return (
     <View className="flex-1" style={{backgroundColor: COLORS.OFF_WHITE}}>
-      <ScrollView contentContainerStyle={{padding: 24, paddingTop: 56, paddingBottom: 32}}>
+      <ScrollView
+        contentContainerStyle={{
+          alignSelf: 'center',
+          width: '100%',
+          maxWidth: contentMaxWidth,
+          paddingHorizontal: horizontalPadding,
+          paddingTop: topSpacing,
+          paddingBottom: bottomSpacing,
+        }}>
         <Text className="text-center text-2xl font-bold" style={{color: COLORS.DARK_SLATE}}>
           Processing Your Credits
         </Text>
@@ -262,7 +272,9 @@ const AuditStatusScreen = () => {
                 {statusHint}
               </Text>
             ) : null}
-            <TouchableOpacity className="mt-8 min-h-[48px] items-center justify-center" onPress={goHome}>
+            <TouchableOpacity
+              className="mt-8 min-h-[48px] items-center justify-center"
+              onPress={() => goHome()}>
               <Text style={{color: COLORS.DISABLED_GREY}}>Go to Home</Text>
             </TouchableOpacity>
           </View>
@@ -345,7 +357,7 @@ const AuditStatusScreen = () => {
               <Text style={{color: COLORS.TEAL}}>Contact Support</Text>
             </TouchableOpacity>
             <View className="mt-4 w-full">
-              <Button label="Go to Home" onPress={goHome} />
+              <Button label="Go to Home" onPress={() => goHome()} />
             </View>
           </View>
         ) : null}

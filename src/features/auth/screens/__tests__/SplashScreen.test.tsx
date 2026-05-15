@@ -33,23 +33,16 @@ jest.mock('@react-navigation/native', () => {
 
 // Mock firebase helpers
 const mockGetCurrentFirebaseUser = jest.fn();
-const mockGetFreshFirebaseIdToken = jest.fn();
+const mockSignOutFirebase = jest.fn();
 jest.mock('../../../../services/firebase', () => ({
   getCurrentFirebaseUser: () => mockGetCurrentFirebaseUser(),
-  getFreshFirebaseIdToken: () => mockGetFreshFirebaseIdToken(),
+  signOutFirebase: () => mockSignOutFirebase(),
 }));
 
-// Mock api
-jest.mock('../../../../services/api', () => ({
-  __esModule: true,
-  default: {
-    get: jest.fn(),
-  },
+const mockBootstrapAuthenticatedProfile = jest.fn();
+jest.mock('../../../../services/authBootstrap', () => ({
+  bootstrapAuthenticatedProfile: () => mockBootstrapAuthenticatedProfile(),
 }));
-
-const mockedApi = jest.requireMock('../../../../services/api').default as {
-  get: jest.Mock;
-};
 
 // Mock Lottie
 jest.mock('lottie-react-native', () => 'LottieView');
@@ -93,6 +86,7 @@ describe('SplashScreen', () => {
     mockGetAuthenticatedEntryRoute.mockImplementation((kycCompleted: boolean) =>
       kycCompleted ? 'HomeScreen' : 'KYCScreen',
     );
+    mockSignOutFirebase.mockResolvedValue(undefined);
   });
 
   it('navigates to LoginScreen when no Firebase user exists', async () => {
@@ -107,15 +101,16 @@ describe('SplashScreen', () => {
 
   it('navigates to HomeScreen when /auth/me reports completed KYC', async () => {
     mockGetCurrentFirebaseUser.mockReturnValue({uid: 'firebase-user-1'});
-    mockGetFreshFirebaseIdToken.mockResolvedValue('firebase-token');
-    mockedApi.get.mockResolvedValue({
-      data: {
+    mockBootstrapAuthenticatedProfile.mockResolvedValue({
+      profile: {
         user_id: 'user-1',
         firebase_uid: 'firebase-user-1',
         full_name: 'Farmer One',
         phone_number: '+919999999999',
         wallet_address: '0x123',
         kyc_completed: true,
+        wallet_recovery_status: null,
+        wallet_recovery_requested_at: null,
       },
     });
 
@@ -139,15 +134,16 @@ describe('SplashScreen', () => {
   it('navigates to OnboardingScreen when completed KYC still needs onboarding', async () => {
     mockGetAuthenticatedEntryRoute.mockReturnValue('OnboardingScreen');
     mockGetCurrentFirebaseUser.mockReturnValue({uid: 'firebase-user-1'});
-    mockGetFreshFirebaseIdToken.mockResolvedValue('firebase-token');
-    mockedApi.get.mockResolvedValue({
-      data: {
+    mockBootstrapAuthenticatedProfile.mockResolvedValue({
+      profile: {
         user_id: 'user-1',
         firebase_uid: 'firebase-user-1',
         full_name: 'Farmer One',
         phone_number: '+919999999999',
         wallet_address: '0x123',
         kyc_completed: true,
+        wallet_recovery_status: null,
+        wallet_recovery_requested_at: null,
       },
     });
 
@@ -170,15 +166,16 @@ describe('SplashScreen', () => {
 
   it('navigates to KYCScreen when /auth/me reports incomplete KYC', async () => {
     mockGetCurrentFirebaseUser.mockReturnValue({uid: 'firebase-user-2'});
-    mockGetFreshFirebaseIdToken.mockResolvedValue('firebase-token');
-    mockedApi.get.mockResolvedValue({
-      data: {
+    mockBootstrapAuthenticatedProfile.mockResolvedValue({
+      profile: {
         user_id: 'user-2',
         firebase_uid: 'firebase-user-2',
         full_name: 'Farmer Two',
         phone_number: '+918888888888',
         wallet_address: '0x123',
         kyc_completed: false,
+        wallet_recovery_status: null,
+        wallet_recovery_requested_at: null,
       },
     });
 
@@ -201,8 +198,7 @@ describe('SplashScreen', () => {
 
   it('navigates to LoginScreen when bootstrap cannot reach /auth/me', async () => {
     mockGetCurrentFirebaseUser.mockReturnValue({uid: 'firebase-user-3'});
-    mockGetFreshFirebaseIdToken.mockResolvedValue('firebase-token');
-    mockedApi.get.mockRejectedValue({response: undefined});
+    mockBootstrapAuthenticatedProfile.mockRejectedValue({response: undefined});
 
     renderSplashScreen({
       user: {

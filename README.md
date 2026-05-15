@@ -47,6 +47,8 @@ Notes:
 - If that chain read fails, the app falls back to `balance_ctt` returned by `GET /api/v1/credits/balance`.
 - `CONTRACT_ADDRESS` is still a deployment-time input and must not remain the zero address.
 - `GOOGLE_MAPS_API_KEY` must be configured for Android Maps usage.
+- For **release APK OTP** to work, register the release keystore SHA-1 and SHA-256 in Firebase Android app settings.
+- Enable Firebase Phone Auth and configure Play Integrity/App Check for production to avoid OTP verification timeouts in release builds.
 
 ## Install
 

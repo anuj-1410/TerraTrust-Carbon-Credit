@@ -6,8 +6,27 @@ import {resetAppState, store} from '../store';
 import {setMaintenance, showBanner} from '../store/uiSlice';
 import {clearPersistedAppStatePreserveOnboarding, mmkv} from '../store/mmkvStorage';
 
+const normalizedApiBaseUrl = Config.API_BASE_URL?.trim().replace(/\/+$/, '') ?? '';
+
+export function getConfiguredApiBaseUrl(): string | null {
+  if (!normalizedApiBaseUrl || !/^https?:\/\//i.test(normalizedApiBaseUrl)) {
+    return null;
+  }
+
+  return normalizedApiBaseUrl;
+}
+
+export function assertApiBaseUrlConfigured(): string {
+  const apiBaseUrl = getConfiguredApiBaseUrl();
+  if (!apiBaseUrl) {
+    throw new Error('APP_CONFIG_MISSING_API_BASE_URL');
+  }
+
+  return apiBaseUrl;
+}
+
 const api = axios.create({
-  baseURL: Config.API_BASE_URL,
+  baseURL: getConfiguredApiBaseUrl() ?? undefined,
   timeout: 60000,
   headers: {
     'Content-Type': 'application/json',

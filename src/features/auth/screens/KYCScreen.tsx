@@ -1,11 +1,9 @@
 import React, {useEffect, useState} from 'react';
 import {
-  ActivityIndicator,
   BackHandler,
   View,
   Text,
   TextInput,
-  TouchableOpacity,
   KeyboardAvoidingView,
   Platform,
   ScrollView,
@@ -19,9 +17,14 @@ import type {RootStackParamList} from '../../../types/navigation';
 import {useAppDispatch} from '../../../store/hooks';
 import {setUser, setWalletAddress, setKycCompleted} from '../store/authSlice';
 import api from '../../../services/api';
-import {type AuthBootstrapResponse} from '../../../services/firebase';
+import {bootstrapAuthenticatedProfile} from '../../../services/authBootstrap';
 import {getAuthenticatedEntryRoute} from '../../../common/utils/onboarding';
 import {setWalletRecoveryState} from '../../profile/store/profileSlice';
+import {useResponsiveScreen} from '../../../common/hooks/useResponsiveScreen';
+import {showBanner} from '../../../store/uiSlice';
+import Button from '../../../common/components/Button';
+import Card from '../../../common/components/Card';
+import {COLORS} from '../../../common/constants/colors';
 
 type Nav = NativeStackNavigationProp<RootStackParamList, 'KYCScreen'>;
 
@@ -54,6 +57,8 @@ function formatAadhaarDisplay(value: string, isFocused: boolean): string {
 const KYCScreen = () => {
   const navigation = useNavigation<Nav>();
   const dispatch = useAppDispatch();
+  const {horizontalPadding, topSpacing, bottomSpacing, contentMaxWidth} =
+    useResponsiveScreen();
   const [isLoading, setIsLoading] = useState(false);
   const [apiError, setApiError] = useState<string | null>(null);
   const [aadhaarFocused, setAadhaarFocused] = useState(false);
@@ -85,7 +90,7 @@ const KYCScreen = () => {
   }, []);
 
   const syncProfile = async () => {
-    const {data: profile} = await api.get<AuthBootstrapResponse>('/api/v1/auth/me');
+    const {profile, warning} = await bootstrapAuthenticatedProfile();
 
     dispatch(
       setUser({
@@ -103,6 +108,10 @@ const KYCScreen = () => {
         requestedAt: profile.wallet_recovery_requested_at,
       }),
     );
+
+    if (warning) {
+      dispatch(showBanner({message: warning.message, type: 'info'}));
+    }
   };
 
   const clearAadhaarInput = () => {
@@ -129,7 +138,11 @@ const KYCScreen = () => {
         });
       }
     } catch (err: unknown) {
-      if (err && typeof err === 'object' && 'response' in err) {
+      if ((err as {message?: string})?.message === 'APP_CONFIG_MISSING_API_BASE_URL') {
+        setApiError(
+          'This release build is missing server configuration. Please reinstall the latest release APK.',
+        );
+      } else if (err && typeof err === 'object' && 'response' in err) {
         const axiosErr = err as {response?: {data?: {error?: string}}};
         const message = axiosErr.response?.data?.error;
         if (message === 'KYC already completed') {
@@ -154,12 +167,20 @@ const KYCScreen = () => {
 
   return (
     <KeyboardAvoidingView
-      className="flex-1 bg-white"
+      className="flex-1"
+      style={{backgroundColor: COLORS.OFF_WHITE}}
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
       <ScrollView
         contentContainerStyle={{flexGrow: 1}}
         keyboardShouldPersistTaps="handled">
-        <View className="flex-1 px-6 pt-16">
+        <View
+          className="flex-1 w-full self-center"
+          style={{
+            maxWidth: contentMaxWidth,
+            paddingHorizontal: horizontalPadding,
+            paddingTop: topSpacing,
+            paddingBottom: bottomSpacing,
+          }}>
           <Text className="text-3xl font-bold text-gray-900">
             Complete Your Profile
           </Text>
@@ -167,106 +188,99 @@ const KYCScreen = () => {
             This is a one-time setup. Your name must match your land document.
           </Text>
 
-          <View className="rounded-xl bg-[#FEF3C7] p-4">
+          <Card className="mt-8" style={{backgroundColor: '#FEF3C7'}}>
             <Text className="text-sm font-semibold text-[#92400E]">
               Use the exact owner name printed on your land document.
             </Text>
             <Text className="mt-2 text-sm leading-6 text-[#92400E]">
               Your Aadhaar is used only for this KYC request and is cleared from the app immediately after submission.
             </Text>
-          </View>
+          </Card>
 
-          <Text className="mt-6 text-base leading-6 text-gray-700">
-            Enter your name exactly as written on your land document (7/12 Extract)
-          </Text>
-
-          {/* Full Name */}
-          <View className="mt-6">
-            <Text className="mb-2 text-sm font-medium text-gray-700">
-              Full Name
+          <Card className="mt-6">
+            <Text className="text-base leading-6 text-gray-700">
+              Enter your name exactly as written on your land document (7/12 Extract)
             </Text>
-            <Controller
-              control={control}
-              name="fullName"
-              render={({field: {onChange, onBlur, value}}) => (
-                <TextInput
-                  className="rounded-xl border border-gray-300 px-4 py-3 text-base text-gray-900"
-                  placeholder="Full name"
-                  placeholderTextColor="#9CA3AF"
-                  onBlur={onBlur}
-                  onChangeText={text =>
-                    onChange(text.replace(/[^A-Za-z ]/g, '').replace(/\s+/g, ' '))
-                  }
-                  value={value}
-                  editable={!isLoading}
-                  autoCapitalize="words"
-                />
+
+            {/* Full Name */}
+            <View className="mt-6">
+              <Text className="mb-2 text-sm font-medium text-gray-700">
+                Full Name
+              </Text>
+              <Controller
+                control={control}
+                name="fullName"
+                render={({field: {onChange, onBlur, value}}) => (
+                  <TextInput
+                    className="rounded-2xl border border-gray-300 px-4 py-3 text-base text-gray-900"
+                    placeholder="Full name"
+                    placeholderTextColor="#9CA3AF"
+                    onBlur={onBlur}
+                    onChangeText={text =>
+                      onChange(text.replace(/[^A-Za-z ]/g, '').replace(/\s+/g, ' '))
+                    }
+                    value={value}
+                    editable={!isLoading}
+                    autoCapitalize="words"
+                  />
+                )}
+              />
+              {errors.fullName && (
+                <Text className="mt-1 text-sm text-red-500">
+                  {errors.fullName.message}
+                </Text>
               )}
-            />
-            {errors.fullName && (
-              <Text className="mt-1 text-sm text-red-500">
-                {errors.fullName.message}
+            </View>
+
+            {/* Aadhaar Number */}
+            <View className="mt-6">
+              <Text className="mb-2 text-sm font-medium text-gray-700">
+                Aadhaar Number
+              </Text>
+              <Controller
+                control={control}
+                name="aadhaarNumber"
+                render={({field: {onChange, onBlur, value}}) => (
+                  <TextInput
+                    className="rounded-2xl border border-gray-300 px-4 py-3 text-base text-gray-900"
+                    placeholder="Enter 12-digit Aadhaar number"
+                    placeholderTextColor="#9CA3AF"
+                    keyboardType="number-pad"
+                    maxLength={14}
+                    onBlur={() => {
+                      setAadhaarFocused(false);
+                      onBlur();
+                    }}
+                    onFocus={() => setAadhaarFocused(true)}
+                    onChangeText={text => onChange(text.replace(/\D/g, ''))}
+                    value={formatAadhaarDisplay(value, aadhaarFocused)}
+                    editable={!isLoading}
+                    autoComplete="off"
+                    textContentType="none"
+                    importantForAutofill="no"
+                  />
+                )}
+              />
+              {errors.aadhaarNumber && (
+                <Text className="mt-1 text-sm text-red-500">
+                  {errors.aadhaarNumber.message}
+                </Text>
+              )}
+            </View>
+
+            {apiError && (
+              <Text className="mt-4 text-center text-sm text-red-500">
+                {apiError}
               </Text>
             )}
-          </View>
+          </Card>
 
-          {/* Aadhaar Number */}
-          <View className="mt-6">
-            <Text className="mb-2 text-sm font-medium text-gray-700">
-              Aadhaar Number
-            </Text>
-            <Controller
-              control={control}
-              name="aadhaarNumber"
-              render={({field: {onChange, onBlur, value}}) => (
-                <TextInput
-                  className="rounded-xl border border-gray-300 px-4 py-3 text-base text-gray-900"
-                  placeholder="Enter 12-digit Aadhaar number"
-                  placeholderTextColor="#9CA3AF"
-                  keyboardType="number-pad"
-                  maxLength={14}
-                  onBlur={() => {
-                    setAadhaarFocused(false);
-                    onBlur();
-                  }}
-                  onFocus={() => setAadhaarFocused(true)}
-                  onChangeText={text => onChange(text.replace(/\D/g, ''))}
-                  value={formatAadhaarDisplay(value, aadhaarFocused)}
-                  editable={!isLoading}
-                  autoComplete="off"
-                  textContentType="none"
-                  importantForAutofill="no"
-                />
-              )}
-            />
-            {errors.aadhaarNumber && (
-              <Text className="mt-1 text-sm text-red-500">
-                {errors.aadhaarNumber.message}
-              </Text>
-            )}
-          </View>
-
-          {/* API Error */}
-          {apiError && (
-            <Text className="mt-4 text-center text-sm text-red-500">
-              {apiError}
-            </Text>
-          )}
-
-          {/* Continue Button */}
-          <TouchableOpacity
-            className={`mt-8 min-h-[48px] items-center justify-center rounded-xl ${
-              isLoading || !isFormReady ? 'bg-[#9CA3AF]' : 'bg-[#2F855A]'
-            } shadow-md`}
+          <Button
+            className="mt-8"
+            label={isLoading ? 'Saving Profile...' : 'Continue'}
             onPress={handleSubmit(onSubmit)}
             disabled={isLoading || !isFormReady}
-            activeOpacity={0.8}>
-            {isLoading ? (
-              <ActivityIndicator color="#FFFFFF" />
-            ) : (
-              <Text className="text-base font-bold text-white">Continue</Text>
-            )}
-          </TouchableOpacity>
+          />
         </View>
       </ScrollView>
     </KeyboardAvoidingView>

@@ -1,4 +1,4 @@
-import {NativeModules} from 'react-native';
+import {Linking, NativeModules} from 'react-native';
 import type {ARTier} from '../features/ar-audit/store/auditSlice';
 
 export interface ARMeasurementResult {
@@ -26,16 +26,141 @@ export interface HeightMeasurementCompleteResult {
 }
 
 const {ARModule} = NativeModules;
+const AR_TIER_UNRESOLVED_ERROR = 'AR_TIER_UNRESOLVED';
+const ARCORE_PLAY_STORE_URL = 'market://details?id=com.google.ar.core';
+const ARCORE_WEB_URL =
+  'https://play.google.com/store/apps/details?id=com.google.ar.core';
 
-export async function detectARTier(): Promise<ARTier> {
-  try {
-    const support: string = await ARModule.checkDepthSupport();
-    if (support === 'FULL_DEPTH') return 1;
-    if (support === 'SLAM_ONLY') return 2;
-    return 3;
-  } catch {
-    return 3;
+type NativeARSupportStatus =
+  | 'FULL_DEPTH'
+  | 'SLAM_ONLY'
+  | 'UNSUPPORTED'
+  | 'CAMERA_PERMISSION_REQUIRED'
+  | 'ARCORE_INSTALL_REQUIRED'
+  | 'ARCORE_UPDATE_REQUIRED'
+  | 'TEMPORARY_UNAVAILABLE'
+  | 'CHECKING';
+
+export type ARSupportState =
+  | 'checking'
+  | 'full-depth'
+  | 'slam-only'
+  | 'manual'
+  | 'camera-permission-required'
+  | 'arcore-install-required'
+  | 'arcore-update-required'
+  | 'temporarily-unavailable';
+
+export interface ARCapabilityDetectionResult {
+  tier: ARTier;
+  resolved: boolean;
+  supportState: ARSupportState;
+}
+
+function getResolvedStateForTier(tier: ARTier): ARSupportState {
+  if (tier === 1) {
+    return 'full-depth';
   }
+
+  if (tier === 2) {
+    return 'slam-only';
+  }
+
+  return 'manual';
+}
+
+function getFallbackCapability(
+  fallbackTier?: ARTier,
+): ARCapabilityDetectionResult | undefined {
+  if (fallbackTier === undefined) {
+    return undefined;
+  }
+
+  return {
+    tier: fallbackTier,
+    resolved: true,
+    supportState: getResolvedStateForTier(fallbackTier),
+  };
+}
+
+export async function detectARCapability(
+  fallbackCapability?: ARCapabilityDetectionResult,
+): Promise<ARCapabilityDetectionResult> {
+  try {
+    const support: NativeARSupportStatus = await ARModule.checkDepthSupport();
+
+    if (support === 'FULL_DEPTH') {
+      return {tier: 1, resolved: true, supportState: 'full-depth'};
+    }
+
+    if (support === 'SLAM_ONLY') {
+      return {tier: 2, resolved: true, supportState: 'slam-only'};
+    }
+
+    if (support === 'UNSUPPORTED') {
+      return {tier: 3, resolved: true, supportState: 'manual'};
+    }
+
+    if (
+      (support === 'TEMPORARY_UNAVAILABLE' || support === 'CHECKING') &&
+      fallbackCapability?.resolved
+    ) {
+      return fallbackCapability;
+    }
+
+    if (support === 'CAMERA_PERMISSION_REQUIRED') {
+      return {
+        tier: fallbackCapability?.tier ?? 3,
+        resolved: false,
+        supportState: 'camera-permission-required',
+      };
+    }
+
+    if (support === 'ARCORE_INSTALL_REQUIRED') {
+      return {
+        tier: fallbackCapability?.tier ?? 3,
+        resolved: false,
+        supportState: 'arcore-install-required',
+      };
+    }
+
+    if (support === 'ARCORE_UPDATE_REQUIRED') {
+      return {
+        tier: fallbackCapability?.tier ?? 3,
+        resolved: false,
+        supportState: 'arcore-update-required',
+      };
+    }
+
+    return {
+      tier: fallbackCapability?.tier ?? 3,
+      resolved: false,
+      supportState:
+        support === 'CHECKING' ? 'checking' : 'temporarily-unavailable',
+    };
+  } catch {
+    return fallbackCapability ?? {
+      tier: 3,
+      resolved: true,
+      supportState: 'manual',
+    };
+  }
+}
+
+export async function detectARTier(fallbackTier?: ARTier): Promise<ARTier> {
+  const capability = await detectARCapability(getFallbackCapability(fallbackTier));
+
+  if (!capability.resolved) {
+    throw new Error(AR_TIER_UNRESOLVED_ERROR);
+  }
+
+  return capability.tier;
+}
+
+export function isARTierUnresolvedError(error: unknown): boolean {
+  return (
+    error instanceof Error && error.message === AR_TIER_UNRESOLVED_ERROR
+  );
 }
 
 export async function measureTreeDiameter(
@@ -52,6 +177,14 @@ export async function measureTreeHeight(): Promise<HeightMeasurementCompleteResu
 
 export async function moveAppToBackground(): Promise<boolean> {
   return ARModule.moveTaskToBack();
+}
+
+export async function openArCoreStoreListing(): Promise<void> {
+  try {
+    await Linking.openURL(ARCORE_PLAY_STORE_URL);
+  } catch {
+    await Linking.openURL(ARCORE_WEB_URL);
+  }
 }
 
 export async function identifySpecies(

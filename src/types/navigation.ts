@@ -41,7 +41,7 @@ export type MainAppOriginTab = Extract<keyof MainTabParamList, 'HomeTab' | 'Land
 export type RootStackParamList = {
   SplashScreen: undefined;
   LoginScreen: undefined;
-  OTPScreen: {phone: string};
+  OTPScreen: {phone: string; verificationId?: string | null};
   KYCScreen: undefined;
   OnboardingScreen: undefined;
 

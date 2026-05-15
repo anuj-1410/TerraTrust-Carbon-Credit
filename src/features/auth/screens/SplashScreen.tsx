@@ -5,13 +5,11 @@ import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityI
 import {useNavigation} from '@react-navigation/native';
 import type {NativeStackNavigationProp} from '@react-navigation/native-stack';
 import type {RootStackParamList} from '../../../types/navigation';
-import api from '../../../services/api';
 import {
   getCurrentFirebaseUser,
-  getFreshFirebaseIdToken,
   signOutFirebase,
-  type AuthBootstrapResponse,
 } from '../../../services/firebase';
+import {bootstrapAuthenticatedProfile} from '../../../services/authBootstrap';
 import {useAppDispatch} from '../../../store/hooks';
 import {setUser, setWalletAddress, setKycCompleted} from '../store/authSlice';
 import {getAuthenticatedEntryRoute} from '../../../common/utils/onboarding';
@@ -82,10 +80,7 @@ const SplashScreen = () => {
       }
 
       try {
-        await getFreshFirebaseIdToken(true);
-        const {data: profile} = await api.get<AuthBootstrapResponse>(
-          '/api/v1/auth/me',
-        );
+        const {profile, warning} = await bootstrapAuthenticatedProfile();
 
         if (!isMounted) {
           return;
@@ -114,8 +109,20 @@ const SplashScreen = () => {
             requestedAt: profile.wallet_recovery_requested_at,
           }),
         );
+
+        if (warning) {
+          dispatch(showBanner({message: warning.message, type: 'info'}));
+        }
+
         navigation.replace(getAuthenticatedEntryRoute(profile.kyc_completed));
-      } catch {
+      } catch (error) {
+        if ((error as {message?: string})?.message === 'APP_CONFIG_MISSING_API_BASE_URL') {
+          redirectToLogin(
+            'This release build is missing server configuration. Please reinstall the latest release APK.',
+          );
+          return;
+        }
+
         redirectToLogin(
           'We could not verify your session right now. Please sign in again.',
         );

@@ -1,62 +1,63 @@
-import React, {useState} from 'react';
+import React, {useMemo, useState} from 'react';
 import {
-  ActivityIndicator,
   View,
   Text,
   TextInput,
-  TouchableOpacity,
   KeyboardAvoidingView,
   Platform,
   ScrollView,
 } from 'react-native';
 import {useNavigation} from '@react-navigation/native';
 import type {NativeStackNavigationProp} from '@react-navigation/native-stack';
-import {useForm, Controller} from 'react-hook-form';
-import {zodResolver} from '@hookform/resolvers/zod';
-import {z} from 'zod';
+import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
 import type {RootStackParamList} from '../../../types/navigation';
-import {sendPhoneOtp} from '../../../services/firebase';
+import {
+  sendPhoneOtp,
+  type PendingPhoneOtpSession,
+} from '../../../services/firebase';
+import {useResponsiveScreen} from '../../../common/hooks/useResponsiveScreen';
+import Button from '../../../common/components/Button';
+import Card from '../../../common/components/Card';
+import {COLORS} from '../../../common/constants/colors';
 
 type Nav = NativeStackNavigationProp<RootStackParamList, 'LoginScreen'>;
 
-const loginSchema = z.object({
-  phoneNumber: z
-    .string()
-    .regex(
-      /^[2-9]\d{9}$/,
-      'Enter a valid 10-digit mobile number that does not start with 0 or 1',
-    ),
-});
-
-type LoginForm = z.infer<typeof loginSchema>;
-
 const OTP_TIMEOUT_MS = 20000;
+const PHONE_ERROR_MESSAGE =
+  'Enter a valid 10-digit mobile number that does not start with 0 or 1';
+const PHONE_REGEX = /^[2-9]\d{9}$/;
+
+function getPhoneValidationError(phoneNumber: string): string | null {
+  if (PHONE_REGEX.test(phoneNumber)) {
+    return null;
+  }
+
+  return PHONE_ERROR_MESSAGE;
+}
 
 const LoginScreen = () => {
   const navigation = useNavigation<Nav>();
   const [isLoading, setIsLoading] = useState(false);
   const [apiError, setApiError] = useState<string | null>(null);
+  const [phoneNumber, setPhoneNumber] = useState('');
+  const [showPhoneError, setShowPhoneError] = useState(false);
+  const {horizontalPadding, topSpacing, bottomSpacing, contentMaxWidth} =
+    useResponsiveScreen();
 
-  const {
-    control,
-    handleSubmit,
-    watch,
-    formState: {errors},
-  } = useForm<LoginForm>({
-    resolver: zodResolver(loginSchema),
-    mode: 'onChange',
-    defaultValues: {phoneNumber: ''},
-  });
+  const phoneError = useMemo(
+    () => (showPhoneError ? getPhoneValidationError(phoneNumber) : null),
+    [phoneNumber, showPhoneError],
+  );
+  const isPhoneValid = getPhoneValidationError(phoneNumber) === null;
 
-  const phoneNumber = watch('phoneNumber');
-  const isPhoneValid = /^[2-9]\d{9}$/.test(phoneNumber);
-
-  const sendPhoneOtpWithTimeout = async (phone: string) => {
+  const sendPhoneOtpWithTimeout = async (
+    phone: string,
+  ): Promise<PendingPhoneOtpSession> => {
     let timeoutId: ReturnType<typeof setTimeout> | null = null;
     try {
-      await Promise.race([
+      return await Promise.race([
         sendPhoneOtp(phone),
-        new Promise<void>((_, reject) => {
+        new Promise<never>((_, reject) => {
           timeoutId = setTimeout(() => reject(new Error('OTP_TIMEOUT')), OTP_TIMEOUT_MS);
         }),
       ]);
@@ -67,17 +68,31 @@ const LoginScreen = () => {
     }
   };
 
-  const onSubmit = async (data: LoginForm) => {
+  const onSubmit = async () => {
+    if (!isPhoneValid || isLoading) {
+      setShowPhoneError(true);
+      return;
+    }
+
     setIsLoading(true);
     setApiError(null);
     try {
-      const phone = '+91' + data.phoneNumber;
-      await sendPhoneOtpWithTimeout(phone);
-      navigation.navigate('OTPScreen', {phone});
+      const phone = `+91${phoneNumber}`;
+      const otpSession = await sendPhoneOtpWithTimeout(phone);
+      navigation.navigate('OTPScreen', {
+        phone,
+        verificationId: otpSession.verificationId,
+      });
     } catch (error) {
       const firebaseErr = error as {code?: string};
       if (firebaseErr.code === 'auth/too-many-requests') {
         setApiError('Too many attempts. Please wait a few minutes and try again.');
+      } else if (firebaseErr.code === 'auth/quota-exceeded') {
+        setApiError(
+          'Firebase SMS quota is exhausted right now. Please wait a bit and try again.',
+        );
+      } else if (firebaseErr.code === 'auth/network-request-failed') {
+        setApiError('Network issue while sending OTP. Please check your connection.');
       } else if (
         firebaseErr.code === 'auth/invalid-app-credential' ||
         firebaseErr.code === 'auth/missing-client-identifier' ||
@@ -98,12 +113,29 @@ const LoginScreen = () => {
 
   return (
     <KeyboardAvoidingView
-      className="flex-1 bg-white"
+      className="flex-1"
+      style={{backgroundColor: COLORS.OFF_WHITE}}
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
       <ScrollView
         contentContainerStyle={{flexGrow: 1}}
         keyboardShouldPersistTaps="handled">
-        <View className="flex-1 px-6 pt-20">
+        <View
+          className="flex-1 w-full self-center"
+          style={{
+            maxWidth: contentMaxWidth,
+            paddingHorizontal: horizontalPadding,
+            paddingTop: topSpacing,
+            paddingBottom: bottomSpacing,
+          }}>
+          <View
+            className="mb-6 h-16 w-16 items-center justify-center rounded-[24px]"
+            style={{backgroundColor: 'rgba(47,133,90,0.12)'}}>
+            <MaterialCommunityIcons
+              color={COLORS.FOREST_GREEN}
+              name="sprout"
+              size={30}
+            />
+          </View>
           <Text className="text-3xl font-bold text-gray-900">
             Welcome to TerraTrust
           </Text>
@@ -111,8 +143,7 @@ const LoginScreen = () => {
             Enter your mobile number to receive a one-time password and continue.
           </Text>
 
-          {/* Phone Input */}
-          <View className="mt-12">
+          <Card className="mt-10 p-5">
             <Text className="mb-2 text-sm font-medium text-gray-700">
               Mobile Number
             </Text>
@@ -120,53 +151,36 @@ const LoginScreen = () => {
               <View className="items-center justify-center rounded-l-xl bg-[#2F855A] px-4">
                 <Text className="text-base font-semibold text-white">+91</Text>
               </View>
-              <Controller
-                control={control}
-                name="phoneNumber"
-                render={({field: {onChange, onBlur, value}}) => (
-                  <TextInput
-                    className="flex-1 rounded-r-xl border border-l-0 border-gray-300 px-4 py-3 text-base text-gray-900"
-                    placeholder="Enter 10-digit number"
-                    placeholderTextColor="#9CA3AF"
-                    keyboardType="phone-pad"
-                    maxLength={10}
-                    onBlur={onBlur}
-                    onChangeText={text => onChange(text.replace(/\D/g, ''))}
-                    value={value}
-                    editable={!isLoading}
-                  />
-                )}
+              <TextInput
+                className="flex-1 rounded-r-xl border border-l-0 border-gray-300 px-4 py-3 text-base text-gray-900"
+                placeholder="Enter 10-digit number"
+                placeholderTextColor="#9CA3AF"
+                keyboardType="phone-pad"
+                maxLength={10}
+                onBlur={() => setShowPhoneError(true)}
+                onChangeText={text => {
+                  setPhoneNumber(text.replace(/\D/g, ''));
+                }}
+                value={phoneNumber}
+                editable={!isLoading}
               />
             </View>
-            {errors.phoneNumber && (
-              <Text className="mt-1 text-sm text-red-500">
-                {errors.phoneNumber.message}
-              </Text>
-            )}
+            {phoneError && <Text className="mt-1 text-sm text-red-500">{phoneError}</Text>}
             {apiError && (
               <Text className="mt-1 text-sm text-red-500">{apiError}</Text>
             )}
-          </View>
+            <Text className="mt-4 text-sm leading-5 text-gray-500">
+              Standard SMS rates may apply. Your phone number is processed by
+              Google/Firebase for abuse prevention.
+            </Text>
+          </Card>
 
-          {/* Send OTP Button */}
-          <TouchableOpacity
-            className={`mt-8 min-h-[48px] items-center justify-center rounded-xl ${
-              isLoading || !isPhoneValid ? 'bg-[#9CA3AF]' : 'bg-[#2F855A]'
-            } shadow-md`}
-            onPress={handleSubmit(onSubmit)}
+          <Button
+            className="mt-8"
+            label={isLoading ? 'Sending OTP...' : 'Send OTP'}
+            onPress={onSubmit}
             disabled={isLoading || !isPhoneValid}
-            activeOpacity={0.8}>
-            {isLoading ? (
-              <ActivityIndicator color="#FFFFFF" />
-            ) : (
-              <Text className="text-base font-bold text-white">Send OTP</Text>
-            )}
-          </TouchableOpacity>
-
-          <Text className="mt-4 text-sm leading-5 text-gray-500">
-            Standard SMS rates may apply. Your phone number is processed by
-            Google/Firebase for abuse prevention.
-          </Text>
+          />
         </View>
       </ScrollView>
     </KeyboardAvoidingView>

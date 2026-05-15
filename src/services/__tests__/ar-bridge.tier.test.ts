@@ -8,7 +8,11 @@ jest.mock('react-native', () => ({
 }));
 
 import {NativeModules} from 'react-native';
-import {detectARTier, measureTreeDiameter} from '../ar-bridge';
+import {
+  detectARCapability,
+  detectARTier,
+  measureTreeDiameter,
+} from '../ar-bridge';
 
 const mockARModule = NativeModules.ARModule as {
   checkDepthSupport: jest.Mock;
@@ -38,6 +42,41 @@ describe('AR bridge tier detection', () => {
 
     mockARModule.checkDepthSupport.mockRejectedValueOnce(new Error('boom'));
     await expect(detectARTier()).resolves.toBe(3);
+  });
+
+  it('surfaces install or update requirements as unresolved capability states', async () => {
+    mockARModule.checkDepthSupport.mockResolvedValueOnce('ARCORE_INSTALL_REQUIRED');
+    await expect(detectARCapability()).resolves.toEqual({
+      tier: 3,
+      resolved: false,
+      supportState: 'arcore-install-required',
+    });
+
+    mockARModule.checkDepthSupport.mockResolvedValueOnce('ARCORE_UPDATE_REQUIRED');
+    await expect(detectARCapability()).resolves.toEqual({
+      tier: 3,
+      resolved: false,
+      supportState: 'arcore-update-required',
+    });
+  });
+
+  it('keeps the previous tier when native detection is temporarily unavailable', async () => {
+    mockARModule.checkDepthSupport.mockResolvedValueOnce('TEMPORARY_UNAVAILABLE');
+    await expect(detectARTier(2)).resolves.toBe(2);
+
+    mockARModule.checkDepthSupport.mockResolvedValueOnce('CHECKING');
+    await expect(detectARTier(1)).resolves.toBe(1);
+  });
+
+  it('keeps the tier unresolved when native detection is still checking without a fallback tier', async () => {
+    mockARModule.checkDepthSupport.mockResolvedValueOnce('CHECKING');
+    await expect(detectARTier()).rejects.toThrow('AR_TIER_UNRESOLVED');
+
+    mockARModule.checkDepthSupport.mockResolvedValueOnce('TEMPORARY_UNAVAILABLE');
+    await expect(detectARTier()).rejects.toThrow('AR_TIER_UNRESOLVED');
+
+    mockARModule.checkDepthSupport.mockResolvedValueOnce('CAMERA_PERMISSION_REQUIRED');
+    await expect(detectARTier()).rejects.toThrow('AR_TIER_UNRESOLVED');
   });
 
   it('keeps Tier 2 on native AR measurement instead of manual fallback', async () => {

@@ -1,4 +1,4 @@
-import React, {useEffect, useMemo, useState} from 'react';
+import React, {useEffect, useMemo, useRef, useState} from 'react';
 import {
   View,
   Text,
@@ -6,7 +6,6 @@ import {
   ActivityIndicator,
   TouchableOpacity,
   Linking,
-  Dimensions,
 } from 'react-native';
 import {BarChart} from 'react-native-chart-kit';
 import LottieView from 'lottie-react-native';
@@ -19,8 +18,7 @@ import {fetchCreditsThunk} from '../store/creditsSlice';
 import type {AuditRecord} from '../store/creditsSlice';
 import {COLORS} from '../../../common/constants/colors';
 import type {RootStackParamList} from '../../../types/navigation';
-
-const screenWidth = Dimensions.get('window').width;
+import {useResponsiveScreen} from '../../../common/hooks/useResponsiveScreen';
 
 const chartConfig = {
   backgroundColor: COLORS.CARD_WHITE,
@@ -45,16 +43,27 @@ const CreditHistoryScreen = () => {
   const navigation = useNavigation();
   const route = useRoute<RouteProp<RootStackParamList, 'CreditHistoryScreen'>>();
   const dispatch = useAppDispatch();
+  const {width, horizontalPadding, topSpacing, bottomSpacing, contentMaxWidth} =
+    useResponsiveScreen();
   const canGoBack =
     navigation.canGoBack() && (route.params?.source ?? 'history') !== 'history';
+  const chartWidth = Math.max(
+    220,
+    Math.min(width, contentMaxWidth) - horizontalPadding * 2 - 32,
+  );
 
   const isAuthenticated = useAppSelector(s => s.auth.isAuthenticated);
   const {history, historyHasMore, historyPage, lastFetchedAt} = useAppSelector(
     s => s.credits,
   );
+  const historyLengthRef = useRef(history.length);
   const [isLoading, setIsLoading] = useState(false);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
   const [isOffline, setIsOffline] = useState(false);
+
+  useEffect(() => {
+    historyLengthRef.current = history.length;
+  }, [history.length]);
 
   useEffect(() => {
     if (isAuthenticated) {
@@ -63,13 +72,13 @@ const CreditHistoryScreen = () => {
         .unwrap()
         .then(() => setIsOffline(false))
         .catch(error => {
-          if (isOfflineError(error) && history.length > 0) {
+          if (isOfflineError(error) && historyLengthRef.current > 0) {
             setIsOffline(true);
           }
         })
         .finally(() => setIsLoading(false));
     }
-  }, [dispatch, history.length, isAuthenticated]);
+  }, [dispatch, isAuthenticated]);
 
   const loadMoreHistory = () => {
     if (!isAuthenticated || isLoading || isLoadingMore || !historyHasMore) {
@@ -87,7 +96,7 @@ const CreditHistoryScreen = () => {
       .unwrap()
       .then(() => setIsOffline(false))
       .catch(error => {
-        if (isOfflineError(error) && history.length > 0) {
+        if (isOfflineError(error) && historyLengthRef.current > 0) {
           setIsOffline(true);
         }
       })
@@ -140,9 +149,11 @@ const CreditHistoryScreen = () => {
 
   // Empty state
   if (!isLoading && history.length === 0) {
-    return (
-      <View className="flex-1" style={{backgroundColor: COLORS.OFF_WHITE}}>
-        <View className="flex-row items-center px-4 pt-12 pb-4">
+      return (
+        <View className="flex-1" style={{backgroundColor: COLORS.OFF_WHITE}}>
+          <View
+            className="flex-row items-center pb-4"
+            style={{paddingHorizontal: horizontalPadding, paddingTop: topSpacing}}>
           {canGoBack ? (
             <TouchableOpacity
               className="min-h-[48px] min-w-[48px] items-center justify-center"
@@ -305,7 +316,7 @@ const CreditHistoryScreen = () => {
           </Text>
           <BarChart
             data={chartData}
-            width={screenWidth - 64}
+            width={chartWidth}
             height={200}
             chartConfig={chartConfig}
             fromZero
@@ -344,7 +355,14 @@ const CreditHistoryScreen = () => {
         onEndReached={loadMoreHistory}
         onEndReachedThreshold={0.3}
         showsVerticalScrollIndicator={false}
-        contentContainerStyle={{paddingHorizontal: 16, paddingTop: 48, paddingBottom: 24}}
+        contentContainerStyle={{
+          width: '100%',
+          alignSelf: 'center',
+          maxWidth: contentMaxWidth,
+          paddingHorizontal: horizontalPadding,
+          paddingTop: topSpacing,
+          paddingBottom: bottomSpacing,
+        }}
       />
     </View>
   );

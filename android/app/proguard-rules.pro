@@ -27,3 +27,12 @@
 
 # Keep annotations
 -keepattributes *Annotation*
+
+# react-native-config reflects into the app BuildConfig at runtime to read
+# API_BASE_URL and other env-backed values in release builds.
+-keep class com.terratrustar.BuildConfig { *; }
+-keep class com.lugg.RNCConfig.** { *; }
+
+# Note: `-keepresources` is a DexGuard-only directive and breaks R8 release
+# builds in this project. We already provide `build_config_package` via
+# `defaultConfig.resValue`, which is the supported react-native-config setup.
