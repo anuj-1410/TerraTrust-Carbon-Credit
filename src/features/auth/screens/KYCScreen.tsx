@@ -18,8 +18,14 @@ import {useAppDispatch} from '../../../store/hooks';
 import {setUser, setWalletAddress, setKycCompleted} from '../store/authSlice';
 import api from '../../../services/api';
 import {bootstrapAuthenticatedProfile} from '../../../services/authBootstrap';
-import {getAuthenticatedEntryRoute} from '../../../common/utils/onboarding';
-import {setWalletRecoveryState} from '../../profile/store/profileSlice';
+import {
+  getAuthenticatedEntryRoute,
+  markOnboardingComplete,
+} from '../../../common/utils/onboarding';
+import {
+  setOnboardingComplete,
+  setWalletRecoveryState,
+} from '../../profile/store/profileSlice';
 import {useResponsiveScreen} from '../../../common/hooks/useResponsiveScreen';
 import {showBanner} from '../../../store/uiSlice';
 import Button from '../../../common/components/Button';
@@ -108,6 +114,10 @@ const KYCScreen = () => {
         requestedAt: profile.wallet_recovery_requested_at,
       }),
     );
+    if (profile.kyc_completed) {
+      markOnboardingComplete();
+      dispatch(setOnboardingComplete(true));
+    }
 
     if (warning) {
       dispatch(showBanner({message: warning.message, type: 'info'}));

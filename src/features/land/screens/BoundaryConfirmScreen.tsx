@@ -1,11 +1,11 @@
 import React, {useCallback, useMemo, useState} from 'react';
 import {
-  View,
-  Text,
   Image,
-  TouchableOpacity,
-  StyleSheet,
   Platform,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
 } from 'react-native';
 import {useNavigation} from '@react-navigation/native';
 import type {NativeStackNavigationProp} from '@react-navigation/native-stack';
@@ -15,19 +15,22 @@ import Geolocation from 'react-native-geolocation-service';
 import LottieView from 'lottie-react-native';
 import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
 
-import type {RootStackParamList} from '../../../types/navigation';
+import Button from '../../../common/components/Button';
+import BottomSheet from '../../../common/components/BottomSheet';
+import Card from '../../../common/components/Card';
+import {COLORS} from '../../../common/constants/colors';
+import {useResponsiveScreen} from '../../../common/hooks/useResponsiveScreen';
+import {calculateAreaHectares} from '../../../common/utils/geoJson';
+import {hectaresToAcres} from '../../../common/utils/units';
+import api from '../../../services/api';
 import {useAppDispatch, useAppSelector} from '../../../store/hooks';
+import type {RootStackParamList} from '../../../types/navigation';
 import {
   addParcel,
   clearCurrentDraft,
   setCurrentDraft,
   type LandParcel,
 } from '../store/landSlice';
-import api from '../../../services/api';
-import {COLORS} from '../../../common/constants/colors';
-import BottomSheet from '../../../common/components/BottomSheet';
-import {calculateAreaHectares} from '../../../common/utils/geoJson';
-import {hectaresToAcres} from '../../../common/utils/units';
 
 type Nav = NativeStackNavigationProp<RootStackParamList>;
 
@@ -47,7 +50,9 @@ const getGPS = (): Promise<{lat: number; lng: number} | null> =>
 const BoundaryConfirmScreen = () => {
   const navigation = useNavigation<Nav>();
   const dispatch = useAppDispatch();
-  const currentDraft = useAppSelector(s => s.land.currentDraft);
+  const currentDraft = useAppSelector(state => state.land.currentDraft);
+  const {horizontalPadding, topSpacing, bottomSpacing, contentMaxWidth} =
+    useResponsiveScreen();
 
   const boundary = currentDraft.boundary;
   const ocrResult = currentDraft.ocrResult;
@@ -55,9 +60,10 @@ const BoundaryConfirmScreen = () => {
   const areaAcres = boundary
     ? hectaresToAcres(calculateAreaHectares(boundary)).toFixed(2)
     : null;
-  const sourceLabel = currentDraft.boundarySource === 'MANUAL'
-    ? 'Manual Map'
-    : 'Official Government Record';
+  const sourceLabel =
+    currentDraft.boundarySource === 'MANUAL'
+      ? 'Manual Map'
+      : 'Official Government Record';
 
   const [isLoading, setIsLoading] = useState(false);
   const [registerError, setRegisterError] = useState<string | null>(null);
@@ -66,40 +72,46 @@ const BoundaryConfirmScreen = () => {
   const [showRetryOptions, setShowRetryOptions] = useState(false);
   const [loadingText, setLoadingText] = useState('Registering your land...');
 
-  // Compute region from GeoJSON coordinates
   const {region, polygonCoords} = useMemo(() => {
     if (!boundary?.coordinates?.[0]) {
       return {
-        region: {latitude: 18.5, longitude: 73.9, latitudeDelta: 0.01, longitudeDelta: 0.01},
+        region: {
+          latitude: 18.5,
+          longitude: 73.9,
+          latitudeDelta: 0.01,
+          longitudeDelta: 0.01,
+        },
         polygonCoords: [],
       };
     }
 
     const coords = boundary.coordinates[0];
-    const lats = coords.map(c => c[1]);
-    const lngs = coords.map(c => c[0]);
+    const lats = coords.map(point => point[1]);
+    const lngs = coords.map(point => point[0]);
     const minLat = Math.min(...lats);
     const maxLat = Math.max(...lats);
     const minLng = Math.min(...lngs);
     const maxLng = Math.max(...lngs);
-    const PADDING = 1.3;
-    const latDelta = (maxLat - minLat) * PADDING || 0.005;
-    const lngDelta = (maxLng - minLng) * PADDING || 0.005;
+    const padding = 1.3;
 
     return {
       region: {
         latitude: (minLat + maxLat) / 2,
         longitude: (minLng + maxLng) / 2,
-        latitudeDelta: latDelta,
-        longitudeDelta: lngDelta,
+        latitudeDelta: (maxLat - minLat) * padding || 0.005,
+        longitudeDelta: (maxLng - minLng) * padding || 0.005,
       },
-      polygonCoords: coords.map(c => ({latitude: c[1], longitude: c[0]})),
+      polygonCoords: coords.map(point => ({
+        latitude: point[1],
+        longitude: point[0],
+      })),
     };
   }, [boundary]);
 
-  // Confirm → register
   const onConfirm = useCallback(async () => {
-    if (!ocrResult || !boundary) return;
+    if (!ocrResult || !boundary) {
+      return;
+    }
 
     const netInfo = await NetInfo.fetch();
     if (!netInfo.isConnected) {
@@ -132,7 +144,11 @@ const BoundaryConfirmScreen = () => {
       };
 
       const {data} = await api.post('/api/v1/land/register', payload);
-      const registerData = data as {land_id: string; area_hectares: number; status: 'verified'};
+      const registerData = data as {
+        land_id: string;
+        area_hectares: number;
+        status: 'verified';
+      };
 
       const newParcel: LandParcel = {
         id: registerData.land_id,
@@ -157,8 +173,11 @@ const BoundaryConfirmScreen = () => {
       navigation.replace('LandRegistrationSuccessScreen', {
         landId: newParcel.id,
       });
-    } catch (err: unknown) {
-      const axiosErr = err as {response?: {status?: number; data?: {error?: string}}};
+    } catch (error: unknown) {
+      const axiosErr = error as {
+        response?: {status?: number; data?: {error?: string}};
+      };
+
       if (!axiosErr.response) {
         setIsOffline(true);
       } else if (axiosErr.response.status === 400) {
@@ -171,13 +190,14 @@ const BoundaryConfirmScreen = () => {
         );
       } else {
         setRegisterError(
-          axiosErr.response.data?.error ?? 'Registration failed. Please try again.',
+          axiosErr.response.data?.error ??
+            'Registration failed. Please try again.',
         );
       }
     } finally {
       setIsLoading(false);
     }
-  }, [ocrResult, boundary, currentDraft, defaultFarmName, dispatch, navigation]);
+  }, [boundary, currentDraft.boundarySource, currentDraft.satelliteThumbnailUrl, defaultFarmName, dispatch, navigation, ocrResult]);
 
   const onRetryAutomaticFetch = useCallback(async () => {
     if (!ocrResult) {
@@ -226,9 +246,11 @@ const BoundaryConfirmScreen = () => {
 
         dispatch(
           setCurrentDraft({
-            boundary: successData.geojson
-              .geometry as import('../store/landSlice').GeoJSONPolygon,
-            boundarySource: successData.boundary_source as import('../store/landSlice').BoundarySource,
+            boundary:
+              successData.geojson
+                .geometry as import('../store/landSlice').GeoJSONPolygon,
+            boundarySource:
+              successData.boundary_source as import('../store/landSlice').BoundarySource,
             satelliteThumbnailUrl: successData.satellite_thumbnail_url,
             fetchStatus: 'success',
           }),
@@ -238,8 +260,8 @@ const BoundaryConfirmScreen = () => {
 
       dispatch(setCurrentDraft({fetchStatus: 'manual_required'}));
       navigation.navigate('ManualUploadGuideScreen');
-    } catch (err: unknown) {
-      const axiosErr = err as {response?: unknown};
+    } catch (error: unknown) {
+      const axiosErr = error as {response?: unknown};
       dispatch(setCurrentDraft({fetchStatus: 'error'}));
 
       if (!axiosErr.response) {
@@ -262,163 +284,170 @@ const BoundaryConfirmScreen = () => {
 
   return (
     <View style={{flex: 1, backgroundColor: COLORS.DARK_SLATE}}>
-      {/* Satellite image background */}
-      {!imageLoadFailed && currentDraft.satelliteThumbnailUrl && (
+      {!imageLoadFailed && currentDraft.satelliteThumbnailUrl ? (
         <Image
           source={{uri: currentDraft.satelliteThumbnailUrl}}
           style={StyleSheet.absoluteFill}
           resizeMode="cover"
           onError={() => setImageLoadFailed(true)}
         />
+      ) : (
+        <View className="absolute inset-0" style={{backgroundColor: '#E6F4EA'}} />
       )}
 
-      {/* Fallback green background when image fails */}
-      {(imageLoadFailed || !currentDraft.satelliteThumbnailUrl) && (
-        <View className="absolute inset-0 bg-green-100" />
-      )}
-
-      {/* MapView with polygon overlay */}
       <MapView
         style={StyleSheet.absoluteFill}
         mapType={Platform.OS === 'android' ? 'none' : 'standard'}
         region={region}
         scrollEnabled={false}
         zoomEnabled={false}
-        liteMode={false}
-      >
-        {polygonCoords.length > 0 && (
+        liteMode={false}>
+        {polygonCoords.length > 0 ? (
           <Polygon
             coordinates={polygonCoords}
-            fillColor="rgba(47,133,90,0.3)"
-            strokeColor="rgba(47,133,90,0.9)"
+            fillColor="rgba(47,133,90,0.24)"
+            strokeColor="rgba(47,133,90,0.95)"
             strokeWidth={2}
           />
-        )}
+        ) : null}
       </MapView>
 
-      {/* Back button */}
-      <View className="absolute left-0 right-0 top-0 flex-row items-center justify-between px-4 pb-4 pt-12">
+      <View
+        className="absolute left-0 right-0 top-0 flex-row items-start justify-between"
+        style={{
+          paddingHorizontal: horizontalPadding,
+          paddingTop: topSpacing,
+        }}>
         <TouchableOpacity
-          className="min-h-[48px] min-w-[48px] items-center justify-center rounded-full bg-black/30"
+          className="min-h-[48px] min-w-[48px] items-center justify-center rounded-full"
+          style={{backgroundColor: 'rgba(17, 24, 39, 0.42)'}}
           onPress={() => navigation.goBack()}
           activeOpacity={0.7}>
           <MaterialCommunityIcons color="#FFFFFF" name="arrow-left" size={22} />
         </TouchableOpacity>
-        <View className="items-center">
-          <Text className="text-lg font-bold text-white">Confirm Your Land</Text>
-          <View className="mt-2 flex-row items-center gap-2">
-            <View className="h-2.5 w-2.5 rounded-full bg-white" />
-            <View className="h-2.5 w-2.5 rounded-full bg-white" />
-            <View className="h-2.5 w-2.5 rounded-full bg-white/30" />
+
+        <View className="flex-1 px-4">
+          <Text className="text-center text-[13px] font-semibold uppercase tracking-[1.8px] text-white/80">
+            Land Registration
+          </Text>
+          <Text className="mt-2 text-center text-[28px] font-bold text-white">
+            Confirm your boundary
+          </Text>
+          <Text className="mt-3 text-center text-sm leading-6 text-white/75">
+            Compare the parcel outline with your actual land before saving it to
+            your TerraTrust account.
+          </Text>
+          <View className="mt-4 flex-row items-center justify-center gap-2">
+            <View className="h-2.5 w-2.5 rounded-full bg-white/90" />
+            <View className="h-2.5 w-8 rounded-full bg-white/90" />
+            <View className="h-2.5 w-2.5 rounded-full bg-white/40" />
           </View>
         </View>
+
         <View className="h-12 w-12" />
       </View>
 
-      {/* Offline banner */}
-      {isOffline && (
-        <View className="absolute top-0 left-0 right-0 bg-amber-600 px-4 py-2">
-          <Text className="text-white text-sm text-center font-medium">
-            You are offline. Please check your connection.
+      {isOffline ? (
+        <View
+          className="absolute left-0 right-0 rounded-2xl px-4 py-3"
+          style={{
+            top: topSpacing + 110,
+            marginHorizontal: horizontalPadding,
+            backgroundColor: 'rgba(221,107,32,0.92)',
+          }}>
+          <Text className="text-center text-sm font-medium text-white">
+            You are offline. Reconnect before registering this land.
           </Text>
         </View>
-      )}
+      ) : null}
 
-      {/* Bottom sheet */}
       <View
-        className="absolute bottom-0 left-0 right-0 rounded-t-2xl px-6 pt-6 pb-8"
-        style={{backgroundColor: COLORS.DARK_SLATE}}>
-        <Text className="text-xl font-bold text-white">Is this your land?</Text>
+        className="absolute bottom-0 left-0 right-0 self-center rounded-t-[30px] px-6 pt-5"
+        style={{
+          backgroundColor: COLORS.CARD_WHITE,
+          paddingBottom: bottomSpacing,
+          maxWidth: contentMaxWidth,
+        }}>
+        <View
+          className="mb-4 self-center h-1.5 w-12 rounded-full"
+          style={{backgroundColor: '#CBD5E0'}}
+        />
+        <Text className="text-2xl font-bold" style={{color: COLORS.DARK_SLATE}}>
+          Is this your land?
+        </Text>
+        <Text className="mt-2 text-sm leading-6" style={{color: COLORS.DISABLED_GREY}}>
+          Review the official parcel shape and confirm the extracted record
+          before TerraTrust registers it to your account.
+        </Text>
 
-        {/* Survey Number */}
-        <View className="mb-4 mt-4">
-          <Text className="text-white/50 text-xs uppercase tracking-widest">
-            Survey Number
-          </Text>
-          <Text className="text-white text-xl font-bold mt-0.5">
-            {ocrResult?.survey_number ?? '—'}
-          </Text>
+        <View className="mt-5 gap-3">
+          {[
+            {label: 'Survey Number', value: ocrResult?.survey_number ?? '—'},
+            {label: 'Owner', value: ocrResult?.owner_name ?? '—'},
+            {
+              label: 'Area',
+              value: areaAcres ? `${areaAcres} acres` : 'Calculating...',
+            },
+            {label: 'Source', value: sourceLabel},
+          ].map(item => (
+            <Card key={item.label} className="rounded-2xl px-4 py-3">
+              <Text
+                className="text-[11px] font-semibold uppercase tracking-[1.4px]"
+                style={{color: COLORS.DISABLED_GREY}}>
+                {item.label}
+              </Text>
+              <Text
+                className="mt-1 text-base font-semibold"
+                style={{color: COLORS.DARK_SLATE}}>
+                {item.value}
+              </Text>
+            </Card>
+          ))}
         </View>
 
-        {/* Owner */}
-        <View className="mb-4">
-          <Text className="text-white/50 text-xs uppercase tracking-widest">
-            Owner
-          </Text>
-          <Text className="text-white text-base font-medium mt-0.5">
-            {ocrResult?.owner_name ?? '—'}
-          </Text>
+        {registerError ? (
+          <Card
+            className="mt-4 rounded-2xl px-4 py-3"
+            style={{backgroundColor: '#FFF5F5', borderColor: '#FED7D7'}}>
+            <Text className="text-sm" style={{color: COLORS.ERROR_RED}}>
+              {registerError}
+            </Text>
+          </Card>
+        ) : null}
+
+        <View className="mt-5 gap-3">
+          <Button
+            label={
+              isLoading ? 'Registering your land...' : 'Yes, this is my land'
+            }
+            onPress={() => {
+              void onConfirm();
+            }}
+            disabled={isLoading}
+          />
+          <Button
+            label="This boundary looks wrong"
+            onPress={() => setShowRetryOptions(true)}
+            variant="destructive"
+          />
         </View>
-
-        <View className="mb-6">
-          <Text className="text-white/50 text-xs uppercase tracking-widest">
-            Area
-          </Text>
-          <Text className="text-white text-base font-medium mt-0.5">
-            {areaAcres ? `${areaAcres} acres` : 'Calculating...'}
-          </Text>
-        </View>
-
-        <View className="mb-6">
-          <Text className="text-white/50 text-xs uppercase tracking-widest">
-            Source
-          </Text>
-          <Text className="text-white text-base font-medium mt-0.5">
-            {sourceLabel}
-          </Text>
-        </View>
-
-        {/* Error message */}
-        {registerError && (
-          <View className="bg-red-900/40 rounded-lg p-3 mb-4">
-            <Text className="text-red-300 text-sm">{registerError}</Text>
-          </View>
-        )}
-
-        {/* Confirm button */}
-        <TouchableOpacity
-          className="rounded-xl h-[52px] items-center justify-center flex-row min-h-[48px]"
-          style={{backgroundColor: COLORS.FOREST_GREEN}}
-          onPress={onConfirm}
-          disabled={isLoading}
-          activeOpacity={0.7}>
-          <Text className="text-white font-semibold text-base">
-            {isLoading
-              ? 'Registering your land...'
-              : 'Yes, this is my land - Confirm'}
-          </Text>
-          {!isLoading ? (
-            <MaterialCommunityIcons color="#FFFFFF" name="check" size={18} />
-          ) : null}
-        </TouchableOpacity>
-
-        {/* Try Again */}
-        <TouchableOpacity
-          className="mt-3 h-12 items-center justify-center min-h-[48px]"
-          onPress={() => setShowRetryOptions(true)}
-          activeOpacity={0.7}>
-          <Text style={{color: COLORS.ERROR_RED}} className="text-sm font-medium">
-            This boundary looks wrong - Report and try again
-          </Text>
-        </TouchableOpacity>
       </View>
 
-      {/* Loading overlay */}
-      {isLoading && (
-        <View className="absolute inset-0 bg-black/60 items-center justify-center">
+      {isLoading ? (
+        <View className="absolute inset-0 items-center justify-center bg-black/60">
           <LottieView
             source={require('../../../assets/lottie/spinning_leaf.json')}
             autoPlay
             loop
             style={{width: 120, height: 120}}
           />
-          <Text className="text-white text-lg mt-4 font-medium">
-            {loadingText}
-          </Text>
+          <Text className="mt-4 text-lg font-medium text-white">{loadingText}</Text>
         </View>
-      )}
+      ) : null}
 
-      <BottomSheet visible={showRetryOptions} onClose={() => setShowRetryOptions(false)}>
+      <BottomSheet
+        visible={showRetryOptions}
+        onClose={() => setShowRetryOptions(false)}>
         <Text className="text-lg font-bold" style={{color: COLORS.DARK_SLATE}}>
           Boundary needs correction
         </Text>
@@ -426,39 +455,28 @@ const BoundaryConfirmScreen = () => {
           Choose the next step TerraTrust should take for this land parcel.
         </Text>
 
-        <TouchableOpacity
-          className="mt-6 min-h-[48px] justify-center rounded-xl px-4 py-3"
-          style={{backgroundColor: COLORS.FOREST_GREEN}}
+        <Button
+          className="mt-6"
+          label="Retry automatic boundary fetch"
           onPress={() => {
             void onRetryAutomaticFetch();
           }}
-          activeOpacity={0.75}>
-          <Text className="text-white text-base font-semibold">
-            Retry automatic boundary fetch
-          </Text>
-        </TouchableOpacity>
-
-        <TouchableOpacity
-          className="mt-3 min-h-[48px] justify-center rounded-xl border px-4 py-3"
-          style={{borderColor: COLORS.FOREST_GREEN}}
+        />
+        <Button
+          className="mt-3"
+          label="Upload boundary map manually"
           onPress={() => {
             setShowRetryOptions(false);
             navigation.navigate('ManualUploadGuideScreen');
           }}
-          activeOpacity={0.75}>
-          <Text className="text-base font-semibold" style={{color: COLORS.FOREST_GREEN}}>
-            Upload boundary map manually
-          </Text>
-        </TouchableOpacity>
-
-        <TouchableOpacity
-          className="mt-3 min-h-[48px] justify-center rounded-xl px-4 py-3"
+          variant="secondary"
+        />
+        <Button
+          className="mt-3"
+          label="Retake land document"
           onPress={onRetakeDocument}
-          activeOpacity={0.75}>
-          <Text className="text-base font-semibold" style={{color: COLORS.ERROR_RED}}>
-            Retake land document
-          </Text>
-        </TouchableOpacity>
+          variant="destructive"
+        />
       </BottomSheet>
     </View>
   );

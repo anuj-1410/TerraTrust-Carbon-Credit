@@ -1,3 +1,12 @@
+jest.mock('react-native', () => ({
+  NativeModules: {
+    HashModule: {
+      sha256Base64: async (input: string) =>
+        require('crypto').createHash('sha256').update(input).digest('hex'),
+    },
+  },
+}));
+
 import {hashPhoto} from '../hash';
 
 describe('hashPhoto', () => {

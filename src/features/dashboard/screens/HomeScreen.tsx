@@ -1,4 +1,4 @@
-import React, {useEffect, useMemo, useRef, useState} from 'react';
+import React, {useCallback, useEffect, useMemo, useRef, useState} from 'react';
 import {
   View,
   Text,
@@ -56,6 +56,8 @@ const HomeScreen = () => {
   const unreadNotifications = useAppSelector(s => s.notifications.unreadCount);
   const parcelsRef = useRef(parcels);
   const [isLoadingParcels, setIsLoadingParcels] = useState(false);
+  const [hasLoadedParcels, setHasLoadedParcels] = useState(parcels.length > 0);
+  const [parcelLoadFailed, setParcelLoadFailed] = useState(false);
 
   useEffect(() => {
     parcelsRef.current = parcels;
@@ -68,51 +70,44 @@ const HomeScreen = () => {
     }
   }, [dispatch, isAuthenticated]);
 
-  useEffect(() => {
+  const loadParcelPreview = useCallback(async () => {
     if (!isAuthenticated) {
       return;
     }
 
-    let isMounted = true;
+    if (parcelsRef.current.length === 0) {
+      setIsLoadingParcels(true);
+    }
 
-    const loadParcelPreview = async () => {
-      if (parcelsRef.current.length === 0) {
-        setIsLoadingParcels(true);
+    try {
+      const {data} = await api.get<LandListResponse | Array<Record<string, unknown>>>(
+        '/api/v1/land/list',
+        {
+          params: {page: 1, limit: 3},
+        },
+      );
+
+      const currentParcels = parcelsRef.current;
+      const items = Array.isArray(data) ? data : data.items ?? [];
+      const previewParcels = normalizeLandParcels(items, currentParcels);
+
+      dispatch(setParcels(mergeLandParcels(currentParcels, previewParcels)));
+      dispatch(setLastSynced(new Date().toISOString()));
+      setHasLoadedParcels(true);
+      setParcelLoadFailed(false);
+    } catch {
+      setParcelLoadFailed(parcelsRef.current.length === 0);
+      if (parcelsRef.current.length > 0) {
+        setHasLoadedParcels(true);
       }
-
-      try {
-        const {data} = await api.get<LandListResponse | Array<Record<string, unknown>>>(
-          '/api/v1/land/list',
-          {
-            params: {page: 1, limit: 3},
-          },
-        );
-
-        if (!isMounted) {
-          return;
-        }
-
-        const currentParcels = parcelsRef.current;
-        const items = Array.isArray(data) ? data : data.items ?? [];
-        const previewParcels = normalizeLandParcels(items, currentParcels);
-
-        dispatch(setParcels(mergeLandParcels(currentParcels, previewParcels)));
-        dispatch(setLastSynced(new Date().toISOString()));
-      } catch {
-        // Leave cached parcels in place when preview refresh fails.
-      } finally {
-        if (isMounted) {
-          setIsLoadingParcels(false);
-        }
-      }
-    };
-
-    void loadParcelPreview();
-
-    return () => {
-      isMounted = false;
-    };
+    } finally {
+      setIsLoadingParcels(false);
+    }
   }, [dispatch, isAuthenticated]);
+
+  useEffect(() => {
+    void loadParcelPreview();
+  }, [loadParcelPreview]);
 
   // Credit earned celebration logic
   const prevPendingMint = useRef(pendingMint);
@@ -424,7 +419,42 @@ const HomeScreen = () => {
               </TouchableOpacity>
             );
           })}
-          {!isLoadingParcels && previewParcels.length === 0 ? (
+          {!isLoadingParcels &&
+          parcelLoadFailed &&
+          previewParcels.length === 0 ? (
+            <View
+              className="items-start rounded-xl px-5 py-6"
+              style={{backgroundColor: COLORS.CARD_WHITE}}>
+              <Text
+                className="text-lg font-semibold"
+                style={{color: COLORS.DARK_SLATE}}>
+                We could not load your lands yet
+              </Text>
+              <Text
+                className="mt-2"
+                style={{color: COLORS.DISABLED_GREY}}>
+                Your account may already have registered parcels. Retry once the
+                connection is stable.
+              </Text>
+              <TouchableOpacity
+                className="mt-4 min-h-[48px] items-center justify-center rounded-full px-4"
+                style={{backgroundColor: 'rgba(47,133,90,0.12)'}}
+                onPress={() => {
+                  void loadParcelPreview();
+                }}
+                activeOpacity={0.75}>
+                <Text
+                  className="font-semibold"
+                  style={{color: COLORS.FOREST_GREEN}}>
+                  Retry loading lands
+                </Text>
+              </TouchableOpacity>
+            </View>
+          ) : null}
+          {!isLoadingParcels &&
+          !parcelLoadFailed &&
+          hasLoadedParcels &&
+          previewParcels.length === 0 ? (
             <TouchableOpacity
               className="items-center rounded-xl px-5 py-6"
               style={{backgroundColor: COLORS.CARD_WHITE}}

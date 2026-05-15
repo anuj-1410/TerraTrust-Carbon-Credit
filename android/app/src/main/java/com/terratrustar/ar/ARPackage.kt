@@ -7,12 +7,14 @@ import com.facebook.react.uimanager.ViewManager
 
 class ARPackage : ReactPackage {
 
+    @Deprecated("Required by the ReactPackage compatibility API.")
     override fun createNativeModules(
         reactContext: ReactApplicationContext
     ): List<NativeModule> {
         return listOf(ARModule(reactContext))
     }
 
+    @Deprecated("Required by the ReactPackage compatibility API.")
     override fun createViewManagers(
         reactContext: ReactApplicationContext
     ): List<ViewManager<*, *>> {
