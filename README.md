@@ -18,29 +18,120 @@
 
 <br/>
 
-> **B.Tech Final Year Mini Project — Group 2**
-> Department of Artificial Intelligence & Cyber Security (AICS)
-> Shri Ramdeobaba College of Engineering & Management, Nagpur — May 2026
-
 </div>
 
 ---
-
-## 🌍 The Problem We're Solving
-
-India's smallholder agroforestry farmers collectively sequester **millions of tonnes of CO₂** every year — yet they receive **zero economic benefit** from carbon markets. The reason? Traditional carbon credit verification costs tens of thousands of rupees per farm, requires specialist consultants, expensive LiDAR equipment, and months of paperwork.
-
+##  The Problem
+ 
+Indian agroforestry farmers grow trees that absorb CO₂. This stored carbon can be converted into **carbon credits** — which have real monetary value in global carbon markets. However, small farmers are almost entirely shut out of these markets — not because they lack trees, but because the verification system was never built for them.
+ 
+> India's smallholder agroforestry farmers collectively sequester **millions of tonnes of CO₂** every year — yet they receive **zero economic benefit** from carbon markets.
+ 
+The reason? Traditional carbon credit verification costs tens of thousands of rupees per farm, requires specialist consultants, expensive LiDAR equipment, and months of paperwork.
+ 
+<br />
+Challenges Faced by Farmers
+ 
+| # | Challenge | Why It Hurts |
+|:---:|:---|:---|
+| 💸 | **No affordable verification method** | There is no cheap and scalable method to verify tree biomass on small farms. Hiring third-party auditors costs ₹50,000–₹2,00,000 per farm — completely out of reach for a smallholder. |
+| 📄 | **Land ownership is hard to prove** | Carbon markets require official, government-recognised land records. Hand-drawn maps or verbal agreements are not accepted. Farmers must prove ownership through legal documents like the **7/12 Extract**, which requires OCR and government API integration to process digitally. |
+| 🌐 | **Weak internet in rural areas** | Field audits happen on farmland, often far from reliable connectivity. Any system that requires constant internet will fail mid-audit, losing all collected data. |
+| 🔬 | **No technical knowledge — but needed** | Measuring tree biomass traditionally requires instruments like LiDAR scanners, dendrometers, and GPS survey equipment, along with trained professionals. A typical farmer has none of these. |
+| 🔒 | **Carbon markets demand tamper-proof evidence** | Without cryptographic proof, there is no way to prevent fraud — fake trees, duplicate claims for the same land, or inflated biomass numbers. Every scan, measurement, and calculation must be independently verifiable. |
+| 📡 | **No satellite data pipeline for individual farms** | Satellite-based biomass estimation has existed in research for years, but no system processes it automatically for a single 2–5 acre farm and delivers the result to a farmer's phone. |
+ 
+<br />
+ 
+## 💡 Our Solution
+ 
 **TerraTrust-AR eliminates every single one of those barriers.**
-
-A farmer with a ₹8,000 Android phone can now verify their land, scan their trees with AR, and receive cryptographically-verifiable carbon credits — all in under an hour, entirely for free.
-
----
-
-## ✨ Key Highlights
-
-| 🔬 Science-Grade Accuracy | 🔗 Tamper-Proof Records | 📶 Offline-First | ₹0 Per Farmer |
-|:---:|:---:|:---:|:---:|
-| Chave et al. (2014) allometric equations + NISAR L-band SAR | ERC-1155 tokens + IPFS evidence on Polygon PoS | Full MMKV persistence; resume interrupted audits | 100% free-tier cloud infrastructure |
+ 
+A farmer with a ₹8,000 Android phone can now:
+ 
+| ✔ | What They Can Do |
+|:---:|:---|
+| ✔ | Verify their official government land record using OCR |
+| ✔ | Receive an automatically generated farm boundary from government APIs |
+| ✔ | Scan trees using AR — with fallback support for any Android device |
+| ✔ | Get biomass calculated from multi-satellite fusion on Google Earth Engine |
+| ✔ | Receive cryptographically-verifiable carbon credit tokens on Polygon blockchain |
+ 
+> All of this happens **in under an hour, entirely for free**, with full offline support for field operations.
+ 
+<br />
+ 
+## 📱 App Screenshots
+ 
+<div align="center">
+<table>
+<tr>
+<td align="center" width="33%">
+**Farmer Sign In**<br />
+<img width="220" alt="Farmer Sign In" src="https://github.com/user-attachments/assets/2bfc22c2-5c3e-4159-8789-109d29914330" />
+ 
+</td>
+<td align="center" width="33%">
+**Home Dashboard**<br />
+<img width="220" alt="Home Dashboard" src="https://github.com/user-attachments/assets/926ad393-2eb0-4dd5-8614-511e4018e9f6" />
+ 
+</td>
+<td align="center" width="33%">
+**My Lands**<br />
+<img width="220" alt="My Lands" src="https://github.com/user-attachments/assets/fcd95b9a-45bf-45f6-9b0f-65a5c0897aa2" />
+ 
+</td>
+</tr>
+<tr>
+<td align="center" width="33%">
+**Credit History**<br />
+<img width="220" alt="Credit History" src="https://github.com/user-attachments/assets/163a2190-3749-4f06-aed5-942f2ce24af7" />
+ 
+</td>
+<td align="center" width="33%">
+**My Profile**<br />
+<img width="220" alt="My Profile" src="https://github.com/user-attachments/assets/75da6ee9-4a76-43ce-b899-3bf2cc0b79c0" />
+ 
+</td>
+<td align="center" width="33%">
+**Profile Settings**<br />
+<img width="220" alt="Profile Settings" src="https://github.com/user-attachments/assets/001389a6-6211-4aa7-a414-bff2866b66a0" />
+ 
+</td>
+</tr>
+<tr>
+<td align="center" width="33%">
+**Wallet Recovery**<br />
+<img width="220" alt="Wallet Recovery" src="https://github.com/user-attachments/assets/9f94ae75-62f3-4835-bb09-0541e729613a" />
+ 
+</td>
+<td align="center" width="33%">
+**Land Detail**<br />
+<img width="220" alt="Land Detail" src="https://github.com/user-attachments/assets/10465e8e-4eca-48bb-9acd-6d1ea7231ec3" />
+ 
+</td>
+<td align="center" width="33%">
+**Annual Audit Steps**<br />
+<img width="220" alt="Annual Audit Steps" src="https://github.com/user-attachments/assets/97a66183-66eb-4fc4-8cc1-22b4fa8cf37d" />
+ 
+</td>
+</tr>
+<tr>
+<td align="center" width="33%">
+**Audit Zone Generation**<br />
+<img width="220" alt="Audit Zone Generation" src="https://github.com/user-attachments/assets/9ebfcf43-a301-4734-9c46-e8b5224167b0" />
+ 
+</td>
+<td align="center" width="33%">
+**Zone Map & Scanning**<br />
+<img width="220" alt="Zone Map & Scanning" src="https://github.com/user-attachments/assets/cdfbd79c-a78a-48b5-a926-3f251f1d5897" />
+ 
+</td>
+<td align="center" width="33%"></td>
+</tr>
+</table>
+</div>
+<br />
 
 ---
 
@@ -360,15 +451,12 @@ cd blockchain && npx hardhat test
 
 ## 👨‍💻 Team
 
-| Name | Role |
-|------|------|
-| **Abhishek Shrivastav** | Satellite Fusion Engine & GEE Pipeline |
-| **Anuj Agrawal** | Blockchain & Smart Contract Architecture |
-| **Anuj Parwal** | AR Tree Scanning & Kotlin ARCore Module |
-| **Deepanshu Nanure** | React Native App & Land Verification |
-
-**Project Guide:** Dr. Avinash Agrawal
-**Department:** AI & Cyber Security (AICS), RCOEM Nagpur
+| Name |
+|------|
+| **Abhishek Shrivastav** | 
+| **Anuj Agrawal** | 
+| **Anuj Parwal** | 
+| **Deepanshu Nanure** | 
 
 ---
 
@@ -398,14 +486,12 @@ Full references available in `docs/report.pdf`.
 
 ## ⚖️ License
 
-This project was developed as part of the B.Tech curriculum at RCOEM Nagpur for academic purposes. All satellite data used is freely distributed under the respective agency terms (NASA, ESA, ISRO).
+All satellite data used is freely distributed under the respective agency terms (NASA, ESA, ISRO).
 
 ---
 
 <div align="center">
 
 *Built with 🌱 to give Indian farmers the carbon market access they deserve.*
-
-**TerraTrust-AR · RCOEM Nagpur · AICS Department · 2025–2026**
 
 </div>
