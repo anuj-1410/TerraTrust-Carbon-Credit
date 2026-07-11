@@ -1,7 +1,7 @@
 <div align="center">
 
 # 🌿 TerraTrust-AR
-
+              
 ### AI-Powered Spatial Computing System for Autonomous Carbon Credit Verification
 
 *Empowering Indian smallholder agroforestry farmers with zero-cost, tamper-proof carbon credit verification — right from their Android phones.*
