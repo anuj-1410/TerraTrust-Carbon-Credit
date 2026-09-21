@@ -6,6 +6,7 @@ import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityI
 
 import Card from '../../../common/components/Card';
 import {COLORS} from '../../../common/constants/colors';
+import {useResponsiveScreen} from '../../../common/hooks/useResponsiveScreen';
 import {useAppDispatch, useAppSelector} from '../../../store/hooks';
 import {
   markAllNotificationsRead,
@@ -68,11 +69,14 @@ function formatNotificationTimestamp(createdAt: string): string {
 const NotificationsScreen = () => {
   const navigation = useNavigation<Nav>();
   const dispatch = useAppDispatch();
+  const {horizontalPadding, topSpacing, bottomSpacing, contentMaxWidth} =
+    useResponsiveScreen();
   const items = useAppSelector(state =>
     [...state.notifications.notifications].sort(
       (left, right) => new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime(),
     ),
   );
+  const unreadCount = items.filter(item => !item.read).length;
 
   const openNotification = (item: NotificationItem) => {
     dispatch(markNotificationRead(item.id));
@@ -105,43 +109,124 @@ const NotificationsScreen = () => {
   };
 
   return (
-    <View className="flex-1 px-4 pt-12" style={{backgroundColor: COLORS.OFF_WHITE}}>
-      <View className="flex-row items-center justify-between">
-        <TouchableOpacity
-          className="min-h-[48px] min-w-[48px] items-center justify-center"
-          onPress={() => navigation.goBack()}>
-          <MaterialCommunityIcons
-            color={COLORS.DARK_SLATE}
-            name="close"
-            size={24}
-          />
-        </TouchableOpacity>
-        <Text className="text-2xl font-bold" style={{color: COLORS.DARK_SLATE}}>
-          Notifications
-        </Text>
-        <TouchableOpacity
-          className="min-h-[48px] min-w-[48px] items-center justify-center"
-          onPress={() => dispatch(markAllNotificationsRead())}>
-          <Text style={{color: COLORS.TEAL}}>Mark all read</Text>
-        </TouchableOpacity>
-      </View>
+    <View className="flex-1" style={{backgroundColor: COLORS.OFF_WHITE}}>
+      <ScrollView
+        contentContainerStyle={{
+          alignSelf: 'center',
+          width: '100%',
+          maxWidth: contentMaxWidth,
+          paddingHorizontal: horizontalPadding,
+          paddingTop: topSpacing,
+          paddingBottom: bottomSpacing,
+        }}>
+        <View className="flex-row items-start justify-between">
+          <TouchableOpacity
+            className="min-h-[48px] min-w-[48px] items-center justify-center rounded-full"
+            style={{backgroundColor: COLORS.CARD_WHITE}}
+            onPress={() => navigation.goBack()}
+            activeOpacity={0.7}>
+            <MaterialCommunityIcons
+              color={COLORS.DARK_SLATE}
+              name="close"
+              size={22}
+            />
+          </TouchableOpacity>
 
-      <ScrollView contentContainerStyle={{paddingTop: 20, paddingBottom: 24}}>
-        {items.length === 0 ? (
-          <View className="mt-20 items-center px-8">
-            <Text className="text-xl font-semibold" style={{color: COLORS.DARK_SLATE}}>
-              No notifications yet
+          <View className="flex-1 px-4">
+            <Text
+              className="text-center text-[13px] font-semibold uppercase tracking-[1.8px]"
+              style={{color: COLORS.FOREST_GREEN}}>
+              Inbox
             </Text>
-            <Text className="mt-3 text-center leading-6" style={{color: COLORS.DISABLED_GREY}}>
-              We will show audit processing, land verification, and credit updates here.
+            <Text
+              className="mt-2 text-center text-[30px] font-bold leading-9"
+              style={{color: COLORS.DARK_SLATE}}>
+              Notifications
+            </Text>
+            <Text
+              className="mt-3 text-center text-sm leading-6"
+              style={{color: COLORS.DISABLED_GREY}}>
+              Track land verification, audit progress, wallet recovery, and
+              carbon credit activity from one place.
             </Text>
           </View>
+
+          <View className="h-12 w-12" />
+        </View>
+
+        <Card className="mt-6 px-5 py-4">
+          <View className="flex-row items-center justify-between">
+            <View>
+              <Text
+                className="text-sm font-semibold uppercase tracking-[1.3px]"
+                style={{color: COLORS.DISABLED_GREY}}>
+                Summary
+              </Text>
+              <Text
+                className="mt-1 text-lg font-semibold"
+                style={{color: COLORS.DARK_SLATE}}>
+                {unreadCount > 0
+                  ? `${unreadCount} unread notification${unreadCount === 1 ? '' : 's'}`
+                  : 'Everything is up to date'}
+              </Text>
+            </View>
+            {items.length > 0 ? (
+              <TouchableOpacity
+                className="min-h-[44px] rounded-full px-4 items-center justify-center"
+                style={{backgroundColor: 'rgba(56,178,172,0.12)'}}
+                onPress={() => dispatch(markAllNotificationsRead())}
+                activeOpacity={0.78}>
+                <Text className="font-semibold" style={{color: COLORS.TEAL}}>
+                  Mark all read
+                </Text>
+              </TouchableOpacity>
+            ) : null}
+          </View>
+        </Card>
+
+        <View style={{paddingTop: 20}}>
+        {items.length === 0 ? (
+          <Card className="mt-10 items-center px-8 py-10">
+            <View
+              className="h-16 w-16 items-center justify-center rounded-full"
+              style={{backgroundColor: 'rgba(47,133,90,0.12)'}}>
+              <MaterialCommunityIcons
+                color={COLORS.FOREST_GREEN}
+                name="bell-outline"
+                size={28}
+              />
+            </View>
+            <Text
+              className="mt-5 text-xl font-semibold"
+              style={{color: COLORS.DARK_SLATE}}>
+              No notifications yet
+            </Text>
+            <Text
+              className="mt-3 text-center leading-6"
+              style={{color: COLORS.DISABLED_GREY}}>
+              We will show audit processing, land verification, and credit updates here.
+            </Text>
+          </Card>
         ) : (
           items.map(item => (
-            <TouchableOpacity key={item.id} onPress={() => openNotification(item)} activeOpacity={0.75}>
-              <Card className="mb-3">
-                <View className="flex-row items-start justify-between">
-                  <View className="mr-3 mt-1 h-10 w-10 items-center justify-center rounded-full" style={{backgroundColor: 'rgba(47,133,90,0.12)'}}>
+            <TouchableOpacity
+              key={item.id}
+              onPress={() => openNotification(item)}
+              activeOpacity={0.82}>
+              <Card
+                className="mb-3 px-4 py-4"
+                style={{
+                  borderColor: item.read ? '#E2E8F0' : 'rgba(47,133,90,0.25)',
+                  backgroundColor: item.read ? COLORS.CARD_WHITE : '#F7FCF9',
+                }}>
+                <View className="flex-row items-start">
+                  <View
+                    className="mr-4 mt-0.5 h-12 w-12 items-center justify-center rounded-2xl"
+                    style={{
+                      backgroundColor: item.read
+                        ? 'rgba(160,174,192,0.12)'
+                        : 'rgba(47,133,90,0.12)',
+                    }}>
                     <MaterialCommunityIcons
                       color={item.read ? COLORS.DISABLED_GREY : COLORS.FOREST_GREEN}
                       name={NOTIFICATION_ICON[item.type]}
@@ -159,14 +244,27 @@ const NotificationsScreen = () => {
                       {formatNotificationTimestamp(item.createdAt)}
                     </Text>
                   </View>
-                  {!item.read ? (
-                    <View className="mt-2 h-2.5 w-2.5 rounded-full" style={{backgroundColor: '#DC2626'}} />
-                  ) : null}
+                  <View className="items-end">
+                    {!item.read ? (
+                      <View
+                        className="mb-3 h-2.5 w-2.5 rounded-full"
+                        style={{backgroundColor: COLORS.ERROR_RED}}
+                      />
+                    ) : (
+                      <View className="mb-3 h-2.5 w-2.5" />
+                    )}
+                    <MaterialCommunityIcons
+                      color={COLORS.DISABLED_GREY}
+                      name="chevron-right"
+                      size={22}
+                    />
+                  </View>
                 </View>
               </Card>
             </TouchableOpacity>
           ))
         )}
+        </View>
       </ScrollView>
     </View>
   );

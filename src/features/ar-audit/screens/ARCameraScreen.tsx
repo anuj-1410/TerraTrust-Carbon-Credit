@@ -35,8 +35,10 @@ import {
 import {deleteFile, hashFile, persistFile} from '../../../common/utils/hash';
 import {
   APPROVED_SPECIES,
-  APPROVED_SPECIES_NAMES,
   getWoodDensity,
+  isApprovedSpeciesName,
+  normalizeSpeciesName,
+  SPECIES_MODEL_CONFIG,
 } from '../../../common/constants/species';
 import {v4 as uuidv4} from 'uuid';
 import {
@@ -514,10 +516,22 @@ const ARCameraScreen = () => {
       setStatusText('Identifying species...');
       const snapshot = await takeVisionCameraSnapshot();
       const result = await withTimeout(identifySpecies(snapshot.path), 10000);
+      const detectedSpeciesName =
+        normalizeSpeciesName(result.species) ?? result.species;
+      const inferredStatus =
+        result.status ??
+        (!isApprovedSpeciesName(detectedSpeciesName)
+          ? 'REJECTED'
+          : result.confidence >= SPECIES_MODEL_CONFIG.hardAcceptanceThreshold
+            ? 'ACCEPTED'
+            : result.confidence >= SPECIES_MODEL_CONFIG.uiFallbackThreshold
+              ? 'MEDIUM_CONFIDENCE'
+              : 'LOW_CONFIDENCE');
 
-      const isApprovedSpecies = APPROVED_SPECIES_NAMES.includes(result.species);
-
-      if (!isApprovedSpecies) {
+      if (
+        inferredStatus === 'REJECTED' ||
+        !isApprovedSpeciesName(detectedSpeciesName)
+      ) {
         Alert.alert(
           'Species Not Eligible',
           'This species is not eligible for carbon credits. Please scan a different tree.',
@@ -530,13 +544,17 @@ const ARCameraScreen = () => {
         return;
       }
 
-      if (result.confidence >= 0.8) {
-        applySpeciesSelection(result.species, result.confidence, 'MODEL_AUTO');
+      if (inferredStatus === 'ACCEPTED') {
+        applySpeciesSelection(
+          detectedSpeciesName,
+          result.confidence,
+          'MODEL_AUTO',
+        );
         return;
       }
 
-      if (result.confidence >= 0.6) {
-        setSuggestedSpecies(result.species);
+      if (inferredStatus === 'MEDIUM_CONFIDENCE') {
+        setSuggestedSpecies(detectedSpeciesName);
         setSuggestedConfidence(result.confidence);
         setSpeciesResolutionMode('confirm');
         setPhase('idle');

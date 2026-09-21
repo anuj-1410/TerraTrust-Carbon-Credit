@@ -189,15 +189,41 @@ export function mergeLandParcels(
   return [...updatedExisting, ...newParcels];
 }
 
+export function dedupeLandParcels(parcels: LandParcel[]): LandParcel[] {
+  const orderedIds: string[] = [];
+  const mergedById = new Map<string, LandParcel>();
+
+  parcels.forEach(parcel => {
+    if (!parcel?.id) {
+      return;
+    }
+
+    if (!mergedById.has(parcel.id)) {
+      orderedIds.push(parcel.id);
+      mergedById.set(parcel.id, parcel);
+      return;
+    }
+
+    mergedById.set(parcel.id, {
+      ...mergedById.get(parcel.id)!,
+      ...parcel,
+    });
+  });
+
+  return orderedIds
+    .map(parcelId => mergedById.get(parcelId))
+    .filter((parcel): parcel is LandParcel => parcel != null);
+}
+
 const landSlice = createSlice({
   name: 'land',
   initialState: landInitialState,
   reducers: {
     setParcels(state, action: PayloadAction<LandParcel[]>) {
-      state.parcels = action.payload;
+      state.parcels = dedupeLandParcels(action.payload);
     },
     addParcel(state, action: PayloadAction<LandParcel>) {
-      state.parcels.push(action.payload);
+      state.parcels = dedupeLandParcels([action.payload, ...state.parcels]);
     },
     updateParcel(
       state,

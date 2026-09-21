@@ -16,7 +16,10 @@ import {mmkvStorage} from './mmkvStorage';
 import authReducer from '../features/auth/store/authSlice';
 import type {AuthState} from '../features/auth/store/authSlice';
 import landReducer from '../features/land/store/landSlice';
-import type {LandState} from '../features/land/store/landSlice';
+import {
+  dedupeLandParcels,
+  type LandState,
+} from '../features/land/store/landSlice';
 import auditReducer, {
   auditInitialState,
 } from '../features/ar-audit/store/auditSlice';
@@ -93,6 +96,21 @@ async function migrateNotificationsState(state: any): Promise<any> {
   };
 }
 
+async function migrateLandState(state: any): Promise<any> {
+  if (!state || typeof state !== 'object') {
+    return state;
+  }
+
+  const parcels = Array.isArray(state.parcels)
+    ? dedupeLandParcels(state.parcels)
+    : [];
+
+  return {
+    ...state,
+    parcels,
+  };
+}
+
 async function migrateAuditState(state: any): Promise<any> {
   if (!state || typeof state !== 'object') {
     return state;
@@ -146,10 +164,10 @@ const authPersistConfig: PersistConfig<AuthState> = {
 
 const landPersistConfig: PersistConfig<LandState> = {
   key: 'land',
-  version: 1,
+  version: 2,
   storage: mmkvStorage,
   blacklist: ['currentDraft'],
-  migrate: createMigrate(migrations, {debug: false}),
+  migrate: migrateLandState,
   stateReconciler: autoMergeLevel2,
 };
 

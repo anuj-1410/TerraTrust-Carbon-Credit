@@ -19,38 +19,56 @@ interface BadgeProps {
 const variantStyles: Record<
   BadgeVariant,
   {
-    container: {backgroundColor: string};
+    container: {backgroundColor: string; borderColor: string};
     text: {color: string};
     icon: string;
   }
 > = {
   verified: {
-    container: {backgroundColor: 'rgba(47, 133, 90, 0.15)'},
+    container: {
+      backgroundColor: 'rgba(47, 133, 90, 0.12)',
+      borderColor: 'rgba(47, 133, 90, 0.2)',
+    },
     text: {color: COLORS.FOREST_GREEN},
     icon: 'check-circle-outline',
   },
   pending: {
-    container: {backgroundColor: 'rgba(221, 107, 32, 0.15)'},
+    container: {
+      backgroundColor: 'rgba(221, 107, 32, 0.12)',
+      borderColor: 'rgba(221, 107, 32, 0.18)',
+    },
     text: {color: COLORS.WARNING_ORANGE},
     icon: 'progress-clock',
   },
   rejected: {
-    container: {backgroundColor: 'rgba(229, 62, 62, 0.15)'},
+    container: {
+      backgroundColor: 'rgba(229, 62, 62, 0.12)',
+      borderColor: 'rgba(229, 62, 62, 0.18)',
+    },
     text: {color: COLORS.ERROR_RED},
     icon: 'close-circle-outline',
   },
   'high-precision': {
-    container: {backgroundColor: 'rgba(56, 178, 172, 0.15)'},
+    container: {
+      backgroundColor: 'rgba(56, 178, 172, 0.12)',
+      borderColor: 'rgba(56, 178, 172, 0.18)',
+    },
     text: {color: COLORS.TEAL},
     icon: 'crosshairs-gps',
   },
   'standard-precision': {
-    container: {backgroundColor: 'rgba(221, 107, 32, 0.15)'},
+    container: {
+      backgroundColor: 'rgba(221, 107, 32, 0.12)',
+      borderColor: 'rgba(221, 107, 32, 0.18)',
+    },
     text: {color: COLORS.WARNING_ORANGE},
     icon: 'tune',
   },
   manual: {
-    container: {backgroundColor: 'rgba(107, 114, 128, 0.15)'},
+    container: {
+      backgroundColor: 'rgba(107, 114, 128, 0.12)',
+      borderColor: 'rgba(107, 114, 128, 0.18)',
+    },
     text: {color: COLORS.DISABLED_GREY},
     icon: 'ruler',
   },
@@ -60,15 +78,14 @@ const Badge = ({label, variant}: BadgeProps) => {
   const styles = variantStyles[variant];
   return (
     <View
-      className="flex-row items-center rounded-full px-3 py-1"
+      className="flex-row items-center rounded-full border px-3 py-1.5"
       style={styles.container}>
       <MaterialCommunityIcons
         color={styles.text.color}
         name={styles.icon}
-        size={12}
+        size={13}
       />
-      <Text className="text-xs font-medium" style={styles.text}>
-        {' '}
+      <Text className="ml-1.5 text-xs font-medium" style={styles.text}>
         {label}
       </Text>
     </View>

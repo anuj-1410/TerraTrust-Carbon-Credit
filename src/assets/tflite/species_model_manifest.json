@@ -1,0 +1,25 @@
+{
+  "model_file": "species_model.tflite",
+  "model_version": "1.0.0",
+  "input_shape": [1, 224, 224, 3],
+  "input_dtype": "float32",
+  "normalization": "divide_by_255",
+  "num_classes": 12,
+  "label_order": [
+    "NOT_APPROVED",
+    "amla",
+    "bamboo",
+    "casuarina",
+    "drumstick",
+    "eucalyptus",
+    "indian_rosewood",
+    "mango",
+    "neem",
+    "pongamia",
+    "subabul",
+    "teak"
+  ],
+  "confidence_ui_fallback_threshold": 0.6,
+  "confidence_hard_acceptance_threshold": 0.8,
+  "not_approved_index": 0
+}

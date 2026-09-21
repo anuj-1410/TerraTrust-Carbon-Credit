@@ -53,6 +53,7 @@ const OTPScreen = ({route, navigation}: Props) => {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [countdown, setCountdown] = useState(COUNTDOWN_SECONDS);
+  const [focusedIndex, setFocusedIndex] = useState(0);
   const [activeVerificationId, setActiveVerificationId] = useState<string | null>(
     verificationId ?? null,
   );
@@ -94,25 +95,25 @@ const OTPScreen = ({route, navigation}: Props) => {
     /(\+91)(\d{6})(\d{4})/,
     '$1 XXXXXX$3',
   );
+  const otpGap = width < 360 ? 6 : 8;
+  const otpAvailableWidth = Math.min(
+    width - horizontalPadding * 2 - 24,
+    contentMaxWidth - 48,
+  );
   const otpCellSize = Math.max(
-    46,
+    42,
     Math.min(
-      54,
-      Math.floor(
-        (Math.min(width, contentMaxWidth) -
-          horizontalPadding * 2 -
-          52 -
-          10 * (OTP_LENGTH - 1)) /
-          OTP_LENGTH,
-      ),
+      50,
+      Math.floor((otpAvailableWidth - otpGap * (OTP_LENGTH - 1)) / OTP_LENGTH),
     ),
   );
-  const otpGap = 10;
+  const otpRowWidth = otpCellSize * OTP_LENGTH + otpGap * (OTP_LENGTH - 1);
   const otpValue = digits.join('');
   const isOtpComplete = otpValue.length === OTP_LENGTH;
 
   const resetOtpInputs = useCallback(() => {
     setDigits(Array(OTP_LENGTH).fill(''));
+    setFocusedIndex(0);
     inputRefs.current[0]?.focus();
   }, []);
 
@@ -252,6 +253,7 @@ const OTPScreen = ({route, navigation}: Props) => {
         });
       setDigits(newDigits);
       const nextIndex = Math.min(index + sanitized.length, OTP_LENGTH - 1);
+      setFocusedIndex(nextIndex);
       inputRefs.current[nextIndex]?.focus();
       setError(null);
       return;
@@ -264,6 +266,7 @@ const OTPScreen = ({route, navigation}: Props) => {
 
     // Auto-focus next box
     if (digit && index < OTP_LENGTH - 1) {
+      setFocusedIndex(index + 1);
       inputRefs.current[index + 1]?.focus();
     }
   };
@@ -276,6 +279,7 @@ const OTPScreen = ({route, navigation}: Props) => {
       const newDigits = [...digits];
       newDigits[index - 1] = '';
       setDigits(newDigits);
+      setFocusedIndex(index - 1);
       inputRefs.current[index - 1]?.focus();
     }
   };
@@ -325,10 +329,21 @@ const OTPScreen = ({route, navigation}: Props) => {
             />
           </TouchableOpacity>
 
-          <Text className="text-base text-gray-700">
-            Enter the 6-digit code sent to
+          <View
+            className="mt-5 self-start rounded-full px-4 py-2"
+            style={{backgroundColor: 'rgba(47, 133, 90, 0.12)'}}>
+            <Text className="text-xs font-semibold uppercase tracking-[1.2px] text-[#2F855A]">
+              Secure Verification
+            </Text>
+          </View>
+
+          <Text className="mt-5 text-3xl font-bold text-gray-900">
+            Confirm your OTP
           </Text>
-          <Text className="mt-1 text-base font-bold text-[#2F855A]">
+          <Text className="mt-3 text-base leading-6 text-gray-600">
+            Enter the 6-digit code sent to the mobile number below.
+          </Text>
+          <Text className="mt-4 text-base font-bold text-[#2F855A]">
             {maskedPhone}
           </Text>
 
@@ -337,35 +352,50 @@ const OTPScreen = ({route, navigation}: Props) => {
               Enter the verification code below to continue securely.
             </Text>
             <View
-              className="mt-6 flex-row items-center justify-center"
-              style={{gap: otpGap}}>
+              className="mt-6 flex-row self-center"
+              style={{
+                width: otpRowWidth,
+                justifyContent: 'center',
+              }}>
               {digits.map((digit, index) => (
-                <TextInput
+                <View
                   key={index}
-                  ref={ref => {
-                    inputRefs.current[index] = ref;
-                  }}
-                  className={`rounded-2xl border-2 text-center text-2xl font-bold text-gray-900 ${
-                    digit
-                      ? 'border-[#2F855A] bg-[#2F855A]/5'
-                      : 'border-gray-300'
-                  }`}
+                  className="items-center justify-center rounded-[18px] border-2 bg-white"
                   style={{
                     width: otpCellSize,
                     height: otpCellSize,
-                    minWidth: 46,
-                    minHeight: 46,
-                  }}
-                  keyboardType="number-pad"
-                  maxLength={1}
-                  value={digit}
-                  onChangeText={text => handleDigitChange(text, index)}
-                  onKeyPress={e => handleKeyPress(e, index)}
-                  editable={!isLoading}
-                  selectTextOnFocus
-                  textContentType={index === 0 ? 'oneTimeCode' : 'none'}
-                  autoComplete={index === 0 ? 'sms-otp' : 'off'}
-                />
+                    marginRight: index === OTP_LENGTH - 1 ? 0 : otpGap,
+                    borderColor: error
+                      ? '#FCA5A5'
+                      : focusedIndex === index
+                        ? '#2F855A'
+                        : digit
+                          ? '#A7D7BE'
+                          : '#D4DDD6',
+                    backgroundColor: digit ? '#F4FBF7' : '#FFFFFF',
+                  }}>
+                  <TextInput
+                    ref={ref => {
+                      inputRefs.current[index] = ref;
+                    }}
+                    className="w-full text-center text-[22px] font-bold text-gray-900"
+                    style={{
+                      height: otpCellSize,
+                      lineHeight: 26,
+                      textAlignVertical: 'center',
+                    }}
+                    keyboardType="number-pad"
+                    maxLength={1}
+                    value={digit}
+                    onChangeText={text => handleDigitChange(text, index)}
+                    onKeyPress={e => handleKeyPress(e, index)}
+                    onFocus={() => setFocusedIndex(index)}
+                    editable={!isLoading}
+                    selectTextOnFocus
+                    textContentType={index === 0 ? 'oneTimeCode' : 'none'}
+                    autoComplete={index === 0 ? 'sms-otp' : 'off'}
+                  />
+                </View>
               ))}
             </View>
 

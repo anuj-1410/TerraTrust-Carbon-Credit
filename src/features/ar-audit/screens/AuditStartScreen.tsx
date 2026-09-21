@@ -576,6 +576,78 @@ const AuditStartScreen = () => {
           )}
         </Card>
 
+        <Card className="mt-4 rounded-2xl p-5">
+          <Text
+            className="text-sm uppercase tracking-widest"
+            style={{color: COLORS.DISABLED_GREY}}>
+            Audit Flow
+          </Text>
+          <Text
+            className="mt-3 text-lg font-bold"
+            style={{color: COLORS.DARK_SLATE}}>
+            TerraTrust will prepare your zone map first
+          </Text>
+          <Text
+            className="mt-2 text-sm leading-6"
+            style={{color: COLORS.DISABLED_GREY}}>
+            Once the zones are ready, the app will guide you from one sampling
+            point to the next and keep track of how many trees are needed in
+            each area.
+          </Text>
+
+          <View className="mt-5 gap-3">
+            {[
+              {
+                step: '01',
+                title: 'Generate audit zones',
+                body: 'TerraTrust creates the sampling map for this parcel.',
+              },
+              {
+                step: '02',
+                title: 'Walk to each zone',
+                body: 'GPS guidance takes you to the right scan locations.',
+              },
+              {
+                step: '03',
+                title: 'Scan trees or measure manually',
+                body: 'Species, diameter, and height can be completed as needed.',
+              },
+              {
+                step: '04',
+                title: 'Submit for verification',
+                body: 'The completed audit is uploaded for satellite review.',
+              },
+            ].map(item => (
+              <View
+                key={item.step}
+                className="flex-row rounded-2xl px-4 py-4"
+                style={{backgroundColor: COLORS.OFF_WHITE}}>
+                <View
+                  className="h-11 w-11 items-center justify-center rounded-2xl"
+                  style={{backgroundColor: 'rgba(47,133,90,0.12)'}}>
+                  <Text
+                    className="text-sm font-bold"
+                    style={{color: COLORS.FOREST_GREEN}}>
+                    {item.step}
+                  </Text>
+                </View>
+                <View className="ml-4 flex-1">
+                  <Text
+                    className="text-base font-semibold"
+                    style={{color: COLORS.DARK_SLATE}}>
+                    {item.title}
+                  </Text>
+                  <Text
+                    className="mt-1 text-sm leading-6"
+                    style={{color: COLORS.DISABLED_GREY}}>
+                    {item.body}
+                  </Text>
+                </View>
+              </View>
+            ))}
+          </View>
+        </Card>
+
         {/* Center illustration / Lottie area */}
         <View className="items-center mt-8">
           {loading ? (
@@ -607,15 +679,38 @@ const AuditStartScreen = () => {
           paddingTop: 12,
           paddingBottom: bottomSpacing,
         }}>
-        <View style={{alignSelf: 'center', width: '100%', maxWidth: contentMaxWidth}}>
+        <Card
+          className="self-center px-4 py-4"
+          style={{width: '100%', maxWidth: contentMaxWidth}}>
+          <View className="mb-4 flex-row items-center justify-between">
+            <View className="flex-1 pr-4">
+              <Text
+                className="text-base font-semibold"
+                style={{color: COLORS.DARK_SLATE}}>
+                Ready to generate your audit zones
+              </Text>
+              <Text
+                className="mt-1 text-sm leading-6"
+                style={{color: COLORS.DISABLED_GREY}}>
+                Estimated time: 20 to 30 minutes for a complete field audit.
+              </Text>
+            </View>
+            <View
+              className="rounded-full px-3 py-2"
+              style={{backgroundColor: 'rgba(56,178,172,0.12)'}}>
+              <Text className="font-semibold" style={{color: COLORS.TEAL}}>
+                Secure
+              </Text>
+            </View>
+          </View>
           <Button
-            label={loading ? 'Preparing Your Scanning Map...' : 'Start Audit'}
+            label={loading ? 'Generating Audit Zones...' : 'Generate Audit Zones'}
             onPress={() => {
               void handleStartAudit();
             }}
             disabled={loading}
           />
-        </View>
+        </Card>
       </View>
     </View>
   );

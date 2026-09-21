@@ -4,6 +4,7 @@ import {
   type AppStateStatus,
   BackHandler,
   Platform,
+  Pressable,
   Text,
   ToastAndroid,
   TouchableOpacity,
@@ -16,7 +17,10 @@ import {
   getFocusedRouteNameFromRoute,
 } from '@react-navigation/native';
 import {createNativeStackNavigator} from '@react-navigation/native-stack';
-import {createBottomTabNavigator} from '@react-navigation/bottom-tabs';
+import {
+  createBottomTabNavigator,
+  type BottomTabBarButtonProps,
+} from '@react-navigation/bottom-tabs';
 import {useSafeAreaInsets} from 'react-native-safe-area-context';
 import BackgroundFetch from 'react-native-background-fetch';
 import NetInfo from '@react-native-community/netinfo';
@@ -62,6 +66,13 @@ import DocumentUploadScreen from '../features/land/screens/DocumentUploadScreen'
 import BoundaryConfirmScreen from '../features/land/screens/BoundaryConfirmScreen';
 import ManualUploadGuideScreen from '../features/land/screens/ManualUploadGuideScreen';
 import LandRegistrationSuccessScreen from '../features/land/screens/LandRegistrationSuccessScreen';
+import {
+  mergeLandParcels,
+  normalizeLandParcels,
+  setLastSynced,
+  setParcels,
+  type LandListResponse,
+} from '../features/land/store/landSlice';
 
 // AR-audit screens
 import AuditStartScreen from '../features/ar-audit/screens/AuditStartScreen';
@@ -165,6 +176,25 @@ function primeAuditProcessingState(dispatch: typeof store.dispatch) {
   dispatch(setAuditResult({status: 'PROCESSING'}));
 }
 
+async function refreshLandSnapshot(dispatch: typeof store.dispatch) {
+  try {
+    const currentParcels = store.getState().land.parcels;
+    const {data} = await api.get<LandListResponse | Array<Record<string, unknown>>>(
+      '/api/v1/land/list',
+      {
+        params: {page: 1, limit: 50},
+      },
+    );
+
+    const items = Array.isArray(data) ? data : data.items ?? [];
+    const incomingParcels = normalizeLandParcels(items, currentParcels);
+    dispatch(setParcels(mergeLandParcels(currentParcels, incomingParcels)));
+    dispatch(setLastSynced(new Date().toISOString()));
+  } catch {
+    // Ignore foreground land refresh failures.
+  }
+}
+
 function TabIcon({
   name,
   label,
@@ -180,39 +210,79 @@ function TabIcon({
   focused: boolean;
   showDot?: boolean;
 }) {
+  const activeColor = focused ? COLORS.FOREST_GREEN : color;
+
   return (
-    <View
-      className="min-w-[78px] items-center rounded-2xl px-3 py-2"
-      style={{
-        backgroundColor: focused ? 'rgba(47, 133, 90, 0.12)' : 'transparent',
-      }}>
-      <View>
-        <MaterialCommunityIcons color={color} name={name} size={size} />
-        {showDot ? (
-          <View
-            className="absolute -right-1 top-0 h-2.5 w-2.5 rounded-full"
-            style={{backgroundColor: COLORS.ERROR_RED}}
-          />
-        ) : null}
+    <View className="w-full items-center justify-center py-1">
+      <View
+        className="items-center justify-center rounded-full"
+        style={{
+          width: focused ? 50 : 36,
+          height: 32,
+          backgroundColor: focused ? 'rgba(47, 133, 90, 0.16)' : 'transparent',
+        }}>
+        <View className="relative items-center justify-center">
+          <MaterialCommunityIcons color={activeColor} name={name} size={size} />
+          {showDot ? (
+            <View
+              className="absolute -right-1 -top-1 h-2.5 w-2.5 rounded-full"
+              style={{
+                backgroundColor: COLORS.ERROR_RED,
+              }}
+            />
+          ) : null}
+        </View>
       </View>
       <Text
-        className="mt-1 text-[11px] font-medium"
-        style={{color, fontFamily: 'Roboto-Regular'}}>
+        className="mt-1.5 text-[11px] font-medium"
+        numberOfLines={1}
+        style={{
+          color: focused ? COLORS.FOREST_GREEN : color,
+          fontFamily: 'Roboto-Regular',
+        }}>
         {label}
       </Text>
     </View>
   );
 }
 
+function TabBarButton({
+  children,
+  style,
+  ...props
+}: BottomTabBarButtonProps) {
+  return (
+    <Pressable
+      {...props}
+      android_ripple={{color: 'rgba(47, 133, 90, 0.08)', borderless: false}}
+      style={({pressed}) => [
+        style,
+        {
+          flex: 1,
+          minWidth: 0,
+          alignItems: 'center',
+          justifyContent: 'center',
+          paddingHorizontal: 0,
+          paddingVertical: 2,
+          opacity: pressed ? 0.92 : 1,
+        },
+      ]}>
+      {children}
+    </Pressable>
+  );
+}
+
 function getBaseTabBarStyle(bottomInset: number) {
   return {
     backgroundColor: COLORS.CARD_WHITE,
-    borderTopColor: '#E2E8F0',
     borderTopWidth: 1,
-    height: 68 + bottomInset,
-    paddingBottom: Math.max(bottomInset, 10),
-    paddingTop: 8,
-    paddingHorizontal: 8,
+    borderTopColor: '#E2E8F0',
+    height: 62 + bottomInset,
+    paddingBottom: Math.max(bottomInset, 6),
+    paddingTop: 4,
+    paddingHorizontal: 0,
+    shadowOpacity: 0,
+    elevation: 0,
   };
 }
 
@@ -286,12 +356,14 @@ function MainTabs() {
       screenOptions={{
         headerShown: false,
         tabBarActiveTintColor: COLORS.FOREST_GREEN,
-        tabBarInactiveTintColor: COLORS.DISABLED_GREY,
+        tabBarInactiveTintColor: '#64748B',
         tabBarHideOnKeyboard: true,
         tabBarShowLabel: false,
         tabBarItemStyle: {
-          paddingVertical: 2,
+          flex: 1,
+          paddingVertical: 0,
         },
+        tabBarButton: props => <TabBarButton {...props} />,
         tabBarStyle: baseTabBarStyle,
       }}>
       <Tab.Screen
@@ -430,6 +502,7 @@ function AppLifecycleEffects() {
   const backgroundFetchConfiguredRef = useRef(false);
   const auditPollInFlightRef = useRef(false);
   const arTierRefreshInFlightRef = useRef<Promise<unknown> | null>(null);
+  const landRefreshInFlightRef = useRef<Promise<void> | null>(null);
   const appStateRef = useRef<AppStateStatus>(AppState.currentState);
 
   const refreshARTier = useCallback(async () => {
@@ -451,6 +524,26 @@ function AppLifecycleEffects() {
     await pendingRefresh;
   }, [dispatch]);
 
+  const refreshLandState = useCallback(async () => {
+    if (!isAuthenticated) {
+      return;
+    }
+
+    if (landRefreshInFlightRef.current) {
+      await landRefreshInFlightRef.current;
+      return;
+    }
+
+    const pendingRefresh = refreshLandSnapshot(dispatch).finally(() => {
+      if (landRefreshInFlightRef.current === pendingRefresh) {
+        landRefreshInFlightRef.current = null;
+      }
+    });
+
+    landRefreshInFlightRef.current = pendingRefresh;
+    await pendingRefresh;
+  }, [dispatch, isAuthenticated]);
+
   useEffect(() => {
     const persistedOnboardingComplete = isOnboardingComplete();
     if (persistedOnboardingComplete !== onboardingComplete) {
@@ -469,11 +562,12 @@ function AppLifecycleEffects() {
 
       if (nextState === 'active' && wasInactive) {
         void refreshARTier();
+        void refreshLandState();
       }
     });
 
     return () => subscription.remove();
-  }, [refreshARTier]);
+  }, [refreshARTier, refreshLandState]);
 
   useEffect(() => {
     let isMounted = true;
@@ -509,6 +603,8 @@ function AppLifecycleEffects() {
               getState: store.getState,
             });
           }
+
+          await refreshLandState();
         }
       } catch {
         // Ignore bootstrap retry failures.
@@ -533,7 +629,7 @@ function AppLifecycleEffects() {
     return () => {
       isMounted = false;
     };
-  }, [dispatch, isAuthenticated]);
+  }, [dispatch, isAuthenticated, refreshLandState]);
 
   useEffect(() => {
     const unsubscribe = NetInfo.addEventListener(state => {

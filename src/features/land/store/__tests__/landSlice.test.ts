@@ -50,18 +50,27 @@ describe('landSlice', () => {
   });
 
   describe('addParcel', () => {
-    it('appends a parcel to existing', () => {
+    it('adds a new parcel to the front of the list', () => {
       const state: LandState = {...landInitialState, parcels: [mockParcel]};
       const newParcel = {...mockParcel, id: 'parcel-2'};
       const result = landReducer(state, addParcel(newParcel));
       expect(result.parcels).toHaveLength(2);
-      expect(result.parcels[1].id).toBe('parcel-2');
+      expect(result.parcels[0].id).toBe('parcel-2');
     });
 
     it('adds first parcel to empty array', () => {
       const result = landReducer(landInitialState, addParcel(mockParcel));
       expect(result.parcels).toHaveLength(1);
       expect(result.parcels[0].id).toBe('parcel-1');
+    });
+
+    it('replaces an existing parcel with the same id instead of duplicating it', () => {
+      const state: LandState = {...landInitialState, parcels: [mockParcel]};
+      const updatedParcel = {...mockParcel, farm_name: 'Updated Survey 47'};
+      const result = landReducer(state, addParcel(updatedParcel));
+
+      expect(result.parcels).toHaveLength(1);
+      expect(result.parcels[0].farm_name).toBe('Updated Survey 47');
     });
   });
 

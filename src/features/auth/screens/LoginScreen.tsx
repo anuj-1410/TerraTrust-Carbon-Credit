@@ -128,13 +128,20 @@ const LoginScreen = () => {
             paddingBottom: bottomSpacing,
           }}>
           <View
-            className="mb-6 h-16 w-16 items-center justify-center rounded-[24px]"
+            className="mb-6 h-[72px] w-[72px] items-center justify-center rounded-[28px]"
             style={{backgroundColor: 'rgba(47,133,90,0.12)'}}>
             <MaterialCommunityIcons
               color={COLORS.FOREST_GREEN}
               name="sprout"
-              size={30}
+              size={34}
             />
+          </View>
+          <View
+            className="self-start rounded-full px-4 py-2"
+            style={{backgroundColor: 'rgba(47, 133, 90, 0.12)'}}>
+            <Text className="text-xs font-semibold uppercase tracking-[1.2px] text-[#2F855A]">
+              Farmer Sign In
+            </Text>
           </View>
           <Text className="text-3xl font-bold text-gray-900">
             Welcome to TerraTrust
@@ -147,12 +154,16 @@ const LoginScreen = () => {
             <Text className="mb-2 text-sm font-medium text-gray-700">
               Mobile Number
             </Text>
-            <View className="flex-row">
-              <View className="items-center justify-center rounded-l-xl bg-[#2F855A] px-4">
-                <Text className="text-base font-semibold text-white">+91</Text>
+            <View
+              className="flex-row items-center overflow-hidden rounded-[20px] border"
+              style={{borderColor: phoneError || apiError ? '#FCA5A5' : '#D4DDD6'}}>
+              <View
+                className="items-center justify-center self-stretch px-4"
+                style={{backgroundColor: 'rgba(47, 133, 90, 0.1)'}}>
+                <Text className="text-base font-semibold text-[#2F855A]">+91</Text>
               </View>
               <TextInput
-                className="flex-1 rounded-r-xl border border-l-0 border-gray-300 px-4 py-3 text-base text-gray-900"
+                className="flex-1 bg-white px-4 py-4 text-base text-gray-900"
                 placeholder="Enter 10-digit number"
                 placeholderTextColor="#9CA3AF"
                 keyboardType="phone-pad"

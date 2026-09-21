@@ -21,8 +21,13 @@ const BottomSheet = ({visible, onClose, children}: BottomSheetProps) => {
       <View className="flex-1 justify-end bg-black/50">
         <Pressable className="flex-1" onPress={onClose} />
         <View
-          className="bg-white rounded-t-[28px] px-6 pt-4"
-          style={{paddingBottom: Math.max(insets.bottom + 18, 28)}}>
+          className="self-center rounded-t-[32px] border border-b-0 bg-white px-6 pt-4"
+          style={{
+            width: '100%',
+            maxWidth: 560,
+            borderColor: '#DCE7DF',
+            paddingBottom: Math.max(insets.bottom + 18, 28),
+          }}>
           <View
             style={{
               width: 40,

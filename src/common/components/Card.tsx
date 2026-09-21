@@ -9,16 +9,16 @@ interface CardProps extends ViewProps {
 const Card = ({children, className, style, ...props}: CardProps) => {
   return (
     <View
-      className={`rounded-3xl border p-4 ${className ?? ''}`}
+      className={`rounded-[28px] border p-4 ${className ?? ''}`}
       style={[
         {
           backgroundColor: COLORS.CARD_WHITE,
-          borderColor: '#E6ECE7',
+          borderColor: '#DCE7DF',
           shadowColor: '#102A22',
-          shadowOpacity: 0.08,
-          shadowRadius: 14,
-          shadowOffset: {width: 0, height: 6},
-          elevation: 2,
+          shadowOpacity: 0.07,
+          shadowRadius: 16,
+          shadowOffset: {width: 0, height: 8},
+          elevation: 3,
         },
         style,
       ]}

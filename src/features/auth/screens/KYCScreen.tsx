@@ -191,6 +191,13 @@ const KYCScreen = () => {
             paddingTop: topSpacing,
             paddingBottom: bottomSpacing,
           }}>
+          <View
+            className="self-start rounded-full px-4 py-2"
+            style={{backgroundColor: 'rgba(47, 133, 90, 0.12)'}}>
+            <Text className="text-xs font-semibold uppercase tracking-[1.2px] text-[#2F855A]">
+              One-Time Profile Setup
+            </Text>
+          </View>
           <Text className="text-3xl font-bold text-gray-900">
             Complete Your Profile
           </Text>
@@ -222,7 +229,10 @@ const KYCScreen = () => {
                 name="fullName"
                 render={({field: {onChange, onBlur, value}}) => (
                   <TextInput
-                    className="rounded-2xl border border-gray-300 px-4 py-3 text-base text-gray-900"
+                    className="rounded-[20px] border bg-white px-4 py-4 text-base text-gray-900"
+                    style={{
+                      borderColor: errors.fullName ? '#FCA5A5' : '#D4DDD6',
+                    }}
                     placeholder="Full name"
                     placeholderTextColor="#9CA3AF"
                     onBlur={onBlur}
@@ -252,7 +262,10 @@ const KYCScreen = () => {
                 name="aadhaarNumber"
                 render={({field: {onChange, onBlur, value}}) => (
                   <TextInput
-                    className="rounded-2xl border border-gray-300 px-4 py-3 text-base text-gray-900"
+                    className="rounded-[20px] border bg-white px-4 py-4 text-base text-gray-900"
+                    style={{
+                      borderColor: errors.aadhaarNumber ? '#FCA5A5' : '#D4DDD6',
+                    }}
                     placeholder="Enter 12-digit Aadhaar number"
                     placeholderTextColor="#9CA3AF"
                     keyboardType="number-pad"

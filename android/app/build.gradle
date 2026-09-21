@@ -99,6 +99,16 @@ if (localPropertiesFile.exists()) {
     localPropertiesFile.withInputStream { localProperties.load(it) }
 }
 
+def speciesAssetSourceDir = file("../../src/assets/tflite")
+def speciesGeneratedAssetsDir = file("$buildDir/generated/species-assets")
+
+tasks.register("syncSpeciesAssets", Copy) {
+    from(speciesAssetSourceDir)
+    include "species_model.tflite", "species_model_manifest.json", "species_label_map.json"
+    includeEmptyDirs = false
+    into(speciesGeneratedAssetsDir)
+}
+
 android {
     ndkVersion rootProject.ext.ndkVersion
     buildToolsVersion rootProject.ext.buildToolsVersion
@@ -108,6 +118,11 @@ android {
     }
 
     namespace "com.terratrustar"
+    sourceSets {
+        main {
+            assets.srcDirs += speciesGeneratedAssetsDir
+        }
+    }
     defaultConfig {
         applicationId "com.terratrustar"
         minSdkVersion rootProject.ext.minSdkVersion
@@ -175,4 +190,8 @@ dependencies {
     implementation 'org.tensorflow:tensorflow-lite-support:0.4.4'
 
     testImplementation 'junit:junit:4.13.2'
+}
+
+tasks.named("preBuild").configure {
+    dependsOn(tasks.named("syncSpeciesAssets"))
 }

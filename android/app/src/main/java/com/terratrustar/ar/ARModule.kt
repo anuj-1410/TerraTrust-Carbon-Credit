@@ -25,6 +25,8 @@ import com.google.ar.core.exceptions.UnavailableDeviceNotCompatibleException
 import com.google.ar.core.exceptions.UnavailableSdkTooOldException
 import com.google.ar.core.exceptions.UnavailableUserDeclinedInstallationException
 import org.tensorflow.lite.Interpreter
+import org.json.JSONArray
+import org.json.JSONObject
 import java.io.File
 import java.io.FileInputStream
 import java.nio.ByteBuffer
@@ -44,6 +46,10 @@ class ARModule(private val reactContext: ReactApplicationContext) :
         private const val HEIGHT_MEASUREMENT_REQUEST_CODE = 44002
         private const val ARCORE_AVAILABILITY_MAX_ATTEMPTS = 4
         private const val ARCORE_AVAILABILITY_RETRY_DELAY_MS = 150L
+        private const val SPECIES_MODEL_FILENAME = "species_model.tflite"
+        private const val SPECIES_MANIFEST_FILENAME = "species_model_manifest.json"
+        private const val SPECIES_INPUT_SIZE = 224
+        private const val SPECIES_NOT_APPROVED_LABEL = "NOT_APPROVED"
     }
 
     override fun getName(): String = "ARModule"
@@ -52,11 +58,46 @@ class ARModule(private val reactContext: ReactApplicationContext) :
         createInterpreterOrNull()
     }
 
-    private val approvedSpecies = listOf(
-        "Teak", "Eucalyptus", "Neem", "Mango", "Bamboo",
-        "Pongamia", "Subabul", "Casuarina", "Indian Rosewood",
-        "Drumstick", "Amla"
+    private data class SpeciesModelManifest(
+        val labelOrder: List<String>,
+        val uiFallbackThreshold: Float,
+        val hardAcceptanceThreshold: Float,
+        val notApprovedIndex: Int,
     )
+
+    private val defaultSpeciesLabelOrder = listOf(
+        SPECIES_NOT_APPROVED_LABEL,
+        "amla",
+        "bamboo",
+        "casuarina",
+        "drumstick",
+        "eucalyptus",
+        "indian_rosewood",
+        "mango",
+        "neem",
+        "pongamia",
+        "subabul",
+        "teak",
+    )
+
+    private val speciesDisplayNameByLabel = mapOf(
+        SPECIES_NOT_APPROVED_LABEL to "Not Approved",
+        "amla" to "Amla",
+        "bamboo" to "Bamboo",
+        "casuarina" to "Casuarina",
+        "drumstick" to "Drumstick",
+        "eucalyptus" to "Eucalyptus",
+        "indian_rosewood" to "Indian Rosewood",
+        "mango" to "Mango",
+        "neem" to "Neem",
+        "pongamia" to "Pongamia",
+        "subabul" to "Subabul",
+        "teak" to "Teak",
+    )
+
+    private val speciesModelManifest: SpeciesModelManifest by lazy {
+        loadSpeciesManifestOrDefault()
+    }
 
     private var pendingDiameterPromise: Promise? = null
     private var pendingHeightPromise: Promise? = null
@@ -141,12 +182,85 @@ class ARModule(private val reactContext: ReactApplicationContext) :
 
     private fun createInterpreterOrNull(): Interpreter? {
         return try {
-            val modelBuffer = loadModelFromAssets("species_model.tflite")
+            val modelBuffer = loadModelFromAssets(SPECIES_MODEL_FILENAME)
             Interpreter(modelBuffer, Interpreter.Options().apply { setNumThreads(4) })
         } catch (error: Exception) {
             Log.w(TAG, "Species model unavailable: ${error.message}")
             null
         }
+    }
+
+    private fun loadTextAsset(filename: String): String =
+        reactContext.assets.open(filename).bufferedReader(Charsets.UTF_8).use { reader ->
+            reader.readText()
+        }
+
+    private fun loadSpeciesManifestOrDefault(): SpeciesModelManifest {
+        val fallbackManifest = SpeciesModelManifest(
+            labelOrder = defaultSpeciesLabelOrder,
+            uiFallbackThreshold = 0.60f,
+            hardAcceptanceThreshold = 0.80f,
+            notApprovedIndex = 0,
+        )
+
+        return try {
+            val manifestJson = JSONObject(loadTextAsset(SPECIES_MANIFEST_FILENAME))
+            val labelsJson = manifestJson.optJSONArray("label_order")
+            val parsedLabelOrder = buildList {
+                if (labelsJson != null) {
+                    for (index in 0 until labelsJson.length()) {
+                        val label = labelsJson.optString(index).trim()
+                        if (label.isNotEmpty()) {
+                            add(label)
+                        }
+                    }
+                }
+            }
+
+            val labelOrder = if (parsedLabelOrder.isNotEmpty()) {
+                parsedLabelOrder
+            } else {
+                fallbackManifest.labelOrder
+            }
+
+            SpeciesModelManifest(
+                labelOrder = labelOrder,
+                uiFallbackThreshold = manifestJson
+                    .optDouble(
+                        "confidence_ui_fallback_threshold",
+                        fallbackManifest.uiFallbackThreshold.toDouble(),
+                    )
+                    .toFloat(),
+                hardAcceptanceThreshold = manifestJson
+                    .optDouble(
+                        "confidence_hard_acceptance_threshold",
+                        fallbackManifest.hardAcceptanceThreshold.toDouble(),
+                    )
+                    .toFloat(),
+                notApprovedIndex = manifestJson
+                    .optInt("not_approved_index", fallbackManifest.notApprovedIndex)
+                    .coerceIn(0, labelOrder.lastIndex),
+            )
+        } catch (error: Exception) {
+            Log.w(TAG, "Species manifest unavailable: ${error.message}")
+            fallbackManifest
+        }
+    }
+
+    private fun getSpeciesDisplayName(modelLabel: String): String {
+        return speciesDisplayNameByLabel[modelLabel]
+            ?: modelLabel
+                .split('_')
+                .filter { it.isNotBlank() }
+                .joinToString(" ") { part ->
+                    part.replaceFirstChar { character ->
+                        if (character.isLowerCase()) {
+                            character.titlecase(Locale.US)
+                        } else {
+                            character.toString()
+                        }
+                    }
+                }
     }
 
     // ---- T011: checkDepthSupport ----
@@ -554,28 +668,48 @@ class ARModule(private val reactContext: ReactApplicationContext) :
                     return
                 }
 
-            val scaled = Bitmap.createScaledBitmap(bitmap, 224, 224, true)
+            val manifest = speciesModelManifest
+            val scaled = Bitmap.createScaledBitmap(
+                bitmap,
+                SPECIES_INPUT_SIZE,
+                SPECIES_INPUT_SIZE,
+                true,
+            )
             bitmap.recycle()
 
-            // Prepare input tensor: [1][224][224][3] normalized to [-1, 1]
-            val inputBuffer = ByteBuffer.allocateDirect(1 * 224 * 224 * 3 * 4)
+            // Match the exported TFLite contract: resize to 224x224 and divide by 255.
+            val inputBuffer = ByteBuffer.allocateDirect(
+                1 * SPECIES_INPUT_SIZE * SPECIES_INPUT_SIZE * 3 * 4,
+            )
             inputBuffer.order(ByteOrder.nativeOrder())
 
-            val pixels = IntArray(224 * 224)
-            scaled.getPixels(pixels, 0, 224, 0, 0, 224, 224)
+            val pixels = IntArray(SPECIES_INPUT_SIZE * SPECIES_INPUT_SIZE)
+            scaled.getPixels(
+                pixels,
+                0,
+                SPECIES_INPUT_SIZE,
+                0,
+                0,
+                SPECIES_INPUT_SIZE,
+                SPECIES_INPUT_SIZE,
+            )
             scaled.recycle()
 
             for (pixel in pixels) {
-                val r = ((pixel shr 16 and 0xFF) / 127.5f) - 1.0f
-                val g = ((pixel shr 8 and 0xFF) / 127.5f) - 1.0f
-                val b = ((pixel and 0xFF) / 127.5f) - 1.0f
+                val r = (pixel shr 16 and 0xFF) / 255.0f
+                val g = (pixel shr 8 and 0xFF) / 255.0f
+                val b = (pixel and 0xFF) / 255.0f
                 inputBuffer.putFloat(r)
                 inputBuffer.putFloat(g)
                 inputBuffer.putFloat(b)
             }
 
-            // Output tensor: [1][11]
-            val outputArray = Array(1) { FloatArray(11) }
+            inputBuffer.rewind()
+
+            val outputWidth =
+                interpreter.getOutputTensor(0).shape().lastOrNull()
+                    ?: manifest.labelOrder.size
+            val outputArray = Array(1) { FloatArray(outputWidth) }
             interpreter.run(inputBuffer, outputArray)
 
             val scores = outputArray[0]
@@ -588,9 +722,41 @@ class ARModule(private val reactContext: ReactApplicationContext) :
                 }
             }
 
-            val speciesName = approvedSpecies[maxIdx]
-            val scoresStr = scores.joinToString(",") { String.format("%.4f", it) }
-            promise.resolve("""{"species":"$speciesName","confidence":${String.format("%.4f", maxConf)},"all_scores":[$scoresStr]}""")
+            val rawLabel = manifest.labelOrder.getOrElse(maxIdx) { "unknown_$maxIdx" }
+            val speciesName = getSpeciesDisplayName(rawLabel)
+            val rejectedLabel = manifest.labelOrder.getOrNull(manifest.notApprovedIndex)
+            val isApprovedSpecies =
+                rawLabel != SPECIES_NOT_APPROVED_LABEL &&
+                    rawLabel != rejectedLabel &&
+                    speciesDisplayNameByLabel.containsKey(rawLabel)
+
+            val status = when {
+                !isApprovedSpecies -> "REJECTED"
+                maxConf < manifest.uiFallbackThreshold -> "LOW_CONFIDENCE"
+                maxConf < manifest.hardAcceptanceThreshold -> "MEDIUM_CONFIDENCE"
+                else -> "ACCEPTED"
+            }
+            val uiAction = when (status) {
+                "ACCEPTED" -> "proceed"
+                "REJECTED" -> "retake"
+                else -> "manual_selection"
+            }
+
+            val scoresJson = JSONArray()
+            scores.forEach { score ->
+                scoresJson.put(score.toDouble())
+            }
+
+            val response = JSONObject()
+            response.put("species", speciesName)
+            response.put("raw_label", rawLabel)
+            response.put("confidence", maxConf.toDouble())
+            response.put("approved", isApprovedSpecies)
+            response.put("status", status)
+            response.put("ui_action", uiAction)
+            response.put("all_scores", scoresJson)
+
+            promise.resolve(response.toString())
         } catch (e: Exception) {
             promise.reject("INFERENCE_ERROR", "Species identification failed: ${e.message}")
         }

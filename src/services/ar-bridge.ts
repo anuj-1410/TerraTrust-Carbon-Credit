@@ -19,6 +19,10 @@ export interface SpeciesInferenceResult {
   species: string;
   confidence: number;
   all_scores: number[];
+  raw_label?: string;
+  approved?: boolean;
+  status?: 'ACCEPTED' | 'MEDIUM_CONFIDENCE' | 'LOW_CONFIDENCE' | 'REJECTED';
+  ui_action?: 'proceed' | 'manual_selection' | 'retake';
 }
 
 export interface HeightMeasurementCompleteResult {
@@ -188,8 +192,8 @@ export async function openArCoreStoreListing(): Promise<void> {
 }
 
 export async function identifySpecies(
-  imageBase64: string,
+  imageSource: string,
 ): Promise<SpeciesInferenceResult> {
-  const raw: string = await ARModule.runSpeciesInference(imageBase64);
+  const raw: string = await ARModule.runSpeciesInference(imageSource);
   return JSON.parse(raw) as SpeciesInferenceResult;
 }
