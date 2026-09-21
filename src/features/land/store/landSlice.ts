@@ -223,7 +223,10 @@ const landSlice = createSlice({
       state.parcels = dedupeLandParcels(action.payload);
     },
     addParcel(state, action: PayloadAction<LandParcel>) {
-      state.parcels = dedupeLandParcels([action.payload, ...state.parcels]);
+      state.parcels = [
+        action.payload,
+        ...state.parcels.filter(parcel => parcel.id !== action.payload.id),
+      ];
     },
     updateParcel(
       state,

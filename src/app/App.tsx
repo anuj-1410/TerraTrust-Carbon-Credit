@@ -251,9 +251,12 @@ function TabBarButton({
   style,
   ...props
 }: BottomTabBarButtonProps) {
+  const pressableProps =
+    props as unknown as Omit<React.ComponentProps<typeof Pressable>, 'style'>;
+
   return (
     <Pressable
-      {...props}
+      {...pressableProps}
       android_ripple={{color: 'rgba(47, 133, 90, 0.08)', borderless: false}}
       style={({pressed}) => [
         style,

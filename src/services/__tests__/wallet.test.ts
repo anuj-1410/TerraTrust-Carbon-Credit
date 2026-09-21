@@ -35,7 +35,7 @@ jest.mock('ethers', () => {
   const Wallet = function (this: {address?: string}, privateKey: string) {
     mockWalletConstructor.call(this, privateKey);
   } as unknown as typeof mockWalletConstructor & {
-    createRandom?: typeof mockCreateRandom;
+    createRandom?: (...args: unknown[]) => unknown;
   };
 
   Wallet.createRandom = (...args: unknown[]) => mockCreateRandom(...args);

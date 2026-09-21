@@ -278,7 +278,7 @@ const LandListScreen = () => {
                 paddingBottom: bottomSpacing + 64,
               }
         }
-        ListEmptyComponent={renderEmptyState}
+        ListEmptyComponent={parcels.length === 0 ? renderEmptyState() : null}
         onEndReached={onLoadMore}
         onEndReachedThreshold={0.35}
         ListFooterComponent={
