@@ -18,7 +18,7 @@ import MapView, {
   PROVIDER_GOOGLE,
 } from 'react-native-maps';
 import ReactNativeHapticFeedback from 'react-native-haptic-feedback';
-import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
+import {MaterialDesignIcons as MaterialCommunityIcons} from '@react-native-vector-icons/material-design-icons';
 import type {RootStackParamList} from '../../../types/navigation';
 import {useAppSelector} from '../../../store/hooks';
 import {useGeofence} from '../../../common/hooks/useGeofence';

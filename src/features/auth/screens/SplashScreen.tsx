@@ -1,7 +1,7 @@
 import React, {useEffect, useRef} from 'react';
 import {View} from 'react-native';
 import LottieView from 'lottie-react-native';
-import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
+import {MaterialDesignIcons as MaterialCommunityIcons} from '@react-native-vector-icons/material-design-icons';
 import {useNavigation} from '@react-navigation/native';
 import type {NativeStackNavigationProp} from '@react-navigation/native-stack';
 import type {RootStackParamList} from '../../../types/navigation';

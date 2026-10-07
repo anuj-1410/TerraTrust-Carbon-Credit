@@ -1,447 +1,266 @@
 package com.terratrustar.ar
 
-import kotlin.math.PI
-import kotlin.math.abs
-import kotlin.math.atan2
-import kotlin.math.max
-import kotlin.math.min
-import kotlin.math.pow
-import kotlin.math.sqrt
+import kotlin.math.*
 import kotlin.random.Random
 
+/** Fits an upright trunk in a nearby anchor's coordinate frame (metres). */
 object TrunkMeasurementEngine {
-
-    data class WorldPoint(
-        val x: Float,
-        val y: Float,
-        val z: Float,
-        val confidence: Float = 1f,
-    )
-
+    data class WorldPoint(val x: Float, val y: Float, val z: Float, val confidence: Float = 1f)
     data class PreviewFit(
-        val centerX: Float,
-        val centerZ: Float,
-        val centerY: Float,
-        val radiusM: Float,
-        val yMin: Float,
-        val yMax: Float,
-        val inlierCount: Int,
-        val pointCount: Int,
-        val residualCm: Float,
-        val confidence: Float,
+        val centerX: Float, val centerZ: Float, val centerY: Float, val radiusM: Float,
+        val yMin: Float, val yMax: Float, val inlierCount: Int, val pointCount: Int,
+        val residualCm: Float, val confidence: Float,
     )
-
     data class CylinderFit(
-        val diameterCm: Float,
-        val confidence: Float,
-        val tierUsed: Int,
-        val pointCount: Int,
-        val rawPointCount: Int,
-        val filteredPointCount: Int,
-        val inlierCount: Int,
-        val residualCm: Float,
-        val scanDistanceM: Float,
-        val scanDurationMs: Long,
-        val fitMethod: String,
-        val centerX: Float,
-        val centerZ: Float,
-        val centerY: Float,
-        val radiusM: Float,
-        val yMin: Float,
-        val yMax: Float,
+        val diameterCm: Float, val confidence: Float, val tierUsed: Int,
+        val pointCount: Int, val rawPointCount: Int, val filteredPointCount: Int,
+        val inlierCount: Int, val residualCm: Float, val scanDistanceM: Float,
+        val scanDurationMs: Long, val fitMethod: String,
+        val centerX: Float, val centerZ: Float, val centerY: Float, val radiusM: Float,
+        val yMin: Float, val yMax: Float,
+        val radiusUncertaintyCm: Float,
     )
 
-    private data class CircleCandidate(
-        val centerX: Float,
-        val centerZ: Float,
-        val radiusM: Float,
+    enum class Rejection(val guidance: String) {
+        POINTS("Need more bark detail. Move closer (about 1 m), keep the trunk centered, and scan slowly."),
+        MOTION("Step sideways about 25 cm while aiming at the same trunk. Rotating the phone in place is not enough."),
+        CURVE("Reveal both sides of the trunk by moving slowly around it, keeping the same chest-height section centered."),
+        COVERAGE("Keep a taller section of the upright trunk visible around chest height; avoid branches and the ground."),
+        OUTLIERS("Center only this trunk. Avoid leaves, nearby trunks, and background surfaces in the reticle."),
+        NOISY("The surface fit is too noisy. Move closer, use even light, and scan more slowly."),
+    }
+    data class Assessment(
+        val fit: CylinderFit?, val rejection: Rejection?,
+        val preview: PreviewFit? = null, val diagnostic: String? = null,
+    )
+    private data class Circle(val x: Double, val z: Double, val r: Double)
+    private data class Geometry(
+        val circle: Circle, val points: List<WorldPoint>, val inliers: List<WorldPoint>,
+        val residualCm: Float, val arc: Float, val yMin: Float, val yMax: Float,
+        val uncertaintyM: Float,
     )
 
-    private data class FitConfig(
-        val minPoints: Int,
-        val residualThresholdM: Float,
-        val minInlierRatio: Float,
-        val minVerticalCoverageM: Float,
-        val minConfidence: Float,
-        val minScanDistanceM: Float,
-    )
+    /** A repeated feature or depth pixel cannot manufacture evidence by being appended again. */
+    fun uniquePoints(points: List<WorldPoint>, voxelM: Float = 0.005f): List<WorldPoint> {
+        val cells = LinkedHashMap<Triple<Int, Int, Int>, WorldPoint>()
+        points.forEach { p ->
+            if (p.x.isFinite() && p.y.isFinite() && p.z.isFinite() && p.confidence.isFinite() && p.confidence > 0f) {
+                val key = Triple(floor(p.x / voxelM).toInt(), floor(p.y / voxelM).toInt(), floor(p.z / voxelM).toInt())
+                if ((cells[key]?.confidence ?: -1f) <= p.confidence) cells[key] = p
+            }
+        }
+        return cells.values.toList()
+    }
 
-    private data class FitComputation(
-        val candidate: CircleCandidate,
-        val filteredPoints: List<WorldPoint>,
-        val inliers: List<WorldPoint>,
-        val residualCm: Float,
-        val verticalCoverageM: Float,
-        val arcCoverageRad: Float,
-        val confidence: Float,
-    )
+    fun previewFit(points: List<WorldPoint>, tierUsed: Int): PreviewFit? {
+        // Preview is provisional. Completion applies the additional quality and stability gates.
+        val clean = uniquePoints(points)
+        if (clean.size < if (tierUsed == 1) 80 else 30) return null
+        val g = geometry(clean, tierUsed) ?: return null
+        return preview(g)
+    }
 
-    private const val MAX_RANSAC_ITERATIONS = 160
-
-    fun previewFit(
-        points: List<WorldPoint>,
-        tierUsed: Int,
-        scanDistanceM: Float = 0f,
-    ): PreviewFit? {
-        val fit = computeFit(
-            points = points,
-            tierUsed = tierUsed,
-            scanDistanceM = scanDistanceM,
-            config = FitConfig(
-                minPoints = if (tierUsed == 1) 100 else 45,
-                residualThresholdM = 0.065f,
-                minInlierRatio = 0.28f,
-                minVerticalCoverageM = 0.18f,
-                minConfidence = 0.48f,
-                minScanDistanceM = 0f,
-            ),
-        ) ?: return null
-
+    private fun preview(g: Geometry): PreviewFit? {
+        if (g.inliers.size < 24 || g.arc < 0.45f || g.yMax - g.yMin < 0.18f) return null
         return PreviewFit(
-            centerX = fit.candidate.centerX,
-            centerZ = fit.candidate.centerZ,
-            centerY = percentile(fit.inliers.map { it.y }, 0.5f),
-            radiusM = fit.candidate.radiusM,
-            yMin = percentile(fit.inliers.map { it.y }, 0.1f),
-            yMax = percentile(fit.inliers.map { it.y }, 0.9f),
-            inlierCount = fit.inliers.size,
-            pointCount = fit.filteredPoints.size,
-            residualCm = fit.residualCm,
-            confidence = fit.confidence,
+            g.circle.x.toFloat(), g.circle.z.toFloat(), percentile(g.inliers.map { it.y }, 0.5f),
+            g.circle.r.toFloat(), g.yMin, g.yMax, g.inliers.size, g.points.size,
+            g.residualCm, (g.inliers.size.toFloat() / g.points.size).coerceAtMost(0.98f),
         )
     }
 
     fun fitVerticalCylinder(
-        points: List<WorldPoint>,
-        tierUsed: Int,
-        rawPointCount: Int = points.size,
-        scanDistanceM: Float = 0f,
-        scanDurationMs: Long = 0L,
-    ): CylinderFit? {
-        val fit = computeFit(
-            points = points,
-            tierUsed = tierUsed,
-            scanDistanceM = scanDistanceM,
-            config = FitConfig(
-                minPoints = if (tierUsed == 1) 180 else 70,
-                residualThresholdM = 0.05f,
-                minInlierRatio = 0.42f,
-                minVerticalCoverageM = 0.28f,
-                minConfidence = 0.70f,
-                minScanDistanceM = if (tierUsed == 2) 0.18f else 0f,
-            ),
-        ) ?: return null
+        points: List<WorldPoint>, tierUsed: Int, rawPointCount: Int = points.size,
+        scanDistanceM: Float = 0f, scanDurationMs: Long = 0L,
+    ): CylinderFit? = assess(points, tierUsed, rawPointCount, scanDistanceM, scanDurationMs).fit
 
-        val diameterCm = fit.candidate.radiusM * 200f
-        if (diameterCm < 5f || diameterCm > 200f) {
-            return null
+    fun assess(
+        points: List<WorldPoint>, tierUsed: Int, rawPointCount: Int = points.size,
+        scanDistanceM: Float = 0f, scanDurationMs: Long = 0L,
+    ): Assessment {
+        val clean = uniquePoints(points)
+        val minimum = if (tierUsed == 1) 100 else 50
+        if (clean.size < if (tierUsed == 1) 80 else 30) return Assessment(null, Rejection.POINTS)
+        val g = geometry(clean, tierUsed) ?: return Assessment(null, Rejection.CURVE)
+        val preview = preview(g)
+        val diagnostic = "inliers=${g.inliers.size}/${clean.size} residual_cm=${g.residualCm} arc_rad=${g.arc} radius_sigma_cm=${g.uncertaintyM * 100f}"
+        fun reject(reason: Rejection) = Assessment(null, reason, preview, diagnostic)
+        if (clean.size < minimum) return reject(Rejection.POINTS)
+        if (tierUsed == 2 && scanDistanceM < 0.18f) return reject(Rejection.MOTION)
+        val ratio = g.inliers.size.toFloat() / clean.size
+        if (g.inliers.size < minimum || ratio < 0.70f) return reject(Rejection.OUTLIERS)
+        if (g.yMax - g.yMin < 0.28f) return reject(Rejection.COVERAGE)
+        val diameter = (g.circle.r * 200).toFloat()
+        if (diameter !in 5f..200f || g.arc < 0.65f ||
+            g.uncertaintyM > max(0.0125f, g.circle.r.toFloat() * 0.05f)) {
+            return reject(Rejection.CURVE)
         }
-
-        return CylinderFit(
-            diameterCm = diameterCm,
-            confidence = fit.confidence,
-            tierUsed = tierUsed,
-            pointCount = fit.filteredPoints.size,
-            rawPointCount = rawPointCount,
-            filteredPointCount = fit.filteredPoints.size,
-            inlierCount = fit.inliers.size,
-            residualCm = fit.residualCm,
-            scanDistanceM = scanDistanceM,
-            scanDurationMs = scanDurationMs,
-            fitMethod = "gravity_aligned_ransac_circle",
-            centerX = fit.candidate.centerX,
-            centerZ = fit.candidate.centerZ,
-            centerY = percentile(fit.inliers.map { it.y }, 0.5f),
-            radiusM = fit.candidate.radiusM,
-            yMin = percentile(fit.inliers.map { it.y }, 0.1f),
-            yMax = percentile(fit.inliers.map { it.y }, 0.9f),
-        )
+        if (g.residualCm > max(0.8f, diameter * 0.05f)) return reject(Rejection.NOISY)
+        // A leaned stem or branch can resemble a thick vertical cylinder in X/Z.
+        // Check that the upper/lower bands agree on its axis and radius.
+        val middleY = percentile(g.inliers.map { it.y }, 0.5f)
+        val lower = g.inliers.filter { it.y < middleY }
+        val upper = g.inliers.filter { it.y >= middleY }
+        if (lower.size >= 20 && upper.size >= 20) {
+            val a = refine(g.circle, lower)
+            val b = refine(g.circle, upper)
+            if (hypot(a.x - b.x, a.z - b.z) > max(0.03, g.circle.r * 0.15) ||
+                abs(a.r - b.r) > max(0.02, g.circle.r * 0.12)) return reject(Rejection.COVERAGE)
+        }
+        return Assessment(CylinderFit(
+            diameter, ratio.coerceAtMost(0.98f), tierUsed, clean.size, rawPointCount, clean.size,
+            g.inliers.size, g.residualCm, scanDistanceM, scanDurationMs,
+            "anchor_local_robust_circle", g.circle.x.toFloat(), g.circle.z.toFloat(),
+            percentile(g.inliers.map { it.y }, 0.5f), g.circle.r.toFloat(), g.yMin, g.yMax,
+            g.uncertaintyM * 100f,
+        ), null, preview, diagnostic)
     }
 
-    private fun computeFit(
-        points: List<WorldPoint>,
-        tierUsed: Int,
-        scanDistanceM: Float,
-        config: FitConfig,
-    ): FitComputation? {
-        if (points.size < config.minPoints) {
-            return null
+    private fun geometry(points: List<WorldPoint>, tier: Int): Geometry? {
+        // Bound fitting work. Spread samples throughout the cloud, not just the last frame.
+        val sample = if (points.size <= 1600) points else List(1600) { points[it * points.size / 1600] }
+        val threshold = if (tier == 1) 0.020 else 0.025
+        val random = Random(sample.size * 73 + 17)
+        val seeds = mutableListOf<Pair<Circle, Double>>()
+        repeat(256) {
+            val c = throughThree(sample[random.nextInt(sample.size)], sample[random.nextInt(sample.size)], sample[random.nextInt(sample.size)]) ?: return@repeat
+            if (c.r !in 0.025..1.0) return@repeat
+            // Truncated squared error penalizes broad but poorly fitting candidates.
+            val score = sample.sumOf { min(residual(c, it).pow(2), threshold.pow(2)) }
+            seeds.add(c to score)
         }
-        if (tierUsed == 2 && scanDistanceM < config.minScanDistanceM) {
-            return null
-        }
-
-        val filteredPoints = prefilter(points)
-        if (filteredPoints.size < config.minPoints) {
-            return null
-        }
-
-        val best = ransacCircle(filteredPoints, config.residualThresholdM) ?: return null
-        val inlierRatio = best.inliers.size.toFloat() / filteredPoints.size.toFloat()
-        if (inlierRatio < config.minInlierRatio) {
-            return null
-        }
-        if (best.verticalCoverageM < config.minVerticalCoverageM) {
-            return null
-        }
-        if (best.residualCm > config.residualThresholdM * 100f) {
-            return null
-        }
-        if (best.confidence < config.minConfidence) {
-            return null
-        }
-
-        return best
-    }
-
-    private fun prefilter(points: List<WorldPoint>): List<WorldPoint> {
-        if (points.isEmpty()) {
-            return emptyList()
-        }
-
-        val medianY = percentile(points.map { it.y }, 0.5f)
-        val medianX = percentile(points.map { it.x }, 0.5f)
-        val medianZ = percentile(points.map { it.z }, 0.5f)
-        val nearMedian = points.filter { abs(it.y - medianY) <= 1.2f }
-        if (nearMedian.isEmpty()) {
-            return points
-        }
-
-        val compact = nearMedian.filter {
-            abs(it.x - medianX) <= 0.8f &&
-                abs(it.z - medianZ) <= 0.8f
-        }
-
-        return if (compact.size >= 24) compact else nearMedian
-    }
-
-    private fun ransacCircle(
-        points: List<WorldPoint>,
-        residualThresholdM: Float,
-    ): FitComputation? {
-        if (points.size < 3) {
-            return null
-        }
-
-        val random = Random(points.size * 73 + 17)
-        var bestCandidate: CircleCandidate? = null
-        var bestInliers: List<WorldPoint> = emptyList()
-        var bestResidualCm = Float.MAX_VALUE
-
-        repeat(MAX_RANSAC_ITERATIONS) {
-            val p1 = points[random.nextInt(points.size)]
-            val p2 = points[random.nextInt(points.size)]
-            val p3 = points[random.nextInt(points.size)]
-            val candidate = circleFromThreePoints(p1, p2, p3) ?: return@repeat
-            if (candidate.radiusM < 0.025f || candidate.radiusM > 1.0f) {
-                return@repeat
+        var best: Circle? = null
+        var bestScore = Double.POSITIVE_INFINITY
+        seeds.sortedBy { it.second }.take(12).forEach { (seed, _) ->
+            var c = seed
+            repeat(3) {
+                val inliers = sample.filter { abs(residual(c, it)) <= threshold }
+                if (inliers.size >= 12) c = refine(c, inliers)
             }
-
-            val inliers = points.filter { point ->
-                val distance = distanceXZ(point.x, point.z, candidate.centerX, candidate.centerZ)
-                abs(distance - candidate.radiusM) <= residualThresholdM
-            }
-            if (inliers.size < bestInliers.size) {
-                return@repeat
-            }
-
-            val residualCm = averageResidualCm(candidate, inliers)
-            if (
-                inliers.size > bestInliers.size ||
-                (inliers.size == bestInliers.size && residualCm < bestResidualCm)
-            ) {
-                bestCandidate = candidate
-                bestInliers = inliers
-                bestResidualCm = residualCm
+            if (c.r in 0.025..1.0) {
+                val score = sample.sumOf { min(residual(c, it).pow(2), threshold.pow(2)) }
+                if (score < bestScore) { best = c; bestScore = score }
             }
         }
-
-        val candidate = bestCandidate ?: return null
-        if (bestInliers.size < 3) {
-            return null
-        }
-
-        val refinedCandidate = refineCircle(candidate, bestInliers)
-        val refinedInliers = points.filter { point ->
-            val distance = distanceXZ(point.x, point.z, refinedCandidate.centerX, refinedCandidate.centerZ)
-            abs(distance - refinedCandidate.radiusM) <= residualThresholdM
-        }
-        val residualCm = averageResidualCm(refinedCandidate, refinedInliers)
-        val verticalCoverageM =
-            percentile(refinedInliers.map { it.y }, 0.9f) -
-                percentile(refinedInliers.map { it.y }, 0.1f)
-        val arcCoverageRad = arcCoverage(refinedCandidate, refinedInliers)
-        val confidence = scoreFit(
-            filteredPointCount = points.size,
-            inlierCount = refinedInliers.size,
-            residualCm = residualCm,
-            verticalCoverageM = verticalCoverageM,
-            arcCoverageRad = arcCoverageRad,
-        )
-
-        return FitComputation(
-            candidate = refinedCandidate,
-            filteredPoints = points,
-            inliers = refinedInliers,
-            residualCm = residualCm,
-            verticalCoverageM = verticalCoverageM,
-            arcCoverageRad = arcCoverageRad,
-            confidence = confidence,
-        )
+        val c = best ?: return null
+        // A size-aware window keeps small trunks from accepting a thick planar patch.
+        val inlierWindow = min(threshold, max(0.008, c.r * 0.10))
+        val inliers = points.filter { abs(residual(c, it)) <= inlierWindow }
+        if (inliers.size < 12) return null
+        val final = refine(c, inliers)
+        val finalInliers = points.filter { abs(residual(final, it)) <= inlierWindow }
+        if (finalInliers.size < 12) return null
+        return Geometry(final, points, finalInliers,
+            (finalInliers.map { abs(residual(final, it)) }.average() * 100).toFloat(),
+            arcCoverage(final, finalInliers), percentile(finalInliers.map { it.y }, 0.1f),
+            percentile(finalInliers.map { it.y }, 0.9f), uncertainty(final, finalInliers))
     }
 
-    private fun circleFromThreePoints(
-        p1: WorldPoint,
-        p2: WorldPoint,
-        p3: WorldPoint,
-    ): CircleCandidate? {
-        val x1 = p1.x.toDouble()
-        val z1 = p1.z.toDouble()
-        val x2 = p2.x.toDouble()
-        val z2 = p2.z.toDouble()
-        val x3 = p3.x.toDouble()
-        val z3 = p3.z.toDouble()
-
-        val determinant =
-            2.0 * (x1 * (z2 - z3) + x2 * (z3 - z1) + x3 * (z1 - z2))
-        if (abs(determinant) < 1e-6) {
-            return null
-        }
-
-        val x1Sq = x1 * x1 + z1 * z1
-        val x2Sq = x2 * x2 + z2 * z2
-        val x3Sq = x3 * x3 + z3 * z3
-
-        val centerX =
-            (
-                x1Sq * (z2 - z3) +
-                    x2Sq * (z3 - z1) +
-                    x3Sq * (z1 - z2)
-                ) / determinant
-        val centerZ =
-            (
-                x1Sq * (x3 - x2) +
-                    x2Sq * (x1 - x3) +
-                    x3Sq * (x2 - x1)
-                ) / determinant
-        val radius = sqrt((centerX - x1).pow(2) + (centerZ - z1).pow(2))
-        if (!radius.isFinite()) {
-            return null
-        }
-
-        return CircleCandidate(
-            centerX = centerX.toFloat(),
-            centerZ = centerZ.toFloat(),
-            radiusM = radius.toFloat(),
-        )
+    private fun throughThree(a: WorldPoint, b: WorldPoint, c: WorldPoint): Circle? {
+        // Translate before squaring to avoid cancellation at large world coordinates.
+        val bx = (b.x - a.x).toDouble(); val bz = (b.z - a.z).toDouble()
+        val cx = (c.x - a.x).toDouble(); val cz = (c.z - a.z).toDouble()
+        val d = 2 * (bx * cz - bz * cx)
+        if (abs(d) < 1e-7) return null
+        val b2 = bx * bx + bz * bz; val c2 = cx * cx + cz * cz
+        val x = (b2 * cz - c2 * bz) / d; val z = (bx * c2 - cx * b2) / d
+        return Circle(x + a.x, z + a.z, hypot(x, z))
     }
 
-    private fun refineCircle(
-        seed: CircleCandidate,
-        inliers: List<WorldPoint>,
-    ): CircleCandidate {
-        if (inliers.isEmpty()) {
-            return seed
-        }
-
-        var centerX = seed.centerX
-        var centerZ = seed.centerZ
-        repeat(8) {
-            val distances = inliers.map { distanceXZ(it.x, it.z, centerX, centerZ) }
-            val radius = distances.average().toFloat().coerceAtLeast(0.001f)
-            var gradientX = 0f
-            var gradientZ = 0f
-            inliers.forEachIndexed { index, point ->
-                val dx = centerX - point.x
-                val dz = centerZ - point.z
-                val distance = distances[index].coerceAtLeast(0.001f)
-                val residual = distance - radius
-                gradientX += (residual * dx) / distance
-                gradientZ += (residual * dz) / distance
+    /** Damped geometric least squares with Huber weights; jointly solves centre AND radius. */
+    private fun refine(seed: Circle, points: List<WorldPoint>): Circle {
+        var c = seed
+        var damping = 1e-4
+        repeat(30) {
+            val h = Array(3) { DoubleArray(3) }; val g = DoubleArray(3)
+            points.forEach { p ->
+                val dx = c.x - p.x; val dz = c.z - p.z; val d = hypot(dx, dz).coerceAtLeast(1e-9)
+                val e = d - c.r
+                val j = doubleArrayOf(dx / d, dz / d, -1.0)
+                val w = p.confidence.toDouble() * min(1.0, 0.008 / max(abs(e), 1e-9))
+                for (i in 0..2) {
+                    g[i] += w * j[i] * e
+                    for (k in 0..2) h[i][k] += w * j[i] * j[k]
+                }
             }
-            centerX -= gradientX / inliers.size.toFloat() * 0.25f
-            centerZ -= gradientZ / inliers.size.toFloat() * 0.25f
+            for (i in 0..2) h[i][i] += damping * max(h[i][i], 1.0)
+            val delta = solve(h, DoubleArray(3) { -g[it] }) ?: return c
+            val next = Circle(c.x + delta[0], c.z + delta[1], c.r + delta[2])
+            if (next.r in 0.025..1.0 && loss(next, points) < loss(c, points)) {
+                c = next; damping = max(1e-9, damping * 0.3)
+                if (delta.sumOf { it * it } < 1e-14) return c
+            } else damping = min(1e6, damping * 10)
         }
-
-        val radius =
-            inliers.map { distanceXZ(it.x, it.z, centerX, centerZ) }.average().toFloat()
-        return CircleCandidate(centerX = centerX, centerZ = centerZ, radiusM = radius)
+        return c
     }
 
-    private fun averageResidualCm(
-        candidate: CircleCandidate,
-        points: List<WorldPoint>,
-    ): Float {
-        if (points.isEmpty()) {
-            return Float.MAX_VALUE
-        }
+    private fun loss(c: Circle, points: List<WorldPoint>): Double = points.sumOf {
+        val e = abs(residual(c, it))
+        it.confidence * if (e <= 0.008) e * e / 2 else 0.008 * (e - 0.004)
+    }
+    private fun residual(c: Circle, p: WorldPoint) = hypot(c.x - p.x, c.z - p.z) - c.r
 
-        val residualMetres =
-            points.map { point ->
-                abs(distanceXZ(point.x, point.z, candidate.centerX, candidate.centerZ) - candidate.radiusM)
-            }.average().toFloat()
-        return residualMetres * 100f
+    private fun solve(a: Array<DoubleArray>, b: DoubleArray): DoubleArray? {
+        val m = Array(3) { i -> DoubleArray(4) { j -> if (j == 3) b[i] else a[i][j] } }
+        for (i in 0..2) {
+            val pivot = (i..2).maxByOrNull { abs(m[it][i]) } ?: return null
+            if (abs(m[pivot][i]) < 1e-10) return null
+            val row = m[i]; m[i] = m[pivot]; m[pivot] = row
+            val v = m[i][i]
+            for (k in i..3) m[i][k] /= v
+            for (j in 0..2) if (j != i) {
+                val f = m[j][i]
+                for (k in i..3) m[j][k] -= f * m[i][k]
+            }
+        }
+        return DoubleArray(3) { m[it][3] }
     }
 
-    private fun arcCoverage(
-        candidate: CircleCandidate,
-        points: List<WorldPoint>,
-    ): Float {
-        if (points.size < 3) {
-            return 0f
+    private fun arcCoverage(c: Circle, points: List<WorldPoint>): Float {
+        val angles = points.map { atan2(it.z - c.z, it.x - c.x) }.sorted()
+        // Remove the outer 5% at each end of the occupied arc so a single outlier
+        // cannot turn an almost flat patch into apparently adequate curvature.
+        var gap = -1.0; var start = 0
+        for (i in angles.indices) {
+            val next = if (i == angles.lastIndex) angles.first() + 2 * PI else angles[i + 1]
+            if (next - angles[i] > gap) { gap = next - angles[i]; start = (i + 1) % angles.size }
         }
-
-        val angles = points.map { atan2((it.z - candidate.centerZ), (it.x - candidate.centerX)) }
-            .sorted()
-        var largestGap = 0f
-        for (index in 0 until angles.lastIndex) {
-            largestGap = max(largestGap, angles[index + 1] - angles[index])
+        val unwrapped = angles.indices.map { k ->
+            val index = (start + k) % angles.size
+            angles[index] + if (index < start) 2 * PI else 0.0
         }
-        largestGap = max(largestGap, (angles.first() + (2 * PI).toFloat()) - angles.last())
-        return ((2 * PI).toFloat() - largestGap).coerceAtLeast(0f)
+        return (unwrapped[(unwrapped.lastIndex * 0.95).toInt()] - unwrapped[(unwrapped.lastIndex * 0.05).toInt()]).toFloat()
     }
 
-    private fun scoreFit(
-        filteredPointCount: Int,
-        inlierCount: Int,
-        residualCm: Float,
-        verticalCoverageM: Float,
-        arcCoverageRad: Float,
-    ): Float {
-        val inlierRatio = inlierCount.toFloat() / filteredPointCount.toFloat()
-        val inlierScore = inlierRatio.coerceIn(0f, 1f)
-        val countScore = (inlierCount / 260f).coerceIn(0f, 1f)
-        val residualScore = (1f - residualCm / 6.5f).coerceIn(0f, 1f)
-        val verticalScore = (verticalCoverageM / 0.7f).coerceIn(0f, 1f)
-        val arcScore = (arcCoverageRad / 1.4f).coerceIn(0f, 1f)
-        return (
-            0.22f +
-                inlierScore * 0.30f +
-                residualScore * 0.20f +
-                verticalScore * 0.14f +
-                countScore * 0.09f +
-                arcScore * 0.05f
-            ).coerceIn(0f, 0.98f)
+    private fun uncertainty(c: Circle, points: List<WorldPoint>): Float {
+        // Angular bins avoid pretending that many vertical samples on the same
+        // generatrix provide many independent observations of curvature.
+        val bins = points.groupBy { floor(atan2(it.z - c.z, it.x - c.x) / 0.08).toInt() }
+        // Centre X/Z and radius are three unknowns. Four independent angular
+        // groups provide an overdetermined system; conditioning below decides
+        // whether their particular distribution is sufficient.
+        if (bins.size < 4) return Float.POSITIVE_INFINITY
+        val h = Array(3) { DoubleArray(3) }
+        bins.values.forEach { group ->
+            val x = group.map { it.x.toDouble() }.average(); val z = group.map { it.z.toDouble() }.average()
+            val d = hypot(c.x - x, c.z - z).coerceAtLeast(1e-9)
+            val j = doubleArrayOf((c.x - x) / d, (c.z - z) / d, -1.0)
+            for (i in 0..2) for (k in 0..2) h[i][k] += j[i] * j[k]
+        }
+        val covarianceColumn = solve(h, doubleArrayOf(0.0, 0.0, 1.0)) ?: return Float.POSITIVE_INFINITY
+        // Use the error of each angular group's mean, since its Jacobian also
+        // represents the mean. Mixing individual point variance with grouped
+        // Jacobians overstates uncertainty for sparse, well-spread features.
+        // Retain a 2 mm floor rather than claiming zero sensor error.
+        val variance = max(0.000004, bins.values.map { group ->
+            group.map { residual(c, it) }.average().pow(2)
+        }.average())
+        return sqrt(max(0.0, covarianceColumn[2] * variance)).toFloat()
     }
 
     private fun percentile(values: List<Float>, ratio: Float): Float {
-        if (values.isEmpty()) {
-            return 0f
-        }
-
+        if (values.isEmpty()) return 0f
         val sorted = values.sorted()
-        val index = (ratio.coerceIn(0f, 1f) * (sorted.size - 1)).toInt()
-        return sorted[index]
-    }
-
-    private fun distanceXZ(
-        x: Float,
-        z: Float,
-        centerX: Float,
-        centerZ: Float,
-    ): Float {
-        val dx = x - centerX
-        val dz = z - centerZ
-        return sqrt(dx * dx + dz * dz)
+        return sorted[(ratio * (sorted.size - 1)).toInt()]
     }
 }

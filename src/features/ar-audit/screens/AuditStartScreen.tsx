@@ -14,7 +14,7 @@ import type {NativeStackNavigationProp} from '@react-navigation/native-stack';
 import type {RouteProp} from '@react-navigation/native';
 import LottieView from 'lottie-react-native';
 import DeviceInfo from 'react-native-device-info';
-import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
+import {MaterialDesignIcons as MaterialCommunityIcons} from '@react-native-vector-icons/material-design-icons';
 import type {RootStackParamList} from '../../../types/navigation';
 import {useAppDispatch, useAppSelector} from '../../../store/hooks';
 import {detectAndSetARTier, fetchZones, setOriginTab} from '../store/auditSlice';

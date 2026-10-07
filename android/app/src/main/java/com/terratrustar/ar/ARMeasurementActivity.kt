@@ -46,6 +46,8 @@ import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import java.nio.FloatBuffer
 import java.util.Locale
+import java.util.concurrent.Executors
+import java.util.concurrent.atomic.AtomicBoolean
 import javax.microedition.khronos.egl.EGLConfig
 import javax.microedition.khronos.opengles.GL10
 import kotlin.math.abs
@@ -60,11 +62,11 @@ class ARMeasurementActivity : AppCompatActivity(), GLSurfaceView.Renderer {
         private const val TAG = "TerraTrustAR"
         private const val MAX_PREVIEW_POINTS = 5000
         private const val MAX_CAPTURE_POINTS = 7000
-        private const val TIER1_CAPTURE_DURATION_MS = 3000L
-        private const val TIER2_CAPTURE_TIMEOUT_MS = 12000L
+        private const val TIER1_CAPTURE_DURATION_MS = 4500L
+        private const val TIER1_CAPTURE_TIMEOUT_MS = 25000L
+        private const val TIER2_CAPTURE_TIMEOUT_MS = 30000L
         private const val TIER2_MIN_SCAN_SPAN_M = 0.18f
         private const val TIER2_TARGET_SCAN_SPAN_M = 0.22f
-        private const val TIER1_MAX_HOLD_DRIFT_M = 0.035f
 
         const val EXTRA_MODE = "mode"
         const val EXTRA_TIER = "tier"
@@ -135,7 +137,7 @@ class ARMeasurementActivity : AppCompatActivity(), GLSurfaceView.Renderer {
 
     private lateinit var measurementMode: MeasurementMode
     private var requestedTier = 1
-    private var measurementCompleted = false
+    @Volatile private var measurementCompleted = false
 
     private var lastStatusText: String? = null
     private var lastHelperText: String? = null
@@ -151,7 +153,29 @@ class ARMeasurementActivity : AppCompatActivity(), GLSurfaceView.Renderer {
     private var previewStableSince = 0L
     private var captureStartedAt = 0L
     private var captureStartPose: Pose? = null
+    private var diameterAnchor: Anchor? = null
+    private var lastPointCloudTimestamp = -1L
+    private val slamFeatures = LinkedHashMap<Int, TrunkMeasurementEngine.WorldPoint>()
+    private val slamFeatureSeenAt = mutableMapOf<Int, Long>()
+    private val fitExecutor = Executors.newSingleThreadExecutor()
+    private val fitting = AtomicBoolean(false)
+    @Volatile private var fitGeneration = 0
+    private data class FitUpdate(
+        val generation: Int, val pointRevision: Long,
+        val preview: TrunkMeasurementEngine.PreviewFit?,
+        val assessment: TrunkMeasurementEngine.Assessment?,
+    )
+    @Volatile private var pendingFit: FitUpdate? = null
+    private var pointRevision = 0L
+    private var stableFitCount = 0
+    private var previousFinalFit: TrunkMeasurementEngine.CylinderFit? = null
+    private var lastRejection = TrunkMeasurementEngine.Rejection.POINTS
+    private var lastTrackedFrameAt = 0L
+    private var trackingLostSince = 0L
+    private var lastEvidenceAt = 0L
+    @Volatile private var resetDiameterOnResume = false
     private var depthWarmupFrames = 0
+    private var lastPreviewFitAt = 0L
     private var lastRawDepthTimestamp = -1L
     private val previewPoints = mutableListOf<TrunkMeasurementEngine.WorldPoint>()
     private val capturePoints = mutableListOf<TrunkMeasurementEngine.WorldPoint>()
@@ -218,18 +242,22 @@ class ARMeasurementActivity : AppCompatActivity(), GLSurfaceView.Renderer {
 
     override fun onPause() {
         resumeHandler.removeCallbacksAndMessages(null)
+        glSurfaceView.onPause()
+        resetDiameterOnResume = true
         try {
             session?.pause()
         } catch (_: Exception) {
         }
 
-        glSurfaceView.onPause()
         super.onPause()
     }
 
     override fun onDestroy() {
         resumeHandler.removeCallbacksAndMessages(null)
         baseAnchor?.detach()
+        diameterAnchor?.detach()
+        diameterAnchor = null
+        fitExecutor.shutdownNow()
         baseAnchor = null
         synchronized(heightTapLock) {
             pendingHeightTaps.clear()
@@ -277,6 +305,14 @@ class ARMeasurementActivity : AppCompatActivity(), GLSurfaceView.Renderer {
             backgroundRenderer.draw(frame)
 
             if (frame.camera.trackingState != TrackingState.TRACKING) {
+                if (measurementMode == MeasurementMode.DIAMETER) {
+                    val now = SystemClock.elapsedRealtime()
+                    if (trackingLostSince == 0L) trackingLostSince = now
+                    pendingFit = null
+                    fitGeneration += 1
+                    stableFitCount = 0
+                    previousFinalFit = null
+                }
                 val trackingGuidance = trackingGuidance(frame.camera.trackingFailureReason)
                 overlayView.render(
                     MeasurementOverlayView.State(
@@ -303,7 +339,6 @@ class ARMeasurementActivity : AppCompatActivity(), GLSurfaceView.Renderer {
                 )
                 return
             }
-
             when (measurementMode) {
                 MeasurementMode.DIAMETER -> handleDiameterFrame(frame)
                 MeasurementMode.HEIGHT -> handleHeightFrame(frame)
@@ -610,10 +645,9 @@ class ARMeasurementActivity : AppCompatActivity(), GLSurfaceView.Renderer {
                 return@postDelayed
             }
 
-            glSurfaceView.onResume()
-
             try {
                 session?.resume()
+                glSurfaceView.onResume()
                 cameraResumeAttempts = 0
             } catch (_: CameraNotAvailableException) {
                 if (cameraResumeAttempts < 8) {
@@ -629,6 +663,8 @@ class ARMeasurementActivity : AppCompatActivity(), GLSurfaceView.Renderer {
     }
 
     private fun configureSession(arSession: Session) {
+        if (measurementMode == MeasurementMode.DIAMETER && requestedTier == 1 &&
+            !arSession.isDepthModeSupported(Config.DepthMode.RAW_DEPTH_ONLY)) requestedTier = 2
         val config = Config(arSession).apply {
             focusMode = Config.FocusMode.AUTO
             depthMode = when (measurementMode) {
@@ -666,55 +702,125 @@ class ARMeasurementActivity : AppCompatActivity(), GLSurfaceView.Renderer {
 
     private fun handleDiameterFrame(frame: Frame) {
         val now = SystemClock.elapsedRealtime()
-        if (stageStartedAt == 0L) {
-            stageStartedAt = now
+        if (resetDiameterOnResume) {
+            resetDiameterState()
+            resetDiameterOnResume = false
         }
-
-        val freshPoints = if (requestedTier == 1) {
-            try {
-                collectDepthPoints(frame)
-            } catch (_: NotYetAvailableException) {
-                emptyList()
+        if (diameterAnchor?.trackingState == TrackingState.STOPPED) resetDiameterState()
+        if (diameterAnchor?.trackingState == TrackingState.PAUSED) {
+            if (trackingLostSince == 0L) {
+                trackingLostSince = now
+                fitGeneration += 1
+                pendingFit = null
+                stableFitCount = 0
+                previousFinalFit = null
             }
-        } else {
-            collectSlamPoints(frame)
+            postOverlayState("Re-locking trunk", "Keep the trunk centered while tracking recovers.", null)
+            return
         }
-
-        if (requestedTier == 1 && freshPoints.isNotEmpty()) {
-            depthWarmupFrames += 1
-        }
-
-        appendPoints(previewPoints, freshPoints, MAX_PREVIEW_POINTS)
-        previewFit =
-            TrunkMeasurementEngine.previewFit(
-                points = previewPoints,
-                tierUsed = requestedTier,
-                scanDistanceM = lastScanDistanceM,
-            )
-        if (previewFit != null) {
-            lockedPreviewFit = previewFit
-            if (previewStableSince == 0L) {
-                previewStableSince = now
+        // Tracking pauses do not consume the scan budget. Long interruptions
+        // restart acquisition because stale evidence must not complete a scan.
+        if (trackingLostSince != 0L) {
+            if (now - trackingLostSince > 2500L) resetDiameterState()
+            else if (captureStartedAt != 0L && lastTrackedFrameAt != 0L) {
+                captureStartedAt += now - lastTrackedFrameAt
             }
-        } else {
-            previewStableSince = 0L
+            trackingLostSince = 0L
         }
+        lastTrackedFrameAt = now
+        if (stageStartedAt == 0L) stageStartedAt = now
 
+        val worldPoints = if (requestedTier == 1) {
+            try { collectDepthPoints(frame) } catch (_: NotYetAvailableException) { emptyList() }
+        } else collectSlamPoints(frame)
+        val inverseAnchor = diameterAnchor?.pose?.inverse()
+        val freshPoints = if (inverseAnchor == null) emptyList() else worldPoints.map { p ->
+            val v = inverseAnchor.transformPoint(floatArrayOf(p.x, p.y, p.z))
+            TrunkMeasurementEngine.WorldPoint(v[0], v[1], v[2], p.confidence)
+        }
+        val clustered = filterPointsForActivePreview(freshPoints, lockedPreviewFit.takeIf { diameterStage != DiameterStage.WARMUP })
+        if (clustered.isNotEmpty()) {
+            pointRevision += 1
+            lastEvidenceAt = now
+            if (requestedTier == 1) {
+                depthWarmupFrames += 1
+                appendPoints(previewPoints, clustered, MAX_PREVIEW_POINTS)
+            } else {
+                // The SLAM collector returns a refreshed feature map, not repeated samples.
+                previewPoints.clear()
+                previewPoints.addAll(clustered.takeLast(MAX_PREVIEW_POINTS))
+            }
+        }
+        consumeDiameterFit(now)
+        if (measurementCompleted) return
         when (diameterStage) {
             DiameterStage.WARMUP -> handleDiameterWarmup(now, frame)
             DiameterStage.LOCK -> handleDiameterLock(now, frame)
-            DiameterStage.CAPTURE -> handleDiameterCapture(now, frame, freshPoints)
+            DiameterStage.CAPTURE -> handleDiameterCapture(now, frame, clustered)
         }
+        scheduleDiameterFit(now)
+    }
+
+    private fun scheduleDiameterFit(now: Long) {
+        if (now - lastPreviewFitAt < 450L || !fitting.compareAndSet(false, true)) return
+        lastPreviewFitAt = now
+        val captured = diameterStage == DiameterStage.CAPTURE
+        val snapshot = (if (captured) capturePoints else previewPoints).toList()
+        val generation = fitGeneration
+        val revision = pointRevision
+        val tier = requestedTier
+        val span = lastScanDistanceM
+        val duration = lastScanDurationMs
+        fitExecutor.execute {
+            try {
+                val assessment = if (captured) TrunkMeasurementEngine.assess(snapshot, tier, snapshot.size, span, duration) else null
+                val preview = if (captured) assessment?.preview else TrunkMeasurementEngine.previewFit(snapshot, tier)
+                if (generation == fitGeneration) pendingFit = FitUpdate(generation, revision, preview, assessment)
+            } catch (error: Exception) {
+                Log.w(TAG, "Diameter fit worker failed", error)
+            } finally { fitting.set(false) }
+        }
+    }
+
+    private var lastAcceptedRevision = -1L
+    private fun consumeDiameterFit(now: Long) {
+        val update = pendingFit ?: return
+        pendingFit = null
+        if (update.generation != fitGeneration) return
+        val oldPreview = previewFit
+        previewFit = update.preview
+        if (previewFit != null) {
+            val p = previewFit!!
+            val stable = oldPreview != null && abs(oldPreview.radiusM - p.radiusM) <= max(0.012f, p.radiusM * 0.10f) &&
+                distanceXZ(oldPreview.centerX, oldPreview.centerZ, p.centerX, p.centerZ) <= 0.035f
+            if (!stable || previewStableSince == 0L) previewStableSince = now
+            if (diameterStage == DiameterStage.WARMUP) lockedPreviewFit = p
+        } else previewStableSince = 0L
+        val assessment = update.assessment ?: return
+        if (diameterStage != DiameterStage.CAPTURE || update.pointRevision == lastAcceptedRevision) return
+        lastAcceptedRevision = update.pointRevision
+        val fit = assessment.fit
+        if (fit == null) {
+            stableFitCount = 0
+            previousFinalFit = null
+            lastRejection = assessment.rejection ?: TrunkMeasurementEngine.Rejection.CURVE
+            Log.d(TAG, "Diameter pending tier=$requestedTier reason=$lastRejection unique=${capturePoints.size} span=$lastScanDistanceM ${assessment.diagnostic ?: ""}")
+            return
+        }
+        stableFitCount = if (previousFinalFit?.let { DiameterScanQuality.consistent(it, fit) } == true) stableFitCount + 1 else 1
+        previousFinalFit = fit
+        val enoughDuration = lastScanDurationMs >= if (requestedTier == 1) TIER1_CAPTURE_DURATION_MS else 3500L
+        if (stableFitCount >= 3 && enoughDuration && now - lastEvidenceAt < 1500L) finishWithDiameterMeasurement(fit)
     }
 
     private fun handleDiameterWarmup(now: Long, frame: Frame) {
         val hasPreview = previewFit != null
-        val enoughWarmup = if (requestedTier == 1) depthWarmupFrames >= 3 else previewPoints.size >= 45
+        val enoughWarmup = if (requestedTier == 1) depthWarmupFrames >= 3 else previewPoints.size >= 30
         val helper =
             if (requestedTier == 1) {
-                "Center the trunk and move slightly so TerraTrust can lock the depth map."
+                "Aim at the trunk about 1.3 m above ground. Move gently sideways to lock depth."
             } else {
-                "Center the trunk and move slightly to start the SLAM trunk lock."
+                "Stand about 1 m away. Aim at bark about 1.3 m above ground and step slowly sideways."
             }
         postOverlayState(
             if (hasPreview) "Trunk detected" else "Find the trunk",
@@ -723,7 +829,7 @@ class ARMeasurementActivity : AppCompatActivity(), GLSurfaceView.Renderer {
         )
         renderDiameterOverlay(
             frame,
-            showMotionGuide = false,
+            showMotionGuide = requestedTier == 2,
             motionProgress = 0f,
             stageBadge = if (hasPreview) "Locking trunk" else "Scan the trunk",
         )
@@ -731,6 +837,9 @@ class ARMeasurementActivity : AppCompatActivity(), GLSurfaceView.Renderer {
         if (hasPreview && enoughWarmup && now - previewStableSince >= 650L) {
             diameterStage = DiameterStage.LOCK
             stageStartedAt = now
+        }
+        if (now - stageStartedAt > 30000L) {
+            finishWithError(ERROR_INSUFFICIENT_POINTS, TrunkMeasurementEngine.Rejection.POINTS.guidance)
         }
     }
 
@@ -744,7 +853,7 @@ class ARMeasurementActivity : AppCompatActivity(), GLSurfaceView.Renderer {
         postOverlayState(
             "Trunk detected",
             if (requestedTier == 1) {
-                "Hold still while TerraTrust captures the trunk depth."
+                "Move slowly left and right while keeping the trunk centered."
             } else {
                 "Move left and right to scan the trunk across the reticle."
             },
@@ -754,158 +863,71 @@ class ARMeasurementActivity : AppCompatActivity(), GLSurfaceView.Renderer {
             frame,
             showMotionGuide = requestedTier == 2,
             motionProgress = 0f,
-            stageBadge = if (requestedTier == 1) "Get ready to hold" else "Get ready to scan",
+            stageBadge = "Get ready to scan",
         )
 
         if (now - stageStartedAt >= 350L) {
-            beginDiameterCapture(now, frame.camera.pose)
+            beginDiameterCapture(now, frame.camera.displayOrientedPose)
             diameterStage = DiameterStage.CAPTURE
         }
     }
 
     private fun handleDiameterCapture(
-        now: Long,
-        frame: Frame,
-        freshPoints: List<TrunkMeasurementEngine.WorldPoint>,
+        now: Long, frame: Frame, freshPoints: List<TrunkMeasurementEngine.WorldPoint>,
     ) {
-        val activePreview = previewFit ?: lockedPreviewFit
-        val clusteredPoints = filterPointsForActivePreview(freshPoints, activePreview)
-        appendPoints(capturePoints, clusteredPoints, MAX_CAPTURE_POINTS)
-
-        if (requestedTier == 1) {
-            handleTier1Capture(now, frame)
-            return
+        if (requestedTier == 1) appendPoints(capturePoints, freshPoints, MAX_CAPTURE_POINTS)
+        else {
+            capturePoints.clear()
+            capturePoints.addAll(previewPoints)
         }
-
-        val referencePose = captureStartPose ?: frame.camera.pose.also { captureStartPose = it }
-        val lateralOffset = lateralOffsetMeters(frame.camera.pose, referencePose)
-        tier2MinLateral = min(tier2MinLateral, lateralOffset)
-        tier2MaxLateral = max(tier2MaxLateral, lateralOffset)
+        val anchor = diameterAnchor ?: return
+        val cameraPose = anchor.pose.inverse().compose(frame.camera.displayOrientedPose)
+        val reference = captureStartPose ?: cameraPose.also { captureStartPose = it }
+        val delta = floatArrayOf(cameraPose.tx() - reference.tx(), cameraPose.ty() - reference.ty(), cameraPose.tz() - reference.tz())
+        val lateral = DiameterScanQuality.lateralOffset(delta, reference.xAxis)
+        tier2MinLateral = min(tier2MinLateral, lateral)
+        tier2MaxLateral = max(tier2MaxLateral, lateral)
         lastScanDistanceM = tier2MaxLateral - tier2MinLateral
         lastScanDurationMs = now - captureStartedAt
-        val motionProgress = (lastScanDistanceM / TIER2_TARGET_SCAN_SPAN_M).coerceIn(0f, 1f)
-
-        postOverlayState(
-            if (motionProgress >= 1f) "Checking trunk fit" else "Scan the trunk",
-            "Move left and right until the progress bar fills while keeping the trunk centered.",
-            (motionProgress * 100f).toInt(),
-        )
-        renderDiameterOverlay(
-            frame,
-            showMotionGuide = true,
-            motionProgress = motionProgress,
-            stageBadge = if (motionProgress >= 1f) "Checking fit" else "Scan left and right",
-        )
-
-        if (lastScanDurationMs > 9000L && lastScanDistanceM < TIER2_MIN_SCAN_SPAN_M) {
-            finishWithError(
-                ERROR_INSUFFICIENT_SCAN_MOTION,
-                "Move farther left and right while keeping the trunk centered, then try again.",
-            )
-            return
+        val motion = (lastScanDistanceM / TIER2_TARGET_SCAN_SPAN_M).coerceIn(0f, 1f)
+        val sampleProgress = (capturePoints.size / (if (requestedTier == 1) 100f else 50f)).coerceIn(0f, 1f)
+        // Completion requires geometry and repeatability, not just elapsed time or movement.
+        val progress = (motion * 40 + sampleProgress * 30 + stableFitCount.coerceAtMost(3) * 10).toInt().coerceAtMost(95)
+        val guidance = when {
+            requestedTier == 2 && motion < 1f -> TrunkMeasurementEngine.Rejection.MOTION.guidance
+            now - lastEvidenceAt > 2000L -> TrunkMeasurementEngine.Rejection.POINTS.guidance
+            stableFitCount > 0 -> "Keep the same chest-height section centered while the diameter stabilizes."
+            else -> lastRejection.guidance
         }
-
-        if (motionProgress >= 1f && capturePoints.size >= 70) {
-            val fit =
-                TrunkMeasurementEngine.fitVerticalCylinder(
-                    points = capturePoints,
-                    tierUsed = 2,
-                    rawPointCount = capturePoints.size,
-                    scanDistanceM = lastScanDistanceM,
-                    scanDurationMs = lastScanDurationMs,
-                )
-            if (fit != null) {
-                finishWithDiameterMeasurement(fit)
-                return
-            }
-        }
-
-        if (lastScanDurationMs >= TIER2_CAPTURE_TIMEOUT_MS) {
-            if (capturePoints.size < 70) {
-                finishWithError(
-                    ERROR_INSUFFICIENT_POINTS,
-                    "TerraTrust did not capture enough trunk points. Move closer and try again.",
-                )
-            } else {
-                finishWithError(
-                    ERROR_LOW_CONFIDENCE,
-                    "TerraTrust could not confirm a tree trunk. Try a larger upright trunk and scan again.",
-                )
-            }
-        }
-    }
-
-    private fun handleTier1Capture(now: Long, frame: Frame) {
-        val referencePose = captureStartPose ?: frame.camera.pose.also { captureStartPose = it }
-        val movement = translationDistanceMeters(frame.camera.pose, referencePose)
-        if (movement > TIER1_MAX_HOLD_DRIFT_M) {
-            beginDiameterCapture(now, frame.camera.pose)
-            postOverlayState(
-                "Hold still for 3 seconds",
-                "TerraTrust lost the stable hold. Keep the phone steady on the trunk.",
-                0,
-            )
-            renderDiameterOverlay(
-                frame,
-                showMotionGuide = false,
-                motionProgress = 0f,
-                stageBadge = "Re-lock trunk",
-            )
-            return
-        }
-
-        lastScanDistanceM = movement
-        lastScanDurationMs = now - captureStartedAt
-        val progress = (lastScanDurationMs.toFloat() / TIER1_CAPTURE_DURATION_MS).coerceIn(0f, 1f)
-
-        postOverlayState(
-            "Hold still for 3 seconds",
-            "Keep the trunk centered while TerraTrust captures a stable depth fit.",
-            (progress * 100f).toInt(),
-        )
-        renderDiameterOverlay(
-            frame,
-            showMotionGuide = false,
-            motionProgress = progress,
-            stageBadge = "Hold still",
-        )
-
-        if (lastScanDurationMs >= TIER1_CAPTURE_DURATION_MS) {
-            val fit =
-                TrunkMeasurementEngine.fitVerticalCylinder(
-                    points = capturePoints,
-                    tierUsed = 1,
-                    rawPointCount = capturePoints.size,
-                    scanDistanceM = lastScanDistanceM,
-                    scanDurationMs = lastScanDurationMs,
-                )
-            if (fit != null) {
-                finishWithDiameterMeasurement(fit)
-                return
-            }
-
-            if (capturePoints.size < 180) {
-                finishWithError(
-                    ERROR_INSUFFICIENT_POINTS,
-                    "TerraTrust did not capture enough trunk depth. Move closer to the trunk and try again.",
-                )
-            } else {
-                finishWithError(
-                    ERROR_LOW_CONFIDENCE,
-                    "TerraTrust could not confirm a tree trunk. Hold the phone on a larger upright trunk and try again.",
-                )
-            }
+        postOverlayState(if (stableFitCount > 0) "Confirming diameter" else "Scan the trunk", guidance, progress)
+        renderDiameterOverlay(frame, true, motion, if (stableFitCount > 0) "Confirming fit" else "Fit preview · keep scanning")
+        val timeout = if (requestedTier == 1) TIER1_CAPTURE_TIMEOUT_MS else TIER2_CAPTURE_TIMEOUT_MS
+        if (lastScanDurationMs >= timeout) {
+            val reason = if (requestedTier == 2 && lastScanDistanceM < TIER2_MIN_SCAN_SPAN_M)
+                TrunkMeasurementEngine.Rejection.MOTION else if (now - lastEvidenceAt > 2000L)
+                TrunkMeasurementEngine.Rejection.POINTS else lastRejection
+            finishWithError(when (reason) {
+                TrunkMeasurementEngine.Rejection.MOTION -> ERROR_INSUFFICIENT_SCAN_MOTION
+                TrunkMeasurementEngine.Rejection.POINTS -> ERROR_INSUFFICIENT_POINTS
+                else -> ERROR_LOW_CONFIDENCE
+            }, reason.guidance)
         }
     }
 
     private fun beginDiameterCapture(now: Long, cameraPose: Pose) {
+        // Keep the independent points that established the provisional cylinder.
         capturePoints.clear()
+        capturePoints.addAll(filterPointsForActivePreview(previewPoints, lockedPreviewFit))
+        fitGeneration += 1
+        pendingFit = null
+        lastPreviewFitAt = 0L
         captureStartedAt = now
-        captureStartPose = cameraPose
+        captureStartPose = diameterAnchor?.pose?.inverse()?.compose(cameraPose)
         tier2MinLateral = 0f
         tier2MaxLateral = 0f
         lastScanDistanceM = 0f
         lastScanDurationMs = 0L
+        lastRejection = TrunkMeasurementEngine.Rejection.MOTION
     }
 
     private fun renderDiameterOverlay(
@@ -958,14 +980,14 @@ class ARMeasurementActivity : AppCompatActivity(), GLSurfaceView.Renderer {
                 val angle = Math.toRadians(angleDegrees.toDouble()).toFloat()
                 val x = activeFit.centerX + kotlin.math.cos(angle) * activeFit.radiusM
                 val z = activeFit.centerZ + kotlin.math.sin(angle) * activeFit.radiusM
-                val start = projectWorldPoint(floatArrayOf(x, yMin, z), view, projection)
-                val end = projectWorldPoint(floatArrayOf(x, yMax, z), view, projection)
+                val start = projectDiameterPoint(floatArrayOf(x, yMin, z), view, projection)
+                val end = projectDiameterPoint(floatArrayOf(x, yMax, z), view, projection)
                 if (start != null && end != null) start to end else null
             }
 
         overlayView.render(
             MeasurementOverlayView.State(
-                reticleLocked = true,
+                reticleLocked = stableFitCount >= 2,
                 topCircle = topCircle,
                 bottomCircle = bottomCircle,
                 cylinderSides = sides,
@@ -1225,10 +1247,7 @@ class ARMeasurementActivity : AppCompatActivity(), GLSurfaceView.Renderer {
 
         val hitPose = bestHit.hitResult.hitPose
         val hitWorldPoint = floatArrayOf(hitPose.tx(), hitPose.ty(), hitPose.tz())
-        val heightMetres = abs(hitWorldPoint[1] - baseWorld[1])
-        if (heightMetres < 0.5f || heightMetres > 80f) {
-            return null
-        }
+        val heightMetres = HeightMeasurementMath.heightAboveBase(hitWorldPoint[1], baseWorld[1]) ?: return null
 
         return HeightPreview(
             heightMetres = heightMetres,
@@ -1247,10 +1266,7 @@ class ARMeasurementActivity : AppCompatActivity(), GLSurfaceView.Renderer {
         pose: Pose,
         baseWorldPoint: FloatArray,
     ): Boolean {
-        val heightMetres = abs(pose.ty() - baseWorldPoint[1])
-        if (heightMetres < 0.5f || heightMetres > 80f) {
-            return false
-        }
+        val heightMetres = HeightMeasurementMath.heightAboveBase(pose.ty(), baseWorldPoint[1]) ?: return false
 
         val horizontalDistance =
             distanceXZ(
@@ -1297,7 +1313,12 @@ class ARMeasurementActivity : AppCompatActivity(), GLSurfaceView.Renderer {
 
     private fun collectDepthPoints(frame: Frame): List<TrunkMeasurementEngine.WorldPoint> {
         val depthImage = frame.acquireRawDepthImage16Bits()
-        val confidenceImage = frame.acquireRawDepthConfidenceImage()
+        val confidenceImage = try {
+            frame.acquireRawDepthConfidenceImage()
+        } catch (error: Exception) {
+            depthImage.close()
+            throw error
+        }
         try {
             if (depthImage.timestamp == lastRawDepthTimestamp) {
                 return emptyList()
@@ -1311,7 +1332,7 @@ class ARMeasurementActivity : AppCompatActivity(), GLSurfaceView.Renderer {
             val width = depthImage.width
             val height = depthImage.height
 
-            val roiView = floatArrayOf(0.40f, 0.20f, 0.60f, 0.80f)
+            val roiView = floatArrayOf(0.30f, 0.24f, 0.70f, 0.76f)
             val roiTexture = FloatArray(4)
             frame.transformCoordinates2d(
                 Coordinates2d.VIEW_NORMALIZED,
@@ -1338,8 +1359,7 @@ class ARMeasurementActivity : AppCompatActivity(), GLSurfaceView.Renderer {
             val cy = intrinsics.principalPoint[1] * height.toFloat() / imageHeight
             val cameraMatrix = FloatArray(16)
             frame.camera.pose.toMatrix(cameraMatrix, 0)
-            val previewCenter = previewFit ?: lockedPreviewFit
-            val sampleStep = if ((xEnd - xStart) * (yEnd - yStart) > 70000) 3 else 2
+            val sampleStep = if ((xEnd - xStart) * (yEnd - yStart) > 70000) 2 else 1
 
             val cameraPoint = FloatArray(4)
             val worldPoint = FloatArray(4)
@@ -1366,19 +1386,6 @@ class ARMeasurementActivity : AppCompatActivity(), GLSurfaceView.Renderer {
                     cameraPoint[3] = 1f
                     Matrix.multiplyMV(worldPoint, 0, cameraMatrix, 0, cameraPoint, 0)
 
-                    if (previewCenter != null) {
-                        val horizontalDistance =
-                            distanceXZ(
-                                worldPoint[0],
-                                worldPoint[2],
-                                previewCenter.centerX,
-                                previewCenter.centerZ,
-                            )
-                        if (horizontalDistance > max(0.22f, previewCenter.radiusM * 2.2f)) {
-                            continue
-                        }
-                    }
-
                     points.add(
                         TrunkMeasurementEngine.WorldPoint(
                             x = worldPoint[0],
@@ -1390,7 +1397,7 @@ class ARMeasurementActivity : AppCompatActivity(), GLSurfaceView.Renderer {
                 }
             }
 
-            return points
+            return selectTrunkForeground(frame, points)
         } finally {
             confidenceImage.close()
             depthImage.close()
@@ -1398,56 +1405,89 @@ class ARMeasurementActivity : AppCompatActivity(), GLSurfaceView.Renderer {
     }
 
     private fun collectSlamPoints(frame: Frame): List<TrunkMeasurementEngine.WorldPoint> {
-        val pointCloud: PointCloud = frame.acquirePointCloud()
+        val cloud: PointCloud = frame.acquirePointCloud()
         try {
-            val previewCenter = previewFit ?: lockedPreviewFit
-            val cameraPose = frame.camera.pose
-            val pointBuffer = pointCloud.points
-            pointBuffer.rewind()
-            val points = mutableListOf<TrunkMeasurementEngine.WorldPoint>()
-
-            while (pointBuffer.remaining() >= 4) {
-                val worldX = pointBuffer.get()
-                val worldY = pointBuffer.get()
-                val worldZ = pointBuffer.get()
-                val confidence = pointBuffer.get()
-                if (confidence < 0.35f) {
-                    continue
-                }
-
-                val cameraPoint = cameraPose.inverse().transformPoint(floatArrayOf(worldX, worldY, worldZ))
-                val depthMetres = -cameraPoint[2]
-                if (depthMetres < 0.6f || depthMetres > 4.5f) {
-                    continue
-                }
-
-                val horizontalRatio = abs(cameraPoint[0] / depthMetres)
-                val verticalRatio = abs(cameraPoint[1] / depthMetres)
-                if (horizontalRatio > 0.26f || verticalRatio > 0.62f) {
-                    continue
-                }
-
-                if (previewCenter != null) {
-                    val horizontalDistance = distanceXZ(worldX, worldZ, previewCenter.centerX, previewCenter.centerZ)
-                    if (horizontalDistance > max(0.22f, previewCenter.radiusM * 2.2f)) {
-                        continue
-                    }
-                }
-
-                points.add(
-                    TrunkMeasurementEngine.WorldPoint(
-                        x = worldX,
-                        y = worldY,
-                        z = worldZ,
-                        confidence = confidence,
-                    ),
-                )
+            if (cloud.timestamp == lastPointCloudTimestamp) return emptyList()
+            lastPointCloudTimestamp = cloud.timestamp
+            val points = cloud.points
+            val ids = cloud.ids
+            points.rewind()
+            ids.rewind()
+            val view = FloatArray(16); val projection = FloatArray(16)
+            frame.camera.getViewMatrix(view, 0)
+            frame.camera.getProjectionMatrix(projection, 0, 0.1f, 10f)
+            val cameraInverse = frame.camera.pose.inverse()
+            val candidates = mutableListOf<Pair<Int, TrunkMeasurementEngine.WorldPoint>>()
+            while (points.remaining() >= 4 && ids.hasRemaining()) {
+                val p = TrunkMeasurementEngine.WorldPoint(points.get(), points.get(), points.get(), points.get())
+                val id = ids.get()
+                if (p.confidence < 0.35f) continue
+                val depth = -cameraInverse.transformPoint(floatArrayOf(p.x, p.y, p.z))[2]
+                if (depth !in 0.5f..4.5f) continue
+                // Projection uses display orientation and the actual viewport crop.
+                val screen = projectWorldPoint(floatArrayOf(p.x, p.y, p.z), view, projection) ?: continue
+                if (screen.x !in viewportWidth * 0.30f..viewportWidth * 0.70f ||
+                    screen.y !in viewportHeight * 0.24f..viewportHeight * 0.76f) continue
+                candidates.add(id to p)
             }
+            val foreground = selectTrunkForeground(frame, candidates.map { it.second }).toHashSet()
+            val anchor = diameterAnchor ?: return emptyList()
+            val inverse = anchor.pose.inverse()
+            candidates.forEach { (id, p) ->
+                if (p in foreground) {
+                    val v = inverse.transformPoint(floatArrayOf(p.x, p.y, p.z))
+                    slamFeatures[id] = TrunkMeasurementEngine.WorldPoint(v[0], v[1], v[2], p.confidence)
+                    slamFeatureSeenAt[id] = SystemClock.elapsedRealtime()
+                } else {
+                    slamFeatures.remove(id)
+                    slamFeatureSeenAt.remove(id)
+                }
+            }
+            val now = SystemClock.elapsedRealtime()
+            slamFeatureSeenAt.filterValues { now - it > 10000L }.keys.toList().forEach {
+                slamFeatures.remove(it)
+                slamFeatureSeenAt.remove(it)
+            }
+            while (slamFeatures.size > MAX_PREVIEW_POINTS) {
+                val oldest = slamFeatures.keys.first()
+                slamFeatures.remove(oldest)
+                slamFeatureSeenAt.remove(oldest)
+            }
+            if (foreground.isEmpty()) return emptyList()
+            // Current feature positions replace old estimates under the same ARCore ID.
+            return slamFeatures.values.map { p ->
+                val v = anchor.pose.transformPoint(floatArrayOf(p.x, p.y, p.z))
+                TrunkMeasurementEngine.WorldPoint(v[0], v[1], v[2], p.confidence)
+            }
+        } finally { cloud.close() }
+    }
 
-            return points
-        } finally {
-            pointCloud.close()
+    private fun selectTrunkForeground(frame: Frame, points: List<TrunkMeasurementEngine.WorldPoint>): List<TrunkMeasurementEngine.WorldPoint> {
+        if (points.isEmpty()) return emptyList()
+        val view = FloatArray(16); val projection = FloatArray(16)
+        frame.camera.getViewMatrix(view, 0)
+        frame.camera.getProjectionMatrix(projection, 0, 0.1f, 10f)
+        val inverse = frame.camera.pose.inverse()
+        val central = points.filter { p ->
+            val screen = projectWorldPoint(floatArrayOf(p.x, p.y, p.z), view, projection)
+            screen != null && abs(screen.x / viewportWidth - 0.5f) < 0.06f && abs(screen.y / viewportHeight - 0.5f) < 0.18f
         }
+        val anchor = diameterAnchor
+        if (anchor != null) {
+            val anchorDepth = -inverse.transformPoint(anchor.pose.translation)[2]
+            return points.filter {
+                abs(-inverse.transformPoint(floatArrayOf(it.x, it.y, it.z))[2] - anchorDepth) <= max(0.35f, (lockedPreviewFit?.radiusM ?: 0f) * 1.5f)
+            }
+        }
+        if (central.size < 4) return emptyList()
+        val depths = central.map { -inverse.transformPoint(floatArrayOf(it.x, it.y, it.z))[2] }.sorted()
+        val depth = depths[depths.size / 2]
+        val foreground = points.filter {
+            abs(-inverse.transformPoint(floatArrayOf(it.x, it.y, it.z))[2] - depth) <= 0.35f
+        }
+        val seed = central.minByOrNull { abs(-inverse.transformPoint(floatArrayOf(it.x, it.y, it.z))[2] - depth) } ?: return emptyList()
+        diameterAnchor = session?.createAnchor(Pose.makeTranslation(seed.x, seed.y, seed.z))
+        return foreground
     }
 
     private fun filterPointsForActivePreview(
@@ -1458,9 +1498,9 @@ class ARMeasurementActivity : AppCompatActivity(), GLSurfaceView.Renderer {
             return points
         }
 
-        val horizontalWindow = max(0.22f, activePreview.radiusM * 2.3f)
-        val yMin = activePreview.centerY - 0.7f
-        val yMax = activePreview.centerY + 0.7f
+        val horizontalWindow = max(0.30f, activePreview.radiusM * 1.8f)
+        val yMin = activePreview.centerY - 0.40f
+        val yMax = activePreview.centerY + 0.40f
         return points.filter { point ->
             point.y in yMin..yMax &&
                 distanceXZ(point.x, point.z, activePreview.centerX, activePreview.centerZ) <= horizontalWindow
@@ -1476,19 +1516,33 @@ class ARMeasurementActivity : AppCompatActivity(), GLSurfaceView.Renderer {
             return
         }
 
-        target.addAll(newPoints)
+        val unique = TrunkMeasurementEngine.uniquePoints(target + newPoints)
+        target.clear()
+        target.addAll(unique)
         if (target.size > maxSize) {
             target.subList(0, target.size - maxSize).clear()
         }
     }
 
     private fun resetDiameterState() {
+        fitGeneration += 1
+        pendingFit = null
+        diameterAnchor?.detach()
+        diameterAnchor = null
+        slamFeatures.clear()
+        slamFeatureSeenAt.clear()
+        lastPointCloudTimestamp = -1L
+        stableFitCount = 0
+        previousFinalFit = null
+        lastAcceptedRevision = -1L
+        lastEvidenceAt = 0L
         diameterStage = DiameterStage.WARMUP
         stageStartedAt = 0L
         previewStableSince = 0L
         captureStartedAt = 0L
         captureStartPose = null
         depthWarmupFrames = 0
+        lastPreviewFitAt = 0L
         lastRawDepthTimestamp = -1L
         previewPoints.clear()
         capturePoints.clear()
@@ -1524,6 +1578,7 @@ class ARMeasurementActivity : AppCompatActivity(), GLSurfaceView.Renderer {
                     put("scan_distance_m", roundToDecimals(fit.scanDistanceM, 2))
                     put("scan_duration_ms", fit.scanDurationMs)
                     put("fit_method", fit.fitMethod)
+                    put("radius_uncertainty_cm", roundToDecimals(fit.radiusUncertaintyCm, 2))
                 }.toString()
             val intent = Intent().putExtra(EXTRA_MEASUREMENT_JSON, json)
             setResult(Activity.RESULT_OK, intent)
@@ -1604,10 +1659,15 @@ class ARMeasurementActivity : AppCompatActivity(), GLSurfaceView.Renderer {
             val angle = Math.PI * 2.0 * index.toDouble() / segments.toDouble()
             val x = centerX + kotlin.math.cos(angle).toFloat() * radius
             val z = centerZ + kotlin.math.sin(angle).toFloat() * radius
-            val projected = projectWorldPoint(floatArrayOf(x, y, z), view, projection) ?: continue
+            val projected = projectDiameterPoint(floatArrayOf(x, y, z), view, projection) ?: continue
             points.add(projected)
         }
         return points
+    }
+
+    private fun projectDiameterPoint(point: FloatArray, view: FloatArray, projection: FloatArray): PointF? {
+        val world = diameterAnchor?.pose?.transformPoint(point) ?: return null
+        return projectWorldPoint(world, view, projection)
     }
 
     private fun projectWorldPoint(
@@ -1685,25 +1745,6 @@ class ARMeasurementActivity : AppCompatActivity(), GLSurfaceView.Renderer {
         val dx = x - centerX
         val dz = z - centerZ
         return sqrt(dx * dx + dz * dz)
-    }
-
-    private fun translationDistanceMeters(first: Pose, second: Pose): Float {
-        val dx = first.tx() - second.tx()
-        val dy = first.ty() - second.ty()
-        val dz = first.tz() - second.tz()
-        return sqrt(dx * dx + dy * dy + dz * dz)
-    }
-
-    private fun lateralOffsetMeters(currentPose: Pose, referencePose: Pose): Float {
-        val referenceMatrix = FloatArray(16)
-        referencePose.toMatrix(referenceMatrix, 0)
-        val dx = currentPose.tx() - referencePose.tx()
-        val dy = currentPose.ty() - referencePose.ty()
-        val dz = currentPose.tz() - referencePose.tz()
-        val rightX = referenceMatrix[0]
-        val rightY = referenceMatrix[1]
-        val rightZ = referenceMatrix[2]
-        return dx * rightX + dy * rightY + dz * rightZ
     }
 
     private fun roundToDecimals(value: Float, decimals: Int): Double {

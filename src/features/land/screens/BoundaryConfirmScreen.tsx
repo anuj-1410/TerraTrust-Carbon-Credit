@@ -13,7 +13,7 @@ import MapView, {Polygon} from 'react-native-maps';
 import NetInfo from '@react-native-community/netinfo';
 import Geolocation from 'react-native-geolocation-service';
 import LottieView from 'lottie-react-native';
-import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
+import {MaterialDesignIcons as MaterialCommunityIcons} from '@react-native-vector-icons/material-design-icons';
 
 import Button from '../../../common/components/Button';
 import BottomSheet from '../../../common/components/BottomSheet';

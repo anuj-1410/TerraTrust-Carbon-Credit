@@ -11,7 +11,7 @@ import {CommonActions, useNavigation, useRoute} from '@react-navigation/native';
 import type {NativeStackNavigationProp} from '@react-navigation/native-stack';
 import type {RouteProp} from '@react-navigation/native';
 import LottieView from 'lottie-react-native';
-import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
+import {MaterialDesignIcons as MaterialCommunityIcons} from '@react-native-vector-icons/material-design-icons';
 
 import Badge from '../../../common/components/Badge';
 import Button from '../../../common/components/Button';

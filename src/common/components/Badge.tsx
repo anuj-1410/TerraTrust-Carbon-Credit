@@ -1,6 +1,6 @@
 import React from 'react';
 import {View, Text} from 'react-native';
-import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
+import {MaterialDesignIcons as MaterialCommunityIcons} from '@react-native-vector-icons/material-design-icons';
 import {COLORS} from '../constants/colors';
 
 type BadgeVariant =

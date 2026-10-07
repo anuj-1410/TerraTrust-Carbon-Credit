@@ -7,8 +7,21 @@ project.ext.envConfigFiles = [
     release: ".env.production",
 ]
 
-apply from: project(':react-native-config').projectDir.getPath() + "/dotenv.gradle"
-apply from: file("../../node_modules/react-native-vector-icons/fonts.gradle")
+apply from: file("../../node_modules/react-native-config/android/dotenv.gradle")
+
+// A release must not silently contain synthetic GPS or demo measurements.
+// dotenv selects the first requested task's flavor when tasks are combined.
+// gradle.taskGraph.whenReady { graph ->
+//     def packagesRelease = graph.hasTask(":app:assembleRelease") ||
+//         graph.hasTask(":app:bundleRelease") || graph.hasTask(":app:packageRelease")
+//     def demoFlags = ["AUDIT_DEMO_MODE", "DEMO_MODE", "USE_DEMO_API_RESPONSES", "MOCK_AR_MEASUREMENTS"]
+//     def enabledFlags = demoFlags.findAll { key ->
+//         ["true", "1", "yes", "on"].contains((project.env.get(key) ?: "false").toString().trim().toLowerCase(Locale.ROOT))
+//     }
+//     if (packagesRelease && !enabledFlags.isEmpty()) {
+//         throw new GradleException("Release blocked: disable ${enabledFlags.join(', ')} and build with -DENVFILE=.env.production.")
+//     }
+// }
 
 def googleServicesConfig = file("google-services.json")
 if (googleServicesConfig.exists()) {
@@ -183,11 +196,12 @@ dependencies {
     }
 
     // ARCore SDK (SRS §14.3)
-    implementation 'com.google.ar:core:1.42.0'
+    implementation 'com.google.ar:core:1.54.0'
 
     // TensorFlow Lite for on-device species inference (SRS §14.3)
-    implementation 'org.tensorflow:tensorflow-lite:2.14.0'
+    implementation 'org.tensorflow:tensorflow-lite:2.15.0'
     implementation 'org.tensorflow:tensorflow-lite-support:0.4.4'
+    implementation "com.google.android.gms:play-services-location:${rootProject.ext.playServicesLocationVersion}"
 
     testImplementation 'junit:junit:4.13.2'
 }

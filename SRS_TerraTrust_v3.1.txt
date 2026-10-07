@@ -283,13 +283,17 @@ SECTION 3: COMPLETE TECHNOLOGY STACK
 
 MOBILE APPLICATION
 ------------------
-Framework        : React Native CLI 0.84.1
+Framework        : React Native CLI 0.86.2
+React            : 19.2.3
                    NOTE: Use a plain React Native project with New
                    Architecture enabled. TerraTrust does not use the
                    Expo-managed workflow because ARCore and custom native
                    modules are part of the baseline design.
 Language         : TypeScript 5.9.x (strict mode enabled)
-AR Engine        : Google ARCore (via Native Kotlin Bridge)
+AR Engine        : Google ARCore 1.54.0 (via Native Kotlin Bridge)
+Android Build    : compileSdk/targetSdk 36, minSdk 26, buildTools 36.0.0,
+                   NDK 27.1.12297006, AGP 8.13.2, Kotlin 2.2.0,
+                   Gradle 9.3.1, Google Services plugin 4.4.4
 Maps             : react-native-maps (used for ZoneNavigationScreen only
                    — Google Maps road view for GPS walking navigation)
                    On Android, BoundaryConfirmScreen reuses it as a
@@ -308,7 +312,8 @@ Local Storage    : MMKV 3.3.x (30x faster than AsyncStorage, synchronous,
                    the wallet or secret store)
 Form Validation  : Zod + React Hook Form
 Styling          : NativeWind 4.2.x + Tailwind CSS 3.4.x
-ML On-device     : TensorFlow Lite 2.14.x (tree species identification)
+ML On-device     : TensorFlow Lite 2.15.0 + TFLite Support 0.4.4
+                   (tree species identification)
 Blockchain       : ethers.js v6 (farmer wallet generation + balance)
 Camera           : react-native-vision-camera v4.7.x
                    (higher quality capture for OCR accuracy)
@@ -428,17 +433,18 @@ RAM              : Minimum 16GB (Android Studio uses 4-8GB alone)
 Storage          : Minimum 50GB free space
 Node.js          : v22.11+ LTS (required by package.json engines; install via nvm)
 Python           : v3.11+ (check: python3 --version)
-Java JDK         : OpenJDK 17 (required for Android build)
+Java JDK         : OpenJDK 25 LTS (system installation)
 Android Studio   : Latest stable version
 
 Android Studio Setup (complete all of these):
   SDK Manager → SDK Platforms:
-    Install: Android 13.0 (API 33)
     Install: Android 14.0 (API 34)
+    Install: Android 15.0 (API 35)
+    Install: Android 16.0 (API 36)
   SDK Manager → SDK Tools:
-    Install: NDK (Side by side) — latest version
+    Install: NDK (Side by side) — 27.1.12297006
     Install: CMake — latest version
-    Install: Android SDK Build-Tools — latest version
+    Install: Android SDK Build-Tools — 36.0.0
   Virtual Device Manager:
     Create: Pixel 6 emulator, API 34 (for basic UI testing)
     NOTE: AR scanning CANNOT be tested on any emulator.
@@ -3493,7 +3499,7 @@ MMKV is used instead of AsyncStorage because:
   - Synchronous API — tree data saves instantly when farmer taps "Save"
   - Optional encryption support when the key is supplied securely at runtime
   - Intended for persisted app state, not for private keys or other secrets
-  - Current repo baseline uses react-native-mmkv 3.3.x on React Native 0.84.1
+  - Current repo baseline uses react-native-mmkv 3.3.x on React Native 0.86.2
   - New Architecture stays enabled
 
   // store/mmkvStorage.ts
@@ -3588,8 +3594,8 @@ Inside android { defaultConfig { ... } } block:
   ]
 
 Inside dependencies { ... } block:
-  implementation 'com.google.ar:core:1.42.0'
-  implementation 'org.tensorflow:tensorflow-lite:2.14.0'
+  implementation 'com.google.ar:core:1.54.0'
+  implementation 'org.tensorflow:tensorflow-lite:2.15.0'
   implementation 'org.tensorflow:tensorflow-lite-support:0.4.4'
 
 In android/local.properties (create if it does not exist — already in
@@ -4455,7 +4461,7 @@ SECTION 22: MOBILE npm DEPENDENCIES (package.json)
 ================================================================================
 
 Install all mobile dependencies with:
-  npx @react-native-community/cli@20.1.3 init TerraTrustAR --version 0.84.1 --template react-native-template-typescript
+  npx react-native@0.86.2 init TerraTrustAR --version 0.86.2 --template react-native-template-typescript
   cd TerraTrustAR
 
   # TerraTrustAR baseline assumes Node.js 22.11+ and the New Architecture.
@@ -4463,8 +4469,8 @@ Install all mobile dependencies with:
   # In android/gradle.properties set: newArchEnabled=true
 
   # Core platform alignment
-  npm install react@19.2.4
-  npm install --save-dev react-test-renderer@19.2.4 @types/react@^19.2.14
+  npm install react@19.2.3
+  npm install --save-dev react-test-renderer@19.2.3 @types/react@^19.2.14
   npm install --save-dev jest@^29.7.0 @types/jest@^29.5.14
   npm install --save-dev typescript@^5.9.3
 
@@ -4507,7 +4513,7 @@ Install all mobile dependencies with:
   npm install lottie-react-native@^7.3.6
 
   # UI utilities
-  npm install react-native-reanimated@^4.3.0
+  npm install react-native-reanimated@4.4.2
   npm install react-native-haptic-feedback@^2.3.4
   npm install react-native-device-info@^15.0.2
 

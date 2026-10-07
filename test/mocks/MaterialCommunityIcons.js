@@ -6,4 +6,4 @@ function MaterialCommunityIcons({name = 'icon', ...props}) {
 }
 
 module.exports = MaterialCommunityIcons;
-module.exports.default = MaterialCommunityIcons;
+module.exports.MaterialDesignIcons = MaterialCommunityIcons;

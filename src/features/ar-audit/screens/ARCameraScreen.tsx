@@ -14,7 +14,7 @@ import type {RouteProp} from '@react-navigation/native';
 import {Camera, useCameraDevice} from 'react-native-vision-camera';
 import Geolocation from 'react-native-geolocation-service';
 import ReactNativeHapticFeedback from 'react-native-haptic-feedback';
-import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
+import {MaterialDesignIcons as MaterialCommunityIcons} from '@react-native-vector-icons/material-design-icons';
 
 import type {RootStackParamList} from '../../../types/navigation';
 import Badge from '../../../common/components/Badge';
@@ -622,7 +622,7 @@ const ARCameraScreen = () => {
           } else {
             Alert.alert(
               'Low Confidence',
-              'Move closer to the tree and hold still, then try again.',
+              'Keep the trunk centered and move gently sideways, then try again.',
             );
             setPhase(getReadyPhase());
             setStatusText('Try again — Measure diameter');
@@ -717,7 +717,7 @@ const ARCameraScreen = () => {
         } else {
           Alert.alert(
             'Measurement Failed',
-            errorMessage || 'Move closer to the tree and hold still, then try again.',
+            errorMessage || 'Keep the trunk centered and move gently sideways, then try again.',
           );
           setPhase(getReadyPhase());
           setStatusText('Try again — Measure diameter');

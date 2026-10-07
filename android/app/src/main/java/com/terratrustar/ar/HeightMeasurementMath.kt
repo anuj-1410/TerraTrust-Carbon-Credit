@@ -11,6 +11,11 @@ data class HeightRayEstimate(
 
 object HeightMeasurementMath {
 
+    fun heightAboveBase(topY: Float, baseY: Float): Float? {
+        val height = topY - baseY
+        return height.takeIf { it.isFinite() && it in 0.5f..80f }
+    }
+
     fun estimateHeightFromRay(
         baseWorldPoint: FloatArray,
         rayOrigin: FloatArray,
@@ -35,7 +40,7 @@ object HeightMeasurementMath {
         }
 
         val heightMetres = wy + rayDotUp * rayDistance
-        if (heightMetres < 0.5f || heightMetres > 80f) {
+        if (!heightMetres.isFinite() || heightMetres !in 0.5f..80f) {
             return null
         }
 

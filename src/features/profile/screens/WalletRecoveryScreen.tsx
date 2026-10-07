@@ -8,7 +8,7 @@ import {
 } from 'react-native';
 import {useNavigation} from '@react-navigation/native';
 import type {NativeStackNavigationProp} from '@react-navigation/native-stack';
-import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
+import {MaterialDesignIcons as MaterialCommunityIcons} from '@react-native-vector-icons/material-design-icons';
 
 import Button from '../../../common/components/Button';
 import Card from '../../../common/components/Card';

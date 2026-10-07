@@ -1,10 +1,12 @@
-import {useContext, useMemo} from 'react';
-import {useWindowDimensions} from 'react-native';
-import {SafeAreaInsetsContext} from 'react-native-safe-area-context';
+import { useContext, useMemo } from 'react';
+import { useWindowDimensions } from 'react-native';
+import { SafeAreaInsetsContext } from 'react-native-safe-area-context';
+import { FloatingTabInsetContext } from '../../app/FloatingTabInsetContext';
 
 export function useResponsiveScreen() {
-  const {width, height} = useWindowDimensions();
+  const { width, height } = useWindowDimensions();
   const insets = useContext(SafeAreaInsetsContext);
+  const floatingTabInset = useContext(FloatingTabInsetContext);
   const topInset = insets?.top ?? 0;
   const bottomInset = insets?.bottom ?? 0;
 
@@ -19,9 +21,8 @@ export function useResponsiveScreen() {
       horizontalPadding,
       contentMaxWidth,
       topSpacing: topInset + (compactHeight ? 12 : 20),
-      bottomSpacing: Math.max(bottomInset + 16, 24),
+      bottomSpacing: Math.max(bottomInset + 16, 24) + floatingTabInset,
       compactHeight,
     };
-  }, [bottomInset, height, topInset, width]);
+  }, [bottomInset, floatingTabInset, height, topInset, width]);
 }
-

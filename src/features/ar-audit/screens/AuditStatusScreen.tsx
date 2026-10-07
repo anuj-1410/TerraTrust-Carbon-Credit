@@ -11,7 +11,7 @@ import {useNavigation, useRoute} from '@react-navigation/native';
 import type {RouteProp} from '@react-navigation/native';
 import type {NativeStackNavigationProp} from '@react-navigation/native-stack';
 import LottieView from 'lottie-react-native';
-import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
+import {MaterialDesignIcons as MaterialCommunityIcons} from '@react-native-vector-icons/material-design-icons';
 
 import Button from '../../../common/components/Button';
 import {COLORS} from '../../../common/constants/colors';

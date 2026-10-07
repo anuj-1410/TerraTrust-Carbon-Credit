@@ -12,7 +12,7 @@ import type {NativeStackNavigationProp} from '@react-navigation/native-stack';
 import {pick, types, isErrorWithCode, errorCodes} from '@react-native-documents/picker';
 import NetInfo from '@react-native-community/netinfo';
 import LottieView from 'lottie-react-native';
-import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
+import {MaterialDesignIcons as MaterialCommunityIcons} from '@react-native-vector-icons/material-design-icons';
 
 import type {RootStackParamList} from '../../../types/navigation';
 import {useAppDispatch, useAppSelector} from '../../../store/hooks';

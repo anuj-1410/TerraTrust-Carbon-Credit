@@ -13,6 +13,7 @@ export interface ARMeasurementResult {
   scan_distance_m?: number;
   scan_duration_ms?: number;
   fit_method?: string;
+  radius_uncertainty_cm?: number;
 }
 
 export interface SpeciesInferenceResult {

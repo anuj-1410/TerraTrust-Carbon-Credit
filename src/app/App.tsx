@@ -1,32 +1,27 @@
-import React, {useCallback, useEffect, useRef} from 'react';
+import React, { useCallback, useEffect, useRef } from 'react';
 import {
   AppState,
   type AppStateStatus,
   BackHandler,
   Platform,
-  Pressable,
   Text,
   ToastAndroid,
   TouchableOpacity,
-  View,
 } from 'react-native';
-import {Provider} from 'react-redux';
-import {PersistGate} from 'redux-persist/integration/react';
-import {
-  NavigationContainer,
-  getFocusedRouteNameFromRoute,
-} from '@react-navigation/native';
-import {createNativeStackNavigator} from '@react-navigation/native-stack';
-import {
-  createBottomTabNavigator,
-  type BottomTabBarButtonProps,
-} from '@react-navigation/bottom-tabs';
-import {useSafeAreaInsets} from 'react-native-safe-area-context';
+import { Provider } from 'react-redux';
+import { PersistGate } from 'redux-persist/integration/react';
+import { NavigationContainer } from '@react-navigation/native';
+import { createNativeStackNavigator } from '@react-navigation/native-stack';
+import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import BackgroundFetch from 'react-native-background-fetch';
 import NetInfo from '@react-native-community/netinfo';
-import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
+import FloatingTabBar from './FloatingTabBar';
+import {
+  FloatingTabInsetContext,
+  FLOATING_TAB_CONTENT_INSET,
+} from './FloatingTabInsetContext';
 
-import {store, persistor, type RootState} from '../store';
+import { store, persistor, type RootState } from '../store';
 import type {
   HistoryStackParamList,
   HomeStackParamList,
@@ -35,21 +30,21 @@ import type {
   ProfileStackParamList,
   RootStackParamList,
 } from '../types/navigation';
-import {navigationRef} from '../services/navigationRef';
-import {useAppSelector, useAppDispatch} from '../store/hooks';
-import {hideBanner, setMaintenance, showBanner} from '../store/uiSlice';
+import { navigationRef } from '../services/navigationRef';
+import { useAppSelector, useAppDispatch } from '../store/hooks';
+import { hideBanner, setMaintenance, showBanner } from '../store/uiSlice';
 import Loader from '../common/components/Loader';
-import api, {retryPendingAuditUpload} from '../services/api';
-import {COLORS} from '../common/constants/colors';
-import {setPendingMint} from '../features/dashboard/store/creditsSlice';
+import api, { retryPendingAuditUpload } from '../services/api';
+import { COLORS } from '../common/constants/colors';
+import { setPendingMint } from '../features/dashboard/store/creditsSlice';
 import {
   detectAndSetARTier,
   setAuditResult,
   setUploadStatus,
 } from '../features/ar-audit/store/auditSlice';
-import {syncAuditStatus} from '../features/ar-audit/utils/auditStatus';
-import {isOnboardingComplete} from '../common/utils/onboarding';
-import {setOnboardingComplete} from '../features/profile/store/profileSlice';
+import { syncAuditStatus } from '../features/ar-audit/utils/auditStatus';
+import { isOnboardingComplete } from '../common/utils/onboarding';
+import { setOnboardingComplete } from '../features/profile/store/profileSlice';
 
 // Auth screens
 import SplashScreen from '../features/auth/screens/SplashScreen';
@@ -173,18 +168,17 @@ function shouldSyncActiveAudit(
 function primeAuditProcessingState(dispatch: typeof store.dispatch) {
   dispatch(setUploadStatus('processing'));
   dispatch(setPendingMint(true));
-  dispatch(setAuditResult({status: 'PROCESSING'}));
+  dispatch(setAuditResult({ status: 'PROCESSING' }));
 }
 
 async function refreshLandSnapshot(dispatch: typeof store.dispatch) {
   try {
     const currentParcels = store.getState().land.parcels;
-    const {data} = await api.get<LandListResponse | Array<Record<string, unknown>>>(
-      '/api/v1/land/list',
-      {
-        params: {page: 1, limit: 50},
-      },
-    );
+    const { data } = await api.get<
+      LandListResponse | Array<Record<string, unknown>>
+    >('/api/v1/land/list', {
+      params: { page: 1, limit: 50 },
+    });
 
     const items = Array.isArray(data) ? data : data.items ?? [];
     const incomingParcels = normalizeLandParcels(items, currentParcels);
@@ -195,103 +189,9 @@ async function refreshLandSnapshot(dispatch: typeof store.dispatch) {
   }
 }
 
-function TabIcon({
-  name,
-  label,
-  color,
-  size,
-  focused,
-  showDot = false,
-}: {
-  name: React.ComponentProps<typeof MaterialCommunityIcons>['name'];
-  label: string;
-  color: string;
-  size: number;
-  focused: boolean;
-  showDot?: boolean;
-}) {
-  const activeColor = focused ? COLORS.FOREST_GREEN : color;
-
-  return (
-    <View className="w-full items-center justify-center py-1">
-      <View
-        className="items-center justify-center rounded-full"
-        style={{
-          width: focused ? 50 : 36,
-          height: 32,
-          backgroundColor: focused ? 'rgba(47, 133, 90, 0.16)' : 'transparent',
-        }}>
-        <View className="relative items-center justify-center">
-          <MaterialCommunityIcons color={activeColor} name={name} size={size} />
-          {showDot ? (
-            <View
-              className="absolute -right-1 -top-1 h-2.5 w-2.5 rounded-full"
-              style={{
-                backgroundColor: COLORS.ERROR_RED,
-              }}
-            />
-          ) : null}
-        </View>
-      </View>
-      <Text
-        className="mt-1.5 text-[11px] font-medium"
-        numberOfLines={1}
-        style={{
-          color: focused ? COLORS.FOREST_GREEN : color,
-          fontFamily: 'Roboto-Regular',
-        }}>
-        {label}
-      </Text>
-    </View>
-  );
-}
-
-function TabBarButton({
-  children,
-  style,
-  ...props
-}: BottomTabBarButtonProps) {
-  const pressableProps =
-    props as unknown as Omit<React.ComponentProps<typeof Pressable>, 'style'>;
-
-  return (
-    <Pressable
-      {...pressableProps}
-      android_ripple={{color: 'rgba(47, 133, 90, 0.08)', borderless: false}}
-      style={({pressed}) => [
-        style,
-        {
-          flex: 1,
-          minWidth: 0,
-          alignItems: 'center',
-          justifyContent: 'center',
-          paddingHorizontal: 0,
-          paddingVertical: 2,
-          opacity: pressed ? 0.92 : 1,
-        },
-      ]}>
-      {children}
-    </Pressable>
-  );
-}
-
-function getBaseTabBarStyle(bottomInset: number) {
-  return {
-    backgroundColor: COLORS.CARD_WHITE,
-    borderTopWidth: 1,
-    borderTopColor: '#E2E8F0',
-    height: 62 + bottomInset,
-    paddingBottom: Math.max(bottomInset, 6),
-    paddingTop: 4,
-    paddingHorizontal: 0,
-    shadowOpacity: 0,
-    elevation: 0,
-  };
-}
-
 function HomeStackNavigator() {
   return (
-    <HomeStack.Navigator screenOptions={{headerShown: false}}>
+    <HomeStack.Navigator screenOptions={{ headerShown: false }}>
       <HomeStack.Screen name="DashboardHomeScreen" component={HomeScreen} />
       <HomeStack.Screen
         name="CreditHistoryScreen"
@@ -308,7 +208,7 @@ function HomeStackNavigator() {
 
 function LandStackNavigator() {
   return (
-    <LandStack.Navigator screenOptions={{headerShown: false}}>
+    <LandStack.Navigator screenOptions={{ headerShown: false }}>
       <LandStack.Screen name="LandListScreen" component={LandListScreen} />
       <LandStack.Screen name="LandDetailScreen" component={LandDetailScreen} />
       <LandStack.Screen
@@ -321,11 +221,11 @@ function LandStackNavigator() {
 
 function HistoryStackNavigator() {
   return (
-    <HistoryStack.Navigator screenOptions={{headerShown: false}}>
+    <HistoryStack.Navigator screenOptions={{ headerShown: false }}>
       <HistoryStack.Screen
         name="CreditHistoryScreen"
         component={CreditHistoryScreen}
-        initialParams={{source: 'history'}}
+        initialParams={{ source: 'history' }}
       />
     </HistoryStack.Navigator>
   );
@@ -333,7 +233,7 @@ function HistoryStackNavigator() {
 
 function ProfileStackNavigator() {
   return (
-    <ProfileStack.Navigator screenOptions={{headerShown: false}}>
+    <ProfileStack.Navigator screenOptions={{ headerShown: false }}>
       <ProfileStack.Screen name="ProfileScreen" component={ProfileScreen} />
       <ProfileStack.Screen name="SettingsScreen" component={SettingsScreen} />
       <ProfileStack.Screen
@@ -345,106 +245,54 @@ function ProfileStackNavigator() {
 }
 
 function MainTabs() {
-  const insets = useSafeAreaInsets();
-  const unreadNotifications = useAppSelector(state => state.notifications.unreadCount);
+  const unreadNotifications = useAppSelector(
+    state => state.notifications.unreadCount,
+  );
   const walletRecoveryPending = useAppSelector(
     state => state.profile.walletRecoveryPending,
   );
-  const baseTabBarStyle = getBaseTabBarStyle(insets.bottom);
-
   return (
-    <Tab.Navigator
-      id="MainTabs"
-      initialRouteName="HomeTab"
-      screenOptions={{
-        headerShown: false,
-        tabBarActiveTintColor: COLORS.FOREST_GREEN,
-        tabBarInactiveTintColor: '#64748B',
-        tabBarHideOnKeyboard: true,
-        tabBarShowLabel: false,
-        tabBarItemStyle: {
-          flex: 1,
-          paddingVertical: 0,
-        },
-        tabBarButton: props => <TabBarButton {...props} />,
-        tabBarStyle: baseTabBarStyle,
-      }}>
-      <Tab.Screen
-        name="HomeTab"
-        component={HomeStackNavigator}
-        options={{
-          title: 'Home',
-          tabBarIcon: ({color, size, focused}) => (
-            <TabIcon
-              color={color}
-              focused={focused}
-              label="Home"
-              name="home-outline"
-              showDot={unreadNotifications > 0}
-              size={size}
-            />
-          ),
+    <FloatingTabInsetContext.Provider value={FLOATING_TAB_CONTENT_INSET}>
+      <Tab.Navigator
+        id="MainTabs"
+        initialRouteName="HomeTab"
+        tabBar={props => <FloatingTabBar {...props} />}
+        screenOptions={{
+          headerShown: false,
         }}
-      />
-      <Tab.Screen
-        name="LandTab"
-        component={LandStackNavigator}
-        options={{
-          title: 'My Lands',
-          tabBarIcon: ({color, size, focused}) => (
-            <TabIcon
-              color={color}
-              focused={focused}
-              label="My Lands"
-              name="sprout-outline"
-              size={size}
-            />
-          ),
-        }}
-      />
-      <Tab.Screen
-        name="HistoryTab"
-        component={HistoryStackNavigator}
-        options={{
-          title: 'History',
-          tabBarIcon: ({color, size, focused}) => (
-            <TabIcon
-              color={color}
-              focused={focused}
-              label="History"
-              name="chart-timeline-variant"
-              size={size}
-            />
-          ),
-        }}
-      />
-      <Tab.Screen
-        name="ProfileTab"
-        component={ProfileStackNavigator}
-        options={({route}) => {
-          const focusedRoute =
-            getFocusedRouteNameFromRoute(route) ?? 'ProfileScreen';
-          const shouldHideTabBar = focusedRoute === 'WalletRecoveryScreen';
-
-          return {
+      >
+        <Tab.Screen
+          name="HomeTab"
+          component={HomeStackNavigator}
+          options={{
+            title: 'Home',
+            tabBarBadge: unreadNotifications > 0 ? 1 : undefined,
+          }}
+        />
+        <Tab.Screen
+          name="LandTab"
+          component={LandStackNavigator}
+          options={{
+            title: 'My Lands',
+          }}
+        />
+        <Tab.Screen
+          name="HistoryTab"
+          component={HistoryStackNavigator}
+          options={{
+            title: 'History',
+          }}
+        />
+        <Tab.Screen
+          name="ProfileTab"
+          component={ProfileStackNavigator}
+          options={{
             title: 'Profile',
-            tabBarStyle: shouldHideTabBar
-              ? {...getBaseTabBarStyle(insets.bottom), display: 'none'}
-              : getBaseTabBarStyle(insets.bottom),
-            tabBarIcon: ({color, size, focused}) => (
-              <TabIcon
-                color={color}
-                focused={focused}
-                label="Profile"
-                name="account-outline"
-                showDot={walletRecoveryPending}
-                size={size}
-              />
-            ),
-          };
-        }}
-      />
-    </Tab.Navigator>
+            tabBarBadge: walletRecoveryPending ? 1 : undefined,
+          }}
+        />
+      </Tab.Navigator>
+    </FloatingTabInsetContext.Provider>
   );
 }
 
@@ -688,15 +536,13 @@ function AppLifecycleEffects() {
     if (
       !isAuthenticated ||
       !activeAuditId ||
-      !shouldSyncActiveAudit(
-        {
-          ...store.getState().audit,
-          activeAuditId,
-          uploadStatus: auditUploadStatus,
-          auditResult:
-            auditResultStatus === null ? null : {status: auditResultStatus},
-        },
-      )
+      !shouldSyncActiveAudit({
+        ...store.getState().audit,
+        activeAuditId,
+        uploadStatus: auditUploadStatus,
+        auditResult:
+          auditResultStatus === null ? null : { status: auditResultStatus },
+      })
     ) {
       return;
     }
@@ -735,7 +581,13 @@ function AppLifecycleEffects() {
     }, 15000);
 
     return () => clearInterval(intervalId);
-  }, [activeAuditId, auditResultStatus, auditUploadStatus, dispatch, isAuthenticated]);
+  }, [
+    activeAuditId,
+    auditResultStatus,
+    auditUploadStatus,
+    dispatch,
+    isAuthenticated,
+  ]);
 
   useEffect(() => {
     if (!maintenanceMode || !navigationRef.isReady()) {
@@ -748,7 +600,7 @@ function AppLifecycleEffects() {
 
     navigationRef.navigate(
       'MaintenanceScreen',
-      maintenanceMessage ? {message: maintenanceMessage} : undefined,
+      maintenanceMessage ? { message: maintenanceMessage } : undefined,
     );
   }, [maintenanceMessage, maintenanceMode]);
 
@@ -793,15 +645,16 @@ function GlobalBanner() {
     bannerType === 'error'
       ? COLORS.ERROR_RED
       : bannerType === 'offline'
-        ? COLORS.WARNING_ORANGE
-        : COLORS.TEAL;
+      ? COLORS.WARNING_ORANGE
+      : COLORS.TEAL;
 
   return (
     <TouchableOpacity
       className="px-4 py-3"
-      style={{backgroundColor}}
+      style={{ backgroundColor }}
       onPress={() => dispatch(hideBanner())}
-      activeOpacity={0.8}>
+      activeOpacity={0.8}
+    >
       <Text className="text-center text-sm font-medium text-white">
         {bannerMessage}
       </Text>
@@ -822,15 +675,17 @@ const App = () => {
               navigationRef.navigate(
                 'MaintenanceScreen',
                 uiState.maintenanceMessage
-                  ? {message: uiState.maintenanceMessage}
+                  ? { message: uiState.maintenanceMessage }
                   : undefined,
               );
             }
-          }}>
+          }}
+        >
           <GlobalBanner />
           <RootStack.Navigator
             initialRouteName="SplashScreen"
-            screenOptions={{headerShown: false}}>
+            screenOptions={{ headerShown: false }}
+          >
             {/* Auth */}
             <RootStack.Screen name="SplashScreen" component={SplashScreen} />
             <RootStack.Screen name="LoginScreen" component={LoginScreen} />
@@ -838,90 +693,102 @@ const App = () => {
             <RootStack.Screen
               name="KYCScreen"
               component={KYCScreen}
-              options={{gestureEnabled: false}}
+              options={{ gestureEnabled: false }}
             />
             <RootStack.Screen
               name="OnboardingScreen"
               component={OnboardingScreen}
-              options={{gestureEnabled: false}}
+              options={{ gestureEnabled: false }}
             />
 
             {/* Main app */}
             <RootStack.Screen
               name="HomeScreen"
               component={MainTabs}
-              options={{gestureEnabled: false}}
+              options={{ gestureEnabled: false }}
             />
 
             {/* Land flows */}
             <RootStack.Screen
               name="DocumentUploadScreen"
               component={DocumentUploadScreen}
-              options={{presentation: 'fullScreenModal'}}
+              options={{ presentation: 'fullScreenModal' }}
             />
             <RootStack.Screen
               name="BoundaryConfirmScreen"
               component={BoundaryConfirmScreen}
-              options={{presentation: 'fullScreenModal'}}
+              options={{ presentation: 'fullScreenModal' }}
             />
             <RootStack.Screen
               name="ManualUploadGuideScreen"
               component={ManualUploadGuideScreen}
-              options={{presentation: 'fullScreenModal'}}
+              options={{ presentation: 'fullScreenModal' }}
             />
             <RootStack.Screen
               name="LandRegistrationSuccessScreen"
               component={LandRegistrationSuccessScreen}
-              options={{gestureEnabled: false, presentation: 'fullScreenModal'}}
+              options={{
+                gestureEnabled: false,
+                presentation: 'fullScreenModal',
+              }}
             />
 
             {/* AR-Audit */}
             <RootStack.Screen
               name="AuditStartScreen"
               component={AuditStartScreen}
-              options={{presentation: 'fullScreenModal'}}
+              options={{ presentation: 'fullScreenModal' }}
             />
             <RootStack.Screen
               name="ZoneNavigationScreen"
               component={ZoneNavigationScreen}
-              options={{presentation: 'fullScreenModal'}}
+              options={{ presentation: 'fullScreenModal' }}
             />
             <RootStack.Screen
               name="ARCameraScreen"
               component={ARCameraScreen}
-              options={{presentation: 'fullScreenModal'}}
+              options={{ presentation: 'fullScreenModal' }}
             />
             <RootStack.Screen
               name="ManualMeasureScreen"
               component={ManualMeasureScreen}
-              options={{presentation: 'fullScreenModal'}}
+              options={{ presentation: 'fullScreenModal' }}
             />
             <RootStack.Screen
               name="TreeResultScreen"
               component={TreeResultScreen}
-              options={{presentation: 'fullScreenModal'}}
+              options={{ presentation: 'fullScreenModal' }}
             />
             <RootStack.Screen
               name="AuditCompleteScreen"
               component={AuditCompleteScreen}
-              options={{gestureEnabled: false, presentation: 'fullScreenModal'}}
+              options={{
+                gestureEnabled: false,
+                presentation: 'fullScreenModal',
+              }}
             />
             <RootStack.Screen
               name="AuditStatusScreen"
               component={AuditStatusScreen}
-              options={{gestureEnabled: false, presentation: 'fullScreenModal'}}
+              options={{
+                gestureEnabled: false,
+                presentation: 'fullScreenModal',
+              }}
             />
 
             {/* Utility */}
             <RootStack.Screen
               name="NotificationsScreen"
               component={NotificationsScreen}
-              options={{presentation: 'fullScreenModal'}}
+              options={{ presentation: 'fullScreenModal' }}
             />
             <RootStack.Screen
               name="MaintenanceScreen"
               component={MaintenanceScreen}
-              options={{gestureEnabled: false, presentation: 'fullScreenModal'}}
+              options={{
+                gestureEnabled: false,
+                presentation: 'fullScreenModal',
+              }}
             />
           </RootStack.Navigator>
         </NavigationContainer>

@@ -5,7 +5,12 @@ TERRATRUST-AR — COMPLETE FRONTEND FLOW & NAVIGATION SPECIFICATION
 Document Purpose  : Complete screen-by-screen navigation, tab structure,
                     cross-document clarifications, and full user flow for AI agent implementation
 Based On          : SRS v3.1, Backend System Design v3.1, FDD v3.1
-Platform          : Android (React Native CLI 0.84.1 + TypeScript 5.9.x)
+Platform          : Android (React Native CLI 0.86.2 + React 19.2.3 + TypeScript 5.9.x)
+Android Build     : compileSdk/targetSdk 36, minSdk 26, buildTools 36.0.0,
+                    NDK 27.1.12297006, AGP 8.13.2, Kotlin 2.2.0,
+                    Gradle 9.3.1, Google Services plugin 4.4.4,
+                    ARCore 1.54.0, TFLite 2.15.0, TFLite Support 0.4.4,
+                    Play Services Location 21.3.0
 Navigation Library: React Navigation v7
 Date              : April 2026
 

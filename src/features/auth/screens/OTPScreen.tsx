@@ -18,7 +18,7 @@ import {
   type AuthBootstrapResponse,
 } from '../../../services/firebase';
 import {bootstrapAuthenticatedProfile} from '../../../services/authBootstrap';
-import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
+import {MaterialDesignIcons as MaterialCommunityIcons} from '@react-native-vector-icons/material-design-icons';
 import {useAppDispatch} from '../../../store/hooks';
 import {setUser, setWalletAddress, setKycCompleted} from '../store/authSlice';
 import {

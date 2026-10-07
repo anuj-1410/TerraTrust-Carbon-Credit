@@ -1,4 +1,4 @@
-declare module 'react-native-vector-icons/MaterialCommunityIcons' {
+declare module '@react-native-vector-icons/material-design-icons' {
   import type {ComponentType} from 'react';
   import type {TextProps} from 'react-native';
 
@@ -8,6 +8,5 @@ declare module 'react-native-vector-icons/MaterialCommunityIcons' {
     color?: string;
   }
 
-  const MaterialCommunityIcons: ComponentType<IconProps>;
-  export default MaterialCommunityIcons;
+  export const MaterialDesignIcons: ComponentType<IconProps>;
 }

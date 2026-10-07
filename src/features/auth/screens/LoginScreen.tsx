@@ -1,4 +1,4 @@
-import React, {useMemo, useState} from 'react';
+import React, { useMemo, useState } from 'react';
 import {
   View,
   Text,
@@ -7,22 +7,18 @@ import {
   Platform,
   ScrollView,
 } from 'react-native';
-import {useNavigation} from '@react-navigation/native';
-import type {NativeStackNavigationProp} from '@react-navigation/native-stack';
-import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
-import type {RootStackParamList} from '../../../types/navigation';
-import {
-  sendPhoneOtp,
-  type PendingPhoneOtpSession,
-} from '../../../services/firebase';
-import {useResponsiveScreen} from '../../../common/hooks/useResponsiveScreen';
+import { useNavigation } from '@react-navigation/native';
+import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import { MaterialDesignIcons as MaterialCommunityIcons } from '@react-native-vector-icons/material-design-icons';
+import type { RootStackParamList } from '../../../types/navigation';
+import { sendPhoneOtp } from '../../../services/firebase';
+import { useResponsiveScreen } from '../../../common/hooks/useResponsiveScreen';
 import Button from '../../../common/components/Button';
 import Card from '../../../common/components/Card';
-import {COLORS} from '../../../common/constants/colors';
+import { COLORS } from '../../../common/constants/colors';
 
 type Nav = NativeStackNavigationProp<RootStackParamList, 'LoginScreen'>;
 
-const OTP_TIMEOUT_MS = 20000;
 const PHONE_ERROR_MESSAGE =
   'Enter a valid 10-digit mobile number that does not start with 0 or 1';
 const PHONE_REGEX = /^[2-9]\d{9}$/;
@@ -41,7 +37,7 @@ const LoginScreen = () => {
   const [apiError, setApiError] = useState<string | null>(null);
   const [phoneNumber, setPhoneNumber] = useState('');
   const [showPhoneError, setShowPhoneError] = useState(false);
-  const {horizontalPadding, topSpacing, bottomSpacing, contentMaxWidth} =
+  const { horizontalPadding, topSpacing, bottomSpacing, contentMaxWidth } =
     useResponsiveScreen();
 
   const phoneError = useMemo(
@@ -49,24 +45,6 @@ const LoginScreen = () => {
     [phoneNumber, showPhoneError],
   );
   const isPhoneValid = getPhoneValidationError(phoneNumber) === null;
-
-  const sendPhoneOtpWithTimeout = async (
-    phone: string,
-  ): Promise<PendingPhoneOtpSession> => {
-    let timeoutId: ReturnType<typeof setTimeout> | null = null;
-    try {
-      return await Promise.race([
-        sendPhoneOtp(phone),
-        new Promise<never>((_, reject) => {
-          timeoutId = setTimeout(() => reject(new Error('OTP_TIMEOUT')), OTP_TIMEOUT_MS);
-        }),
-      ]);
-    } finally {
-      if (timeoutId) {
-        clearTimeout(timeoutId);
-      }
-    }
-  };
 
   const onSubmit = async () => {
     if (!isPhoneValid || isLoading) {
@@ -78,21 +56,36 @@ const LoginScreen = () => {
     setApiError(null);
     try {
       const phone = `+91${phoneNumber}`;
-      const otpSession = await sendPhoneOtpWithTimeout(phone);
+      // App verification can open a browser challenge; do not time out that user flow.
+      const otpSession = await sendPhoneOtp(phone);
       navigation.navigate('OTPScreen', {
         phone,
         verificationId: otpSession.verificationId,
       });
     } catch (error) {
-      const firebaseErr = error as {code?: string};
+      const firebaseErr = error as { code?: string };
       if (firebaseErr.code === 'auth/too-many-requests') {
-        setApiError('Too many attempts. Please wait a few minutes and try again.');
+        setApiError(
+          'Too many attempts. Please wait a few minutes and try again.',
+        );
       } else if (firebaseErr.code === 'auth/quota-exceeded') {
         setApiError(
           'Firebase SMS quota is exhausted right now. Please wait a bit and try again.',
         );
       } else if (firebaseErr.code === 'auth/network-request-failed') {
-        setApiError('Network issue while sending OTP. Please check your connection.');
+        setApiError(
+          'Network issue while sending OTP. Please check your connection.',
+        );
+      } else if (firebaseErr.code === 'auth/invalid-phone-number') {
+        setApiError(
+          'This phone number is invalid. Check the number and try again.',
+        );
+      } else if (firebaseErr.code === 'auth/operation-not-allowed') {
+        setApiError(
+          'Phone sign-in is currently unavailable. Please contact support.',
+        );
+      } else if (firebaseErr.code === 'auth/captcha-check-failed') {
+        setApiError('App verification could not finish. Please try again.');
       } else if (
         firebaseErr.code === 'auth/invalid-app-credential' ||
         firebaseErr.code === 'auth/missing-client-identifier' ||
@@ -101,10 +94,10 @@ const LoginScreen = () => {
         setApiError(
           'App verification failed. Please register the release SHA-1/SHA-256 in Firebase and try again.',
         );
-      } else if ((error as {message?: string}).message === 'OTP_TIMEOUT') {
-        setApiError('Request timed out. Please check your network and try again.');
       } else {
-        setApiError('Something went wrong. Please try again.');
+        setApiError(
+          'SMS could not be sent. Please try again or contact support if this continues.',
+        );
       }
     } finally {
       setIsLoading(false);
@@ -114,11 +107,13 @@ const LoginScreen = () => {
   return (
     <KeyboardAvoidingView
       className="flex-1"
-      style={{backgroundColor: COLORS.OFF_WHITE}}
-      behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+      style={{ backgroundColor: COLORS.OFF_WHITE }}
+      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+    >
       <ScrollView
-        contentContainerStyle={{flexGrow: 1}}
-        keyboardShouldPersistTaps="handled">
+        contentContainerStyle={{ flexGrow: 1 }}
+        keyboardShouldPersistTaps="handled"
+      >
         <View
           className="flex-1 w-full self-center"
           style={{
@@ -126,10 +121,12 @@ const LoginScreen = () => {
             paddingHorizontal: horizontalPadding,
             paddingTop: topSpacing,
             paddingBottom: bottomSpacing,
-          }}>
+          }}
+        >
           <View
             className="mb-6 h-[72px] w-[72px] items-center justify-center rounded-[28px]"
-            style={{backgroundColor: 'rgba(47,133,90,0.12)'}}>
+            style={{ backgroundColor: 'rgba(47,133,90,0.12)' }}
+          >
             <MaterialCommunityIcons
               color={COLORS.FOREST_GREEN}
               name="sprout"
@@ -138,7 +135,8 @@ const LoginScreen = () => {
           </View>
           <View
             className="self-start rounded-full px-4 py-2"
-            style={{backgroundColor: 'rgba(47, 133, 90, 0.12)'}}>
+            style={{ backgroundColor: 'rgba(47, 133, 90, 0.12)' }}
+          >
             <Text className="text-xs font-semibold uppercase tracking-[1.2px] text-[#2F855A]">
               Farmer Sign In
             </Text>
@@ -147,7 +145,8 @@ const LoginScreen = () => {
             Welcome to TerraTrust
           </Text>
           <Text className="mt-3 text-base leading-6 text-gray-600">
-            Enter your mobile number to receive a one-time password and continue.
+            Enter your mobile number to receive a one-time password and
+            continue.
           </Text>
 
           <Card className="mt-10 p-5">
@@ -156,11 +155,17 @@ const LoginScreen = () => {
             </Text>
             <View
               className="flex-row items-center overflow-hidden rounded-[20px] border"
-              style={{borderColor: phoneError || apiError ? '#FCA5A5' : '#D4DDD6'}}>
+              style={{
+                borderColor: phoneError || apiError ? '#FCA5A5' : '#D4DDD6',
+              }}
+            >
               <View
                 className="items-center justify-center self-stretch px-4"
-                style={{backgroundColor: 'rgba(47, 133, 90, 0.1)'}}>
-                <Text className="text-base font-semibold text-[#2F855A]">+91</Text>
+                style={{ backgroundColor: 'rgba(47, 133, 90, 0.1)' }}
+              >
+                <Text className="text-base font-semibold text-[#2F855A]">
+                  +91
+                </Text>
               </View>
               <TextInput
                 className="flex-1 bg-white px-4 py-4 text-base text-gray-900"
@@ -176,7 +181,9 @@ const LoginScreen = () => {
                 editable={!isLoading}
               />
             </View>
-            {phoneError && <Text className="mt-1 text-sm text-red-500">{phoneError}</Text>}
+            {phoneError && (
+              <Text className="mt-1 text-sm text-red-500">{phoneError}</Text>
+            )}
             {apiError && (
               <Text className="mt-1 text-sm text-red-500">{apiError}</Text>
             )}

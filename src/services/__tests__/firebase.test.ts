@@ -123,4 +123,20 @@ describe('firebase phone auth helpers', () => {
       '123456',
     );
   });
+
+  it('keeps app verification enabled for real numbers after a demo sign-in', async () => {
+    (Config as any).FIREBASE_TEST_PHONE_NUMBER = '+919000000001';
+    (Config as any).FIREBASE_TEST_OTP_CODE = '123456';
+    mockSignInWithPhoneNumber.mockResolvedValue({
+      verificationId: 'verify-real',
+      confirm: jest.fn(),
+    });
+
+    await sendPhoneOtp('+919000000001');
+    await sendPhoneOtp('+919876543210');
+
+    expect(mockAuthInstance.settings.appVerificationDisabledForTesting).toBe(false);
+    expect(mockAuthInstance.settings.forceRecaptchaFlowForTesting).toBe(false);
+    expect(mockSetAutoRetrievedSmsCodeForPhoneNumber).toHaveBeenCalledTimes(1);
+  });
 });

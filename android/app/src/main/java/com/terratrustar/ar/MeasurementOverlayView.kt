@@ -218,6 +218,7 @@ class MeasurementOverlayView @JvmOverloads constructor(
     }
 
     private fun drawCylinder(canvas: Canvas) {
+        cylinderPaint.color = if (state.reticleLocked) Color.parseColor("#4ADE80") else Color.parseColor("#FBBF24")
         drawPolyline(canvas, state.topCircle, closed = true)
         drawPolyline(canvas, state.bottomCircle, closed = true)
         state.cylinderSides.forEach { (start, end) ->

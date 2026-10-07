@@ -11,7 +11,7 @@ import {BarChart} from 'react-native-chart-kit';
 import LottieView from 'lottie-react-native';
 import {useNavigation, useRoute} from '@react-navigation/native';
 import type {RouteProp} from '@react-navigation/native';
-import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
+import {MaterialDesignIcons as MaterialCommunityIcons} from '@react-native-vector-icons/material-design-icons';
 
 import {useAppSelector, useAppDispatch} from '../../../store/hooks';
 import {fetchCreditsThunk} from '../store/creditsSlice';

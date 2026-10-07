@@ -3,7 +3,7 @@ import {ScrollView, Switch, Text, TouchableOpacity, View} from 'react-native';
 import DeviceInfo from 'react-native-device-info';
 import {useNavigation} from '@react-navigation/native';
 import type {NativeStackNavigationProp} from '@react-navigation/native-stack';
-import MaterialCommunityIcons from 'react-native-vector-icons/MaterialCommunityIcons';
+import {MaterialDesignIcons as MaterialCommunityIcons} from '@react-native-vector-icons/material-design-icons';
 
 import Card from '../../../common/components/Card';
 import {COLORS} from '../../../common/constants/colors';

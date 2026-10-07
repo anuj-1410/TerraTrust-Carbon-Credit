@@ -57,3 +57,4 @@ flaws_reviewed.txt
 *.hprof
 .DS_Store
 Thumbs.db
+mise.toml

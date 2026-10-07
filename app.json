@@ -1,4 +1,7 @@
 {
   "name": "TerraTrustAR",
-  "displayName": "TerraTrust AR"
+  "displayName": "TerraTrust AR",
+  "android": {
+    "packageName": "com.terratrustar"
+  }
 }

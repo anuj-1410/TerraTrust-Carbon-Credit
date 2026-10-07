@@ -5,8 +5,12 @@ PROJECT: TERRATRUST-AR
 
 Version       : 3.1 (Firebase Auth + Pinata + Maps strategy updated)
 Platform      : Android (Primary), iOS (Future Scope)
-Framework     : React Native CLI (0.84.1)
+Framework     : React Native CLI (0.86.2)
+React         : 19.2.3
 Language      : TypeScript 5.9.x (Strict Mode)
+Android Build : compileSdk/targetSdk 36, minSdk 26, buildTools 36.0.0,
+                NDK 27.1.12297006, AGP 8.13.2, Kotlin 2.2.0,
+                Gradle 9.3.1, Google Services plugin 4.4.4
 Last Updated  : April 2026
 
 --------------------------------------------------------------------------------
@@ -131,7 +135,7 @@ type.
 
 Component             | Technology                  | Version  | Reason
 ----------------------|-----------------------------|---------|--------------------------
-Core Framework        | React Native CLI            | 0.84.1  | Required for Native ARCore
+Core Framework        | React Native CLI            | 0.86.2  | Required for Native ARCore
                       |                             |         | bridge and react-native-
                       |                             |         | mmkv. Use the plain RN
                       |                             |         | app with New Architecture.
@@ -160,6 +164,7 @@ Satellite Imagery     | Google Earth Engine (GEE)   | Backend | Sentinel-2 true 
                       |                             |         | PNG URL to the app.
 AR Bridge             | Native Modules (Kotlin)     | Custom  | Direct ARCore Depth API.
                       |                             |         | No JS library can do this.
+ARCore                | Google ARCore               | 1.54.0  | Native Android AR runtime.
 Camera                | react-native-vision-camera  | v4.7.x  | High-quality document and
                       |                             |         | AR frame capture.
 Form Validation       | Zod + React Hook Form       | Latest  | Type-safe form validation.
@@ -182,7 +187,7 @@ Authentication        | @react-native-firebase/app | Latest  | Firebase app boot
 Data Access           | FastAPI REST API            | Backend | App never connects directly
                       |                             |         | to Supabase tables or
                       |                             |         | storage buckets.
-Species Detection     | TensorFlow Lite             | 2.14.x  | On-device tree species
+Species Detection     | TensorFlow Lite             | 2.15.0  | On-device tree species
                       |                             |         | identification. No internet
                       |                             |         | required.
 Background Sync       | react-native-background-    | Latest  | Auto-uploads pending audits
@@ -197,7 +202,7 @@ Haptics               | react-native-haptic-        | Latest  | Vibration feedba
 Config / Env          | react-native-config         | Latest  | Loads .env variables into app.
 Animations            | lottie-react-native         | Latest  | Loading states (spinning leaf),
                       |                             |         | scan success, token mint.
-Motion Animations     | react-native-reanimated     | 4.3.x   | AR overlay transitions and
+Motion Animations     | react-native-reanimated     | 4.4.2   | AR overlay transitions and
                       |                             |         | smooth screen animations.
 Charting              | react-native-chart-kit      | Latest  | Bar chart on
                       | + react-native-svg          |         | CreditHistoryScreen.
@@ -1187,7 +1192,7 @@ MMKV must be used instead of AsyncStorage because:
   - Synchronous API — tree scan data saves instantly when farmer taps "Save"
   - Optional encryption support when the key is sourced securely at runtime
   - Intended for persisted app state, not private keys or backend secrets
-  - Current repo baseline uses react-native-mmkv 3.3.x on React Native 0.84.1
+  - Current repo baseline uses react-native-mmkv 3.3.x on React Native 0.86.2
   - New Architecture stays enabled
 
 The following state slices MUST be persisted to MMKV:
@@ -1740,10 +1745,10 @@ In android/app/src/main/AndroidManifest.xml:
 
   dependencies {
     // ARCore SDK
-    implementation 'com.google.ar:core:1.42.0'
+    implementation 'com.google.ar:core:1.54.0'
 
     // TensorFlow Lite for on-device species detection
-    implementation 'org.tensorflow:tensorflow-lite:2.14.0'
+    implementation 'org.tensorflow:tensorflow-lite:2.15.0'
     implementation 'org.tensorflow:tensorflow-lite-support:0.4.4'
   }
 
@@ -2084,7 +2089,7 @@ IMPORTANT: Never commit .env files to git. Add both to .gitignore.
 14.3 PROJECT INITIALISATION
 -----------------------------
 
-  npx @react-native-community/cli@20.1.3 init TerraTrustAR --version 0.84.1 --template react-native-template-typescript
+  npx react-native@0.86.2 init TerraTrustAR --version 0.86.2 --template react-native-template-typescript
   cd TerraTrustAR
 
   # TerraTrustAR baseline assumes Node.js 22.11+ and the New Architecture.
@@ -2092,8 +2097,8 @@ IMPORTANT: Never commit .env files to git. Add both to .gitignore.
   # In android/gradle.properties set: newArchEnabled=true
 
   # Core platform alignment
-  npm install react@19.2.4
-  npm install --save-dev react-test-renderer@19.2.4 @types/react@^19.2.14
+  npm install react@19.2.3
+  npm install --save-dev react-test-renderer@19.2.3 @types/react@^19.2.14
   npm install --save-dev jest@^29.7.0 @types/jest@^29.5.14
   npm install --save-dev typescript@^5.9.3
 
@@ -2114,7 +2119,7 @@ IMPORTANT: Never commit .env files to git. Add both to .gitignore.
   npm install react-native-background-fetch@^4.3.0
   npm install react-native-chart-kit@^6.12.0 react-native-svg@^15.15.4
   npm install lottie-react-native@^7.3.6
-  npm install react-native-reanimated@^4.3.0
+  npm install react-native-reanimated@4.4.2
   npm install react-native-haptic-feedback@^2.3.4
   npm install react-native-device-info@^15.0.2
   npm install nativewind@^4.2.3
