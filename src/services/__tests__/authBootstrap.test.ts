@@ -15,6 +15,7 @@ jest.mock('../api', () => ({
 }));
 
 jest.mock('../firebase', () => ({
+  getCurrentFirebaseUser: () => ({uid: 'firebase-user-1'}),
   getFreshFirebaseIdToken: (...args: unknown[]) =>
     mockGetFreshFirebaseIdToken(...args),
 }));
@@ -23,7 +24,7 @@ jest.mock('../wallet', () => ({
   ensureFarmerWallet: (...args: unknown[]) => mockEnsureFarmerWallet(...args),
 }));
 
-import {bootstrapAuthenticatedProfile} from '../authBootstrap';
+import {bootstrapAuthenticatedProfile, completeAuthenticatedWallet} from '../authBootstrap';
 
 const baseProfile = {
   user_id: 'user-1',
@@ -59,11 +60,20 @@ describe('bootstrapAuthenticatedProfile', () => {
     expect(mockApiPost).not.toHaveBeenCalled();
   });
 
+  it('finishes login without waiting for wallet generation or registration', async () => {
+    mockApiGet.mockResolvedValue({data: baseProfile});
+    const result = await bootstrapAuthenticatedProfile();
+    expect(result.profile).toEqual(baseProfile);
+    expect(mockGetFreshFirebaseIdToken).toHaveBeenCalledWith();
+    expect(mockEnsureFarmerWallet).not.toHaveBeenCalled();
+    expect(mockApiPost).not.toHaveBeenCalled();
+  });
+
   it('returns a non-blocking warning when wallet storage cannot be created locally', async () => {
     mockApiGet.mockResolvedValue({data: baseProfile});
     mockEnsureFarmerWallet.mockRejectedValue(new Error('WALLET_STORAGE_FAILED'));
 
-    const result = await bootstrapAuthenticatedProfile();
+    const result = await completeAuthenticatedWallet(baseProfile);
 
     expect(result.profile).toEqual(baseProfile);
     expect(result.warning).toEqual({
@@ -79,7 +89,7 @@ describe('bootstrapAuthenticatedProfile', () => {
     mockEnsureFarmerWallet.mockResolvedValue('0xwallet');
     mockApiPost.mockRejectedValue({response: undefined});
 
-    const result = await bootstrapAuthenticatedProfile();
+    const result = await completeAuthenticatedWallet(baseProfile);
 
     expect(result.profile).toEqual(baseProfile);
     expect(result.warning).toEqual({
@@ -91,12 +101,11 @@ describe('bootstrapAuthenticatedProfile', () => {
 
   it('returns an optimistic wallet profile when register succeeds but refresh fails', async () => {
     mockApiGet
-      .mockResolvedValueOnce({data: baseProfile})
       .mockRejectedValueOnce(new Error('refresh failed'));
     mockEnsureFarmerWallet.mockResolvedValue('0xwallet');
     mockApiPost.mockResolvedValue({status: 200});
 
-    const result = await bootstrapAuthenticatedProfile();
+    const result = await completeAuthenticatedWallet(baseProfile);
 
     expect(result).toEqual({
       profile: {...baseProfile, wallet_address: '0xwallet'},

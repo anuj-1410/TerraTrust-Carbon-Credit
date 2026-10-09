@@ -1,4 +1,5 @@
-import React, {useEffect, useRef, useState} from 'react';
+import { useTheme } from '../../../common/theme/theme';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   BackHandler,
   ScrollView,
@@ -7,18 +8,17 @@ import {
   useWindowDimensions,
   View,
 } from 'react-native';
-import {useNavigation} from '@react-navigation/native';
-import type {NativeStackNavigationProp} from '@react-navigation/native-stack';
-import {MaterialDesignIcons as MaterialCommunityIcons} from '@react-native-vector-icons/material-design-icons';
+import { useNavigation } from '@react-navigation/native';
+import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import { MaterialDesignIcons as MaterialCommunityIcons } from '@react-native-vector-icons/material-design-icons';
 
 import Card from '../../../common/components/Card';
 import Button from '../../../common/components/Button';
-import {markOnboardingComplete} from '../../../common/utils/onboarding';
-import {COLORS} from '../../../common/constants/colors';
-import {useAppDispatch} from '../../../store/hooks';
-import {setOnboardingComplete} from '../../profile/store/profileSlice';
-import type {RootStackParamList} from '../../../types/navigation';
-import {useResponsiveScreen} from '../../../common/hooks/useResponsiveScreen';
+import { markOnboardingComplete } from '../../../common/utils/onboarding';
+import { useAppDispatch } from '../../../store/hooks';
+import { setOnboardingComplete } from '../../profile/store/profileSlice';
+import type { RootStackParamList } from '../../../types/navigation';
+import { useResponsiveScreen } from '../../../common/hooks/useResponsiveScreen';
 
 type Nav = NativeStackNavigationProp<RootStackParamList, 'OnboardingScreen'>;
 
@@ -41,10 +41,12 @@ const ONBOARDING_CARDS = [
 ];
 
 const OnboardingScreen = () => {
+  const { colors: COLORS } = useTheme();
   const navigation = useNavigation<Nav>();
   const dispatch = useAppDispatch();
-  const {width} = useWindowDimensions();
-  const {horizontalPadding, topSpacing, bottomSpacing} = useResponsiveScreen();
+  const { width } = useWindowDimensions();
+  const { horizontalPadding, topSpacing, bottomSpacing } =
+    useResponsiveScreen();
   const [activeIndex, setActiveIndex] = useState(0);
   const scrollRef = useRef<ScrollView>(null);
 
@@ -60,7 +62,7 @@ const OnboardingScreen = () => {
   const finishOnboarding = () => {
     markOnboardingComplete();
     dispatch(setOnboardingComplete(true));
-    navigation.reset({index: 0, routes: [{name: 'HomeScreen'}]});
+    navigation.reset({ index: 0, routes: [{ name: 'HomeScreen' }] });
   };
 
   const scrollToIndex = (nextIndex: number) => {
@@ -78,15 +80,17 @@ const OnboardingScreen = () => {
         backgroundColor: COLORS.OFF_WHITE,
         paddingTop: topSpacing,
         paddingBottom: bottomSpacing,
-      }}>
+      }}
+    >
       <View className="items-end">
         {activeIndex < ONBOARDING_CARDS.length - 1 && (
           <TouchableOpacity
             className="min-h-[48px] min-w-[48px] items-center justify-center"
-            style={{paddingHorizontal: horizontalPadding}}
+            style={{ paddingHorizontal: horizontalPadding }}
             onPress={finishOnboarding}
-            activeOpacity={0.7}>
-            <Text style={{color: COLORS.DISABLED_GREY}}>Skip</Text>
+            activeOpacity={0.7}
+          >
+            <Text style={{ color: COLORS.DISABLED_GREY }}>Skip</Text>
           </TouchableOpacity>
         )}
       </View>
@@ -102,14 +106,19 @@ const OnboardingScreen = () => {
               event.nativeEvent.contentOffset.x / width,
             );
             setActiveIndex(nextIndex);
-          }}>
+          }}
+        >
           {ONBOARDING_CARDS.map(card => (
             <View
               key={card.title}
-              style={{width, paddingHorizontal: horizontalPadding}}
-              className="justify-center">
+              style={{ width, paddingHorizontal: horizontalPadding }}
+              className="justify-center"
+            >
               <Card className="rounded-[24px] px-6 py-8">
-                <View className="h-24 w-24 items-center justify-center self-center rounded-full" style={{backgroundColor: 'rgba(47,133,90,0.12)'}}>
+                <View
+                  className="h-24 w-24 items-center justify-center self-center rounded-full"
+                  style={{ backgroundColor: COLORS.SUCCESS_SURFACE }}
+                >
                   <MaterialCommunityIcons
                     color={COLORS.FOREST_GREEN}
                     name={card.accentIcon}
@@ -117,10 +126,16 @@ const OnboardingScreen = () => {
                   />
                 </View>
 
-                <Text className="mt-8 text-center text-3xl font-bold" style={{color: COLORS.DARK_SLATE}}>
+                <Text
+                  className="mt-8 text-center text-3xl font-bold"
+                  style={{ color: COLORS.DARK_SLATE }}
+                >
                   {card.title}
                 </Text>
-                <Text className="mt-4 text-center text-base leading-7" style={{color: COLORS.DISABLED_GREY}}>
+                <Text
+                  className="mt-4 text-center text-base leading-7"
+                  style={{ color: COLORS.DISABLED_GREY }}
+                >
                   {card.body}
                 </Text>
               </Card>
@@ -136,7 +151,9 @@ const OnboardingScreen = () => {
               style={{
                 width: index === activeIndex ? 28 : 10,
                 backgroundColor:
-                  index === activeIndex ? COLORS.FOREST_GREEN : COLORS.DISABLED_GREY,
+                  index === activeIndex
+                    ? COLORS.FOREST_GREEN
+                    : COLORS.DISABLED_GREY,
               }}
             />
           ))}
@@ -144,7 +161,9 @@ const OnboardingScreen = () => {
       </View>
 
       <Button
-        label={activeIndex === ONBOARDING_CARDS.length - 1 ? 'Get Started' : 'Next'}
+        label={
+          activeIndex === ONBOARDING_CARDS.length - 1 ? 'Get Started' : 'Next'
+        }
         onPress={() => {
           if (activeIndex === ONBOARDING_CARDS.length - 1) {
             finishOnboarding();

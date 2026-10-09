@@ -1,6 +1,9 @@
-import React, {useEffect, useState} from 'react';
+import ScreenHeader from '../../../common/components/ScreenHeader';
+import { useTheme } from '../../../common/theme/theme';
+import React, { useEffect, useState } from 'react';
 import {
   BackHandler,
+  Keyboard,
   View,
   Text,
   TextInput,
@@ -8,29 +11,25 @@ import {
   Platform,
   ScrollView,
 } from 'react-native';
-import {useNavigation} from '@react-navigation/native';
-import type {NativeStackNavigationProp} from '@react-navigation/native-stack';
-import {useForm, Controller} from 'react-hook-form';
-import {zodResolver} from '@hookform/resolvers/zod';
-import {z} from 'zod';
-import type {RootStackParamList} from '../../../types/navigation';
-import {useAppDispatch} from '../../../store/hooks';
-import {setUser, setWalletAddress, setKycCompleted} from '../store/authSlice';
+import { useNavigation } from '@react-navigation/native';
+import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import { useForm, Controller } from 'react-hook-form';
+import { zodResolver } from '@hookform/resolvers/zod';
+import { z } from 'zod';
+import type { RootStackParamList } from '../../../types/navigation';
+import { useAppDispatch } from '../../../store/hooks';
+import { setAuthenticatedProfile } from '../store/authSlice';
 import api from '../../../services/api';
-import {bootstrapAuthenticatedProfile} from '../../../services/authBootstrap';
+import { bootstrapAuthenticatedProfile } from '../../../services/authBootstrap';
 import {
   getAuthenticatedEntryRoute,
   markOnboardingComplete,
 } from '../../../common/utils/onboarding';
-import {
-  setOnboardingComplete,
-  setWalletRecoveryState,
-} from '../../profile/store/profileSlice';
-import {useResponsiveScreen} from '../../../common/hooks/useResponsiveScreen';
-import {showBanner} from '../../../store/uiSlice';
+import { setOnboardingComplete } from '../../profile/store/profileSlice';
+import { useResponsiveScreen } from '../../../common/hooks/useResponsiveScreen';
+import { showBanner } from '../../../store/uiSlice';
 import Button from '../../../common/components/Button';
 import Card from '../../../common/components/Card';
-import {COLORS} from '../../../common/constants/colors';
 
 type Nav = NativeStackNavigationProp<RootStackParamList, 'KYCScreen'>;
 
@@ -61,9 +60,10 @@ function formatAadhaarDisplay(value: string, isFocused: boolean): string {
 }
 
 const KYCScreen = () => {
+  const { colors: COLORS } = useTheme();
   const navigation = useNavigation<Nav>();
   const dispatch = useAppDispatch();
-  const {horizontalPadding, topSpacing, bottomSpacing, contentMaxWidth} =
+  const { horizontalPadding, bottomSpacing, contentMaxWidth } =
     useResponsiveScreen();
   const [isLoading, setIsLoading] = useState(false);
   const [apiError, setApiError] = useState<string | null>(null);
@@ -75,11 +75,11 @@ const KYCScreen = () => {
     reset,
     setValue,
     watch,
-    formState: {errors},
+    formState: { errors },
   } = useForm<KYCForm>({
     resolver: zodResolver(kycSchema),
     mode: 'onChange',
-    defaultValues: {fullName: '', aadhaarNumber: ''},
+    defaultValues: { fullName: '', aadhaarNumber: '' },
   });
 
   const [fullName, aadhaarNumber] = watch(['fullName', 'aadhaarNumber']);
@@ -96,37 +96,22 @@ const KYCScreen = () => {
   }, []);
 
   const syncProfile = async () => {
-    const {profile, warning} = await bootstrapAuthenticatedProfile();
+    const { profile, warning } = await bootstrapAuthenticatedProfile();
 
-    dispatch(
-      setUser({
-        id: profile.user_id,
-        firebaseUid: profile.firebase_uid,
-        name: profile.full_name ?? '',
-        phone: profile.phone_number,
-      }),
-    );
-    dispatch(setWalletAddress(profile.wallet_address));
-    dispatch(setKycCompleted(profile.kyc_completed));
-    dispatch(
-      setWalletRecoveryState({
-        status: profile.wallet_recovery_status,
-        requestedAt: profile.wallet_recovery_requested_at,
-      }),
-    );
+    dispatch(setAuthenticatedProfile(profile));
     if (profile.kyc_completed) {
       markOnboardingComplete();
       dispatch(setOnboardingComplete(true));
     }
 
     if (warning) {
-      dispatch(showBanner({message: warning.message, type: 'info'}));
+      dispatch(showBanner({ message: warning.message, type: 'info' }));
     }
   };
 
   const clearAadhaarInput = () => {
     setAadhaarFocused(false);
-    setValue('aadhaarNumber', '', {shouldValidate: true, shouldDirty: false});
+    setValue('aadhaarNumber', '', { shouldValidate: true, shouldDirty: false });
   };
 
   const onSubmit = async (data: KYCForm) => {
@@ -140,28 +125,33 @@ const KYCScreen = () => {
 
       if (response.status === 200) {
         await syncProfile();
-        reset({fullName: '', aadhaarNumber: ''});
+        reset({ fullName: '', aadhaarNumber: '' });
         setAadhaarFocused(false);
+        Keyboard.dismiss();
         navigation.reset({
           index: 0,
-          routes: [{name: getAuthenticatedEntryRoute(true)}],
+          routes: [{ name: getAuthenticatedEntryRoute(true) }],
         });
       }
     } catch (err: unknown) {
-      if ((err as {message?: string})?.message === 'APP_CONFIG_MISSING_API_BASE_URL') {
+      if (
+        (err as { message?: string })?.message ===
+        'APP_CONFIG_MISSING_API_BASE_URL'
+      ) {
         setApiError(
           'This release build is missing server configuration. Please reinstall the latest release APK.',
         );
       } else if (err && typeof err === 'object' && 'response' in err) {
-        const axiosErr = err as {response?: {data?: {error?: string}}};
+        const axiosErr = err as { response?: { data?: { error?: string } } };
         const message = axiosErr.response?.data?.error;
         if (message === 'KYC already completed') {
           await syncProfile();
-          reset({fullName: '', aadhaarNumber: ''});
+          reset({ fullName: '', aadhaarNumber: '' });
           setAadhaarFocused(false);
+          Keyboard.dismiss();
           navigation.reset({
             index: 0,
-            routes: [{name: getAuthenticatedEntryRoute(true)}],
+            routes: [{ name: getAuthenticatedEntryRoute(true) }],
           });
           return;
         }
@@ -178,66 +168,72 @@ const KYCScreen = () => {
   return (
     <KeyboardAvoidingView
       className="flex-1"
-      style={{backgroundColor: COLORS.OFF_WHITE}}
-      behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+      style={{ backgroundColor: COLORS.OFF_WHITE }}
+      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+    >
+      <ScreenHeader
+        title="Complete Your Profile"
+        eyebrow="One-Time Profile Setup"
+      />
       <ScrollView
-        contentContainerStyle={{flexGrow: 1}}
-        keyboardShouldPersistTaps="handled">
+        contentContainerStyle={{ flexGrow: 1 }}
+        keyboardShouldPersistTaps="handled"
+      >
         <View
           className="flex-1 w-full self-center"
           style={{
             maxWidth: contentMaxWidth,
             paddingHorizontal: horizontalPadding,
-            paddingTop: topSpacing,
+            paddingTop: 16,
             paddingBottom: bottomSpacing,
-          }}>
-          <View
-            className="self-start rounded-full px-4 py-2"
-            style={{backgroundColor: 'rgba(47, 133, 90, 0.12)'}}>
-            <Text className="text-xs font-semibold uppercase tracking-[1.2px] text-[#2F855A]">
-              One-Time Profile Setup
-            </Text>
-          </View>
-          <Text className="text-3xl font-bold text-gray-900">
-            Complete Your Profile
-          </Text>
-          <Text className="mt-3 text-base leading-6 text-gray-600">
+          }}
+        >
+          <Text className="mt-3 text-base leading-6 text-muted">
             This is a one-time setup. Your name must match your land document.
           </Text>
 
-          <Card className="mt-8" style={{backgroundColor: '#FEF3C7'}}>
-            <Text className="text-sm font-semibold text-[#92400E]">
+          <Card
+            className="mt-8"
+            style={{ backgroundColor: COLORS.WARNING_SURFACE }}
+          >
+            <Text className="text-sm font-semibold text-warning">
               Use the exact owner name printed on your land document.
             </Text>
-            <Text className="mt-2 text-sm leading-6 text-[#92400E]">
-              Your Aadhaar is used only for this KYC request and is cleared from the app immediately after submission.
+            <Text className="mt-2 text-sm leading-6 text-warning">
+              Your Aadhaar is used only for this KYC request and is cleared from
+              the app immediately after submission.
             </Text>
           </Card>
 
           <Card className="mt-6">
-            <Text className="text-base leading-6 text-gray-700">
-              Enter your name exactly as written on your land document (7/12 Extract)
+            <Text className="text-base leading-6 text-content">
+              Enter your name exactly as written on your land document (7/12
+              Extract)
             </Text>
 
             {/* Full Name */}
             <View className="mt-6">
-              <Text className="mb-2 text-sm font-medium text-gray-700">
+              <Text className="mb-2 text-sm font-medium text-content">
                 Full Name
               </Text>
               <Controller
                 control={control}
                 name="fullName"
-                render={({field: {onChange, onBlur, value}}) => (
+                render={({ field: { onChange, onBlur, value } }) => (
                   <TextInput
-                    className="rounded-[20px] border bg-white px-4 py-4 text-base text-gray-900"
+                    className="rounded-[20px] border bg-surface px-4 py-4 text-base text-content"
                     style={{
-                      borderColor: errors.fullName ? '#FCA5A5' : '#D4DDD6',
+                      borderColor: errors.fullName
+                        ? COLORS.ERROR_RED
+                        : COLORS.BORDER,
                     }}
                     placeholder="Full name"
-                    placeholderTextColor="#9CA3AF"
+                    placeholderTextColor={COLORS.DISABLED_GREY}
                     onBlur={onBlur}
                     onChangeText={text =>
-                      onChange(text.replace(/[^A-Za-z ]/g, '').replace(/\s+/g, ' '))
+                      onChange(
+                        text.replace(/[^A-Za-z ]/g, '').replace(/\s+/g, ' '),
+                      )
                     }
                     value={value}
                     editable={!isLoading}
@@ -246,7 +242,7 @@ const KYCScreen = () => {
                 )}
               />
               {errors.fullName && (
-                <Text className="mt-1 text-sm text-red-500">
+                <Text className="mt-1 text-sm text-danger">
                   {errors.fullName.message}
                 </Text>
               )}
@@ -254,20 +250,22 @@ const KYCScreen = () => {
 
             {/* Aadhaar Number */}
             <View className="mt-6">
-              <Text className="mb-2 text-sm font-medium text-gray-700">
+              <Text className="mb-2 text-sm font-medium text-content">
                 Aadhaar Number
               </Text>
               <Controller
                 control={control}
                 name="aadhaarNumber"
-                render={({field: {onChange, onBlur, value}}) => (
+                render={({ field: { onChange, onBlur, value } }) => (
                   <TextInput
-                    className="rounded-[20px] border bg-white px-4 py-4 text-base text-gray-900"
+                    className="rounded-[20px] border bg-surface px-4 py-4 text-base text-content"
                     style={{
-                      borderColor: errors.aadhaarNumber ? '#FCA5A5' : '#D4DDD6',
+                      borderColor: errors.aadhaarNumber
+                        ? COLORS.ERROR_RED
+                        : COLORS.BORDER,
                     }}
                     placeholder="Enter 12-digit Aadhaar number"
-                    placeholderTextColor="#9CA3AF"
+                    placeholderTextColor={COLORS.DISABLED_GREY}
                     keyboardType="number-pad"
                     maxLength={14}
                     onBlur={() => {
@@ -285,14 +283,14 @@ const KYCScreen = () => {
                 )}
               />
               {errors.aadhaarNumber && (
-                <Text className="mt-1 text-sm text-red-500">
+                <Text className="mt-1 text-sm text-danger">
                   {errors.aadhaarNumber.message}
                 </Text>
               )}
             </View>
 
             {apiError && (
-              <Text className="mt-4 text-center text-sm text-red-500">
+              <Text className="mt-4 text-center text-sm text-danger">
                 {apiError}
               </Text>
             )}

@@ -80,7 +80,7 @@ const REJECTED_PARCEL: LandParcel = {
 function createTestStore(landState: Partial<LandState> = {}) {
   return configureStore({
     reducer: {
-      auth: (state = {}) => state,
+      auth: (state = {sessionReady: true, user: {firebaseUid: 'firebase-user-1'}}) => state,
       land: landReducer,
       audit: (state = {}) => state,
       credits: (state = {}) => state,

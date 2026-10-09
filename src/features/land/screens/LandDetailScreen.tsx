@@ -1,3 +1,5 @@
+import ScreenHeader from '../../../common/components/ScreenHeader';
+import { useTheme } from '../../../common/theme/theme';
 import React, { useEffect, useMemo, useState } from 'react';
 import {
   View,
@@ -14,7 +16,6 @@ import { MaterialDesignIcons as MaterialCommunityIcons } from '@react-native-vec
 
 import Badge from '../../../common/components/Badge';
 import Card from '../../../common/components/Card';
-import { COLORS } from '../../../common/constants/colors';
 import { useResponsiveScreen } from '../../../common/hooks/useResponsiveScreen';
 import { getLandStatusMeta } from '../../../common/utils/getLandStatus';
 import { hectaresToAcres } from '../../../common/utils/units';
@@ -34,6 +35,7 @@ interface ParcelAuditHistory {
 }
 
 const LandDetailScreen = () => {
+  const { colors: COLORS } = useTheme();
   const { bottomSpacing } = useResponsiveScreen();
   const navigation = useNavigation<Nav>();
   const route = useRoute<RouteType>();
@@ -117,26 +119,10 @@ const LandDetailScreen = () => {
 
   return (
     <View className="flex-1" style={{ backgroundColor: COLORS.OFF_WHITE }}>
-      <ScrollView
-        contentContainerStyle={{ paddingBottom: Math.max(32, bottomSpacing) }}
-      >
-        <View className="flex-row items-center justify-between px-4 pb-4 pt-12">
-          <TouchableOpacity
-            className="min-h-[48px] min-w-[48px] items-center justify-center"
-            onPress={() => navigation.goBack()}
-          >
-            <MaterialCommunityIcons
-              color={COLORS.DARK_SLATE}
-              name="arrow-left"
-              size={24}
-            />
-          </TouchableOpacity>
-          <Text
-            className="flex-1 text-center text-xl font-bold"
-            style={{ color: COLORS.DARK_SLATE }}
-          >
-            {parcel.farm_name}
-          </Text>
+      <ScreenHeader
+        title={parcel.farm_name}
+        onBack={() => navigation.goBack()}
+        right={
           <TouchableOpacity
             className="min-h-[48px] min-w-[48px] items-center justify-center"
             onPress={() =>
@@ -149,8 +135,11 @@ const LandDetailScreen = () => {
               size={22}
             />
           </TouchableOpacity>
-        </View>
-
+        }
+      />
+      <ScrollView
+        contentContainerStyle={{ paddingBottom: Math.max(32, bottomSpacing) }}
+      >
         {parcel.thumbnail_url ? (
           <Image
             source={{ uri: parcel.thumbnail_url }}
@@ -160,7 +149,7 @@ const LandDetailScreen = () => {
         ) : (
           <View
             className="h-52 items-center justify-center"
-            style={{ backgroundColor: 'rgba(47,133,90,0.12)' }}
+            style={{ backgroundColor: COLORS.SUCCESS_SURFACE }}
           >
             <MaterialCommunityIcons
               color={COLORS.FOREST_GREEN}
@@ -280,7 +269,7 @@ const LandDetailScreen = () => {
             parcel.current_audit_id ? (
               <TouchableOpacity
                 className="min-h-[52px] items-center justify-center rounded-xl"
-                style={{ backgroundColor: COLORS.TEAL }}
+                style={{ backgroundColor: COLORS.BANNER_INFO }}
                 onPress={() =>
                   navigation.navigate('AuditStatusScreen', {
                     auditId: parcel.current_audit_id as string,
@@ -294,7 +283,7 @@ const LandDetailScreen = () => {
             ) : statusMeta?.primaryAction === 'start_audit' ? (
               <TouchableOpacity
                 className="min-h-[52px] items-center justify-center rounded-xl"
-                style={{ backgroundColor: COLORS.FOREST_GREEN }}
+                style={{ backgroundColor: COLORS.BUTTON_BACKGROUND }}
                 onPress={() =>
                   navigation.navigate('AuditStartScreen', {
                     landId: parcel.id,
@@ -308,7 +297,7 @@ const LandDetailScreen = () => {
             ) : parcel.is_verified ? null : (
               <View
                 className="min-h-[52px] items-center justify-center rounded-xl px-4"
-                style={{ backgroundColor: 'rgba(160,174,192,0.25)' }}
+                style={{ backgroundColor: COLORS.INPUT_BACKGROUND }}
               >
                 <Text style={{ color: COLORS.DARK_SLATE }}>
                   Finish land verification before starting an audit.

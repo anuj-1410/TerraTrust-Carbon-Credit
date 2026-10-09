@@ -1,4 +1,5 @@
-import {combineReducers, configureStore, createAction} from '@reduxjs/toolkit';
+import {combineReducers, configureStore} from '@reduxjs/toolkit';
+import {resetAppState, resettableReducer} from './resettableReducer';
 import {
   persistStore,
   persistReducer,
@@ -14,6 +15,7 @@ import type {PersistConfig} from 'redux-persist';
 import autoMergeLevel2 from 'redux-persist/lib/stateReconciler/autoMergeLevel2';
 import {mmkvStorage} from './mmkvStorage';
 import authReducer from '../features/auth/store/authSlice';
+import {setAuthenticatedProfile} from '../features/auth/store/authSlice';
 import type {AuthState} from '../features/auth/store/authSlice';
 import landReducer from '../features/land/store/landSlice';
 import {
@@ -36,7 +38,7 @@ import notificationsReducer, {
 } from '../features/notifications/store/notificationsSlice';
 import uiReducer from './uiSlice';
 
-export const resetAppState = createAction('app/resetState');
+export {resetAppState} from './resettableReducer';
 
 const migrations = {};
 
@@ -108,6 +110,8 @@ async function migrateLandState(state: any): Promise<any> {
   return {
     ...state,
     parcels,
+    snapshotRequestId: null,
+    localRevision: 0,
   };
 }
 
@@ -158,15 +162,16 @@ const authPersistConfig: PersistConfig<AuthState> = {
   key: 'auth',
   version: 1,
   storage: mmkvStorage,
-  migrate: createMigrate(migrations, {debug: false}),
+  migrate: async state => state ? {...state, sessionReady: false, profileFresh: false} : state,
   stateReconciler: autoMergeLevel2,
+  blacklist: ['sessionReady', 'profileFresh'],
 };
 
 const landPersistConfig: PersistConfig<LandState> = {
   key: 'land',
   version: 2,
   storage: mmkvStorage,
-  blacklist: ['currentDraft'],
+  blacklist: ['currentDraft', 'snapshotRequestId', 'localRevision'],
   migrate: migrateLandState,
   stateReconciler: autoMergeLevel2,
 };
@@ -205,21 +210,22 @@ const notificationsPersistConfig: PersistConfig<NotificationsState> = {
 };
 
 const appReducer = combineReducers({
-  auth: persistReducer(authPersistConfig, authReducer),
-  land: persistReducer(landPersistConfig, landReducer),
-  audit: persistReducer(auditPersistConfig, auditReducer),
-  credits: persistReducer(creditsPersistConfig, creditsReducer),
-  profile: persistReducer(profilePersistConfig, profileReducer),
-  notifications: persistReducer(notificationsPersistConfig, notificationsReducer),
-  ui: uiReducer,
+  auth: persistReducer(authPersistConfig, resettableReducer(authReducer)),
+  land: persistReducer(landPersistConfig, resettableReducer(landReducer)),
+  audit: persistReducer(auditPersistConfig, resettableReducer(auditReducer)),
+  credits: persistReducer(creditsPersistConfig, resettableReducer(creditsReducer)),
+  profile: persistReducer(profilePersistConfig, resettableReducer(profileReducer)),
+  notifications: persistReducer(notificationsPersistConfig, resettableReducer(notificationsReducer)),
+  ui: resettableReducer(uiReducer),
 });
 
 const rootReducer = (
   state: ReturnType<typeof appReducer> | undefined,
   action: {type: string},
 ) => {
-  if (action.type === resetAppState.type) {
-    return appReducer(undefined, action);
+  if (setAuthenticatedProfile.match(action) && state?.auth.user &&
+      state.auth.user.firebaseUid !== action.payload.firebase_uid) {
+    state = appReducer(state, resetAppState());
   }
 
   return appReducer(state, action);

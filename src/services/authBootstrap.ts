@@ -1,14 +1,12 @@
-import api, {assertApiBaseUrlConfigured} from './api';
+import api, { assertApiBaseUrlConfigured } from './api';
 import {
   getFreshFirebaseIdToken,
+  getCurrentFirebaseUser,
   type AuthBootstrapResponse,
 } from './firebase';
-import {ensureFarmerWallet} from './wallet';
 
 export interface AuthBootstrapWarning {
-  code:
-    | 'wallet-storage-pending'
-    | 'wallet-registration-pending';
+  code: 'wallet-storage-pending' | 'wallet-registration-pending';
   message: string;
 }
 
@@ -20,7 +18,7 @@ export interface AuthBootstrapResult {
 function getWalletRegistrationRetryMessage(error: unknown): string {
   const axiosErr = error as {
     message?: string;
-    response?: {status?: number};
+    response?: { status?: number };
   };
 
   if (!axiosErr.response) {
@@ -39,31 +37,57 @@ async function refreshProfileAfterWalletRegistration(
   walletAddress: string,
 ): Promise<AuthBootstrapResponse> {
   try {
-    await getFreshFirebaseIdToken(true);
     const refreshedProfile = await api.get<AuthBootstrapResponse>(
       '/api/v1/auth/me',
     );
 
     return refreshedProfile.data.wallet_address
       ? refreshedProfile.data
-      : {...refreshedProfile.data, wallet_address: walletAddress};
+      : { ...refreshedProfile.data, wallet_address: walletAddress };
   } catch {
-    return {...profile, wallet_address: walletAddress};
+    return { ...profile, wallet_address: walletAddress };
   }
 }
 
 export async function bootstrapAuthenticatedProfile(): Promise<AuthBootstrapResult> {
   assertApiBaseUrlConfigured();
-  await getFreshFirebaseIdToken(true);
+  const user = getCurrentFirebaseUser();
+  if (!user || !(await getFreshFirebaseIdToken())) {
+    throw new Error('AUTH_SESSION_MISSING');
+  }
 
-  const {data: profile} = await api.get<AuthBootstrapResponse>('/api/v1/auth/me');
+  const { data: profile } = await api.get<AuthBootstrapResponse>(
+    '/api/v1/auth/me',
+    {
+      timeout: 15000,
+    },
+  );
+  if (
+    getCurrentFirebaseUser()?.uid !== user.uid ||
+    profile.firebase_uid !== user.uid
+  ) {
+    throw new Error('AUTH_SESSION_CHANGED');
+  }
+  return { profile };
+}
+
+// Wallet storage and registration are background work, outside the login transition.
+export async function completeAuthenticatedWallet(
+  profile: AuthBootstrapResponse,
+): Promise<AuthBootstrapResult> {
+  const owner = getCurrentFirebaseUser();
+  if (!owner || owner.uid !== profile.firebase_uid) {
+    throw new Error('AUTH_SESSION_CHANGED');
+  }
 
   if (profile.wallet_address) {
-    return {profile};
+    return { profile };
   }
 
   let walletAddress: string;
   try {
+    const { ensureFarmerWallet } =
+      require('./wallet') as typeof import('./wallet');
     walletAddress = await ensureFarmerWallet();
   } catch {
     return {
@@ -77,6 +101,9 @@ export async function bootstrapAuthenticatedProfile(): Promise<AuthBootstrapResu
   }
 
   try {
+    if (getCurrentFirebaseUser()?.uid !== owner.uid) {
+      throw new Error('AUTH_SESSION_CHANGED');
+    }
     await api.post('/api/v1/auth/register-wallet', {
       wallet_address: walletAddress,
     });
@@ -91,6 +118,9 @@ export async function bootstrapAuthenticatedProfile(): Promise<AuthBootstrapResu
   }
 
   return {
-    profile: await refreshProfileAfterWalletRegistration(profile, walletAddress),
+    profile: await refreshProfileAfterWalletRegistration(
+      profile,
+      walletAddress,
+    ),
   };
 }

@@ -1,9 +1,12 @@
 import React from 'react';
-import {render, waitFor} from '@testing-library/react-native';
+import {act, fireEvent, render, waitFor} from '@testing-library/react-native';
 import {NavigationContainer} from '@react-navigation/native';
 import {Provider} from 'react-redux';
 import {configureStore} from '@reduxjs/toolkit';
-import authReducer, {type AuthState} from '../../store/authSlice';
+import authReducer, {authInitialState, type AuthState} from '../../store/authSlice';
+
+const mockLaunchBrandRemaining = jest.fn(() => 0);
+jest.mock('../../../../common/utils/launchBrand', () => ({launchBrandRemaining: () => mockLaunchBrandRemaining()}));
 
 type PostAuthRoute = 'KYCScreen' | 'OnboardingScreen' | 'HomeScreen';
 
@@ -21,15 +24,12 @@ jest.mock('../../../../common/utils/onboarding', () => ({
 
 // Mock navigation
 const mockReplace = jest.fn();
+const mockNavigation = {replace: mockReplace, navigate: jest.fn(), reset: jest.fn()};
 jest.mock('@react-navigation/native', () => {
   const actual = jest.requireActual('@react-navigation/native');
   return {
     ...actual,
-    useNavigation: () => ({
-      replace: mockReplace,
-      navigate: jest.fn(),
-      reset: jest.fn(),
-    }),
+    useNavigation: () => mockNavigation,
   };
 });
 
@@ -37,7 +37,7 @@ jest.mock('@react-navigation/native', () => {
 const mockGetCurrentFirebaseUser = jest.fn();
 const mockSignOutFirebase = jest.fn();
 jest.mock('../../../../services/firebase', () => ({
-  getCurrentFirebaseUser: () => mockGetCurrentFirebaseUser(),
+  waitForFirebaseAuthState: async () => mockGetCurrentFirebaseUser(),
   signOutFirebase: () => mockSignOutFirebase(),
 }));
 
@@ -45,6 +45,8 @@ const mockBootstrapAuthenticatedProfile = jest.fn();
 jest.mock('../../../../services/authBootstrap', () => ({
   bootstrapAuthenticatedProfile: () => mockBootstrapAuthenticatedProfile(),
 }));
+
+jest.mock('../../../../store', () => ({resetAppState: () => ({type: 'app/resetState'})}));
 
 // Mock Lottie
 jest.mock('lottie-react-native', () => 'LottieView');
@@ -61,6 +63,7 @@ function createTestStore(authState: Partial<AuthState> = {}) {
     },
     preloadedState: {
       auth: {
+        ...authInitialState,
         user: null,
         walletAddress: null,
         isAuthenticated: false,
@@ -85,6 +88,7 @@ function renderSplashScreen(authState: Partial<AuthState> = {}) {
 describe('SplashScreen', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    mockLaunchBrandRemaining.mockReturnValue(0);
     mockGetAuthenticatedEntryRoute.mockImplementation((kycCompleted: boolean) =>
       kycCompleted ? 'HomeScreen' : 'KYCScreen',
     );
@@ -198,7 +202,7 @@ describe('SplashScreen', () => {
     });
   });
 
-  it('navigates to LoginScreen when bootstrap cannot reach /auth/me', async () => {
+  it('opens the matching cached account when the backend is offline', async () => {
     mockGetCurrentFirebaseUser.mockReturnValue({uid: 'firebase-user-3'});
     mockBootstrapAuthenticatedProfile.mockRejectedValue({response: undefined});
 
@@ -215,8 +219,10 @@ describe('SplashScreen', () => {
     });
 
     await waitFor(() => {
-      expect(mockReplace).toHaveBeenCalledWith('LoginScreen');
+      expect(mockReplace).toHaveBeenCalledWith('HomeScreen');
     });
+    expect(mockSignOutFirebase).not.toHaveBeenCalled();
+    expect(mockBootstrapAuthenticatedProfile).not.toHaveBeenCalled();
   });
 
   it('uses replace not navigate for all routing paths', async () => {
@@ -230,4 +236,58 @@ describe('SplashScreen', () => {
     // replace is the only navigation call — not navigate
     expect(mockReplace.mock.calls.length).toBeGreaterThan(0);
   });
+  it('waits for the initial Firebase event instead of interpreting an unhydrated null as logout', async () => {
+    let resolve!: (user: null) => void;
+    mockGetCurrentFirebaseUser.mockReturnValue(new Promise<null>(done => { resolve = done; }));
+    renderSplashScreen();
+    expect(mockReplace).not.toHaveBeenCalled();
+    await act(async () => resolve(null));
+    await waitFor(() => expect(mockReplace).toHaveBeenCalledWith('LoginScreen'));
+    expect(mockSignOutFirebase).not.toHaveBeenCalled();
+  });
+
+  it('offers retry without signing out when an uncached profile request fails', async () => {
+    mockGetCurrentFirebaseUser.mockReturnValue({uid: 'firebase-user-1'});
+    mockBootstrapAuthenticatedProfile.mockRejectedValueOnce(new Error('Network Error'));
+    const screen = renderSplashScreen();
+    await waitFor(() => expect(screen.getByText('Retry')).toBeTruthy());
+    expect(mockReplace).not.toHaveBeenCalled();
+    expect(mockSignOutFirebase).not.toHaveBeenCalled();
+    mockBootstrapAuthenticatedProfile.mockResolvedValueOnce({profile: {
+      user_id: 'user-1', firebase_uid: 'firebase-user-1', full_name: 'Farmer',
+      phone_number: '+919999999999', wallet_address: '0x123', kyc_completed: true,
+      wallet_recovery_status: null, wallet_recovery_requested_at: null,
+    }});
+    fireEvent.press(screen.getByText('Retry'));
+    await waitFor(() => expect(mockReplace).toHaveBeenCalledWith('HomeScreen'));
+  });
+
+  it('does not open cached data belonging to another Firebase account', async () => {
+    mockGetCurrentFirebaseUser.mockReturnValue({uid: 'new-account'});
+    mockBootstrapAuthenticatedProfile.mockRejectedValueOnce(new Error('Network Error'));
+    const screen = renderSplashScreen({isAuthenticated: true, kycCompleted: true,
+      user: {id: 'old-user', firebaseUid: 'old-account', name: 'Old Farmer', phone: '+919999999999'}});
+    await waitFor(() => expect(screen.getByText('Retry')).toBeTruthy());
+    expect(mockReplace).not.toHaveBeenCalled();
+    expect(mockSignOutFirebase).not.toHaveBeenCalled();
+  });
+
+});
+
+it('shows the launch logo for 2.5 seconds while restoring auth concurrently', async () => {
+  jest.clearAllMocks();
+  jest.useFakeTimers();
+  mockLaunchBrandRemaining.mockReturnValue(2500);
+  mockGetCurrentFirebaseUser.mockReturnValue({uid: 'firebase-user-1'});
+  mockBootstrapAuthenticatedProfile.mockResolvedValue({profile: {user_id: 'user-1', firebase_uid: 'firebase-user-1', full_name: 'Farmer', phone_number: '+919999999999', wallet_address: null, kyc_completed: true}});
+  try {
+    const screen = renderSplashScreen();
+    await act(async () => {});
+    expect(screen.getByText('TerraTrust')).toBeTruthy();
+    expect(mockBootstrapAuthenticatedProfile).toHaveBeenCalledTimes(1);
+    await act(async () => { jest.advanceTimersByTime(2499); });
+    expect(mockReplace).not.toHaveBeenCalled();
+    await act(async () => { jest.advanceTimersByTime(1); });
+    expect(mockReplace).toHaveBeenCalledWith('HomeScreen');
+  } finally { jest.useRealTimers(); }
 });

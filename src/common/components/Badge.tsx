@@ -1,7 +1,7 @@
+import { useTheme } from '../theme/theme';
 import React from 'react';
-import {View, Text} from 'react-native';
-import {MaterialDesignIcons as MaterialCommunityIcons} from '@react-native-vector-icons/material-design-icons';
-import {COLORS} from '../constants/colors';
+import { View, Text } from 'react-native';
+import { MaterialDesignIcons as MaterialCommunityIcons } from '@react-native-vector-icons/material-design-icons';
 
 type BadgeVariant =
   | 'verified'
@@ -16,70 +16,72 @@ interface BadgeProps {
   variant: BadgeVariant;
 }
 
-const variantStyles: Record<
-  BadgeVariant,
-  {
-    container: {backgroundColor: string; borderColor: string};
-    text: {color: string};
-    icon: string;
-  }
-> = {
-  verified: {
-    container: {
-      backgroundColor: 'rgba(47, 133, 90, 0.12)',
-      borderColor: 'rgba(47, 133, 90, 0.2)',
+const Badge = ({ label, variant }: BadgeProps) => {
+  const { colors: COLORS } = useTheme();
+  const variantStyles: Record<
+    BadgeVariant,
+    {
+      container: { backgroundColor: string; borderColor: string };
+      text: { color: string };
+      icon: string;
+    }
+  > = {
+    verified: {
+      container: {
+        backgroundColor: COLORS.SUCCESS_SURFACE,
+        borderColor: COLORS.BORDER,
+      },
+      text: { color: COLORS.FOREST_GREEN },
+      icon: 'check-circle-outline',
     },
-    text: {color: COLORS.FOREST_GREEN},
-    icon: 'check-circle-outline',
-  },
-  pending: {
-    container: {
-      backgroundColor: 'rgba(221, 107, 32, 0.12)',
-      borderColor: 'rgba(221, 107, 32, 0.18)',
+    pending: {
+      container: {
+        backgroundColor: COLORS.WARNING_SURFACE,
+        borderColor: COLORS.BORDER,
+      },
+      text: { color: COLORS.WARNING_ORANGE },
+      icon: 'progress-clock',
     },
-    text: {color: COLORS.WARNING_ORANGE},
-    icon: 'progress-clock',
-  },
-  rejected: {
-    container: {
-      backgroundColor: 'rgba(229, 62, 62, 0.12)',
-      borderColor: 'rgba(229, 62, 62, 0.18)',
+    rejected: {
+      container: {
+        backgroundColor: COLORS.ERROR_SURFACE,
+        borderColor: COLORS.BORDER,
+      },
+      text: { color: COLORS.ERROR_RED },
+      icon: 'close-circle-outline',
     },
-    text: {color: COLORS.ERROR_RED},
-    icon: 'close-circle-outline',
-  },
-  'high-precision': {
-    container: {
-      backgroundColor: 'rgba(56, 178, 172, 0.12)',
-      borderColor: 'rgba(56, 178, 172, 0.18)',
+    'high-precision': {
+      container: {
+        backgroundColor: COLORS.INFO_SURFACE,
+        borderColor: COLORS.BORDER,
+      },
+      text: { color: COLORS.TEAL },
+      icon: 'crosshairs-gps',
     },
-    text: {color: COLORS.TEAL},
-    icon: 'crosshairs-gps',
-  },
-  'standard-precision': {
-    container: {
-      backgroundColor: 'rgba(221, 107, 32, 0.12)',
-      borderColor: 'rgba(221, 107, 32, 0.18)',
+    'standard-precision': {
+      container: {
+        backgroundColor: COLORS.WARNING_SURFACE,
+        borderColor: COLORS.BORDER,
+      },
+      text: { color: COLORS.WARNING_ORANGE },
+      icon: 'tune',
     },
-    text: {color: COLORS.WARNING_ORANGE},
-    icon: 'tune',
-  },
-  manual: {
-    container: {
-      backgroundColor: 'rgba(107, 114, 128, 0.12)',
-      borderColor: 'rgba(107, 114, 128, 0.18)',
+    manual: {
+      container: {
+        backgroundColor: COLORS.INPUT_BACKGROUND,
+        borderColor: COLORS.BORDER,
+      },
+      text: { color: COLORS.DISABLED_GREY },
+      icon: 'ruler',
     },
-    text: {color: COLORS.DISABLED_GREY},
-    icon: 'ruler',
-  },
-};
+  };
 
-const Badge = ({label, variant}: BadgeProps) => {
   const styles = variantStyles[variant];
   return (
     <View
       className="flex-row items-center rounded-full border px-3 py-1.5"
-      style={styles.container}>
+      style={styles.container}
+    >
       <MaterialCommunityIcons
         color={styles.text.color}
         name={styles.icon}

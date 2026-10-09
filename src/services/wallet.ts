@@ -59,6 +59,12 @@ export async function getWalletAddress(): Promise<string | null> {
   return wallet.address;
 }
 
-export async function ensureFarmerWallet(): Promise<string> {
-  return (await getWalletAddress()) ?? createFarmerWallet();
+let pendingWalletSetup: Promise<string> | null = null;
+
+export function ensureFarmerWallet(): Promise<string> {
+  if (pendingWalletSetup) { return pendingWalletSetup; }
+  const pending = (async () => (await getWalletAddress()) ?? createFarmerWallet())()
+    .finally(() => { if (pendingWalletSetup === pending) { pendingWalletSetup = null; } });
+  pendingWalletSetup = pending;
+  return pending;
 }

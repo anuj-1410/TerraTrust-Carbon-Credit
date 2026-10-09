@@ -2,6 +2,7 @@ const mockSignInWithPhoneNumber = jest.fn();
 const mockSignInWithCredential = jest.fn();
 const mockSetAutoRetrievedSmsCodeForPhoneNumber = jest.fn();
 const mockSignOut = jest.fn();
+const mockAuthStateChanged = jest.fn();
 const mockPhoneAuthCredential = jest.fn(
   (verificationId: string, code: string) => ({
     providerId: 'phone',
@@ -14,6 +15,7 @@ const mockAuthInstance = {
   signInWithPhoneNumber: mockSignInWithPhoneNumber,
   signInWithCredential: mockSignInWithCredential,
   signOut: mockSignOut,
+  onAuthStateChanged: mockAuthStateChanged,
   settings: {
     forceRecaptchaFlowForTesting: false,
     appVerificationDisabledForTesting: false,
@@ -51,6 +53,7 @@ import {
   confirmPhoneOtp,
   sendPhoneOtp,
   signOutFirebase,
+  waitForFirebaseAuthState,
 } from '../firebase';
 
 describe('firebase phone auth helpers', () => {
@@ -138,5 +141,31 @@ describe('firebase phone auth helpers', () => {
     expect(mockAuthInstance.settings.appVerificationDisabledForTesting).toBe(false);
     expect(mockAuthInstance.settings.forceRecaptchaFlowForTesting).toBe(false);
     expect(mockSetAutoRetrievedSmsCodeForPhoneNumber).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('Firebase session restoration', () => {
+  afterEach(() => jest.useRealTimers());
+  it('waits for the first native auth event and unsubscribes afterward', async () => {
+    const unsubscribe = jest.fn();
+    let listener!: (user: unknown) => void;
+    mockAuthStateChanged.mockImplementation(callback => { listener = callback; return unsubscribe; });
+    const restored = waitForFirebaseAuthState();
+    const user = {uid: 'restored-farmer'};
+    listener(user);
+    await expect(restored).resolves.toBe(user);
+    expect(unsubscribe).toHaveBeenCalledTimes(1);
+  });
+  it('bounds a stalled native restoration without signing out', async () => {
+    jest.useFakeTimers();
+    const unsubscribe = jest.fn();
+    mockAuthStateChanged.mockReturnValue(unsubscribe);
+    mockSignOut.mockClear();
+    const restored = waitForFirebaseAuthState();
+    const assertion = expect(restored).rejects.toThrow('AUTH_RESTORE_TIMEOUT');
+    jest.advanceTimersByTime(10000);
+    await assertion;
+    expect(unsubscribe).toHaveBeenCalledTimes(1);
+    expect(mockSignOut).not.toHaveBeenCalled();
   });
 });

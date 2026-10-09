@@ -1,4 +1,5 @@
-import {createSlice, type PayloadAction} from '@reduxjs/toolkit';
+import { createSlice, type PayloadAction } from '@reduxjs/toolkit';
+import type { AuthBootstrapResponse } from '../../../services/firebase';
 
 export interface AuthUser {
   id: string;
@@ -12,6 +13,9 @@ export interface AuthState {
   walletAddress: string | null;
   isAuthenticated: boolean;
   kycCompleted: boolean;
+  /** Only true after Firebase has restored the identity for this launch. */
+  sessionReady: boolean;
+  profileFresh: boolean;
 }
 
 export const authInitialState: AuthState = {
@@ -19,12 +23,34 @@ export const authInitialState: AuthState = {
   walletAddress: null,
   isAuthenticated: false,
   kycCompleted: false,
+  sessionReady: false,
+  profileFresh: false,
 };
 
 const authSlice = createSlice({
   name: 'auth',
   initialState: authInitialState,
   reducers: {
+    setAuthenticatedProfile(
+      state,
+      action: PayloadAction<AuthBootstrapResponse>,
+    ) {
+      const profile = action.payload;
+      state.user = {
+        id: profile.user_id,
+        firebaseUid: profile.firebase_uid,
+        name: profile.full_name ?? '',
+        phone: profile.phone_number,
+      };
+      state.walletAddress = profile.wallet_address;
+      state.kycCompleted = profile.kyc_completed;
+      state.isAuthenticated = true;
+      state.sessionReady = true;
+      state.profileFresh = true;
+    },
+    setSessionReady(state, action: PayloadAction<boolean>) {
+      state.sessionReady = action.payload;
+    },
     setUser(state, action: PayloadAction<AuthUser>) {
       state.user = action.payload;
       state.isAuthenticated = true;
@@ -40,10 +66,18 @@ const authSlice = createSlice({
       state.walletAddress = null;
       state.isAuthenticated = false;
       state.kycCompleted = false;
+      state.sessionReady = false;
+      state.profileFresh = false;
     },
   },
 });
 
-export const {setUser, setWalletAddress, setKycCompleted, logout} =
-  authSlice.actions;
+export const {
+  setAuthenticatedProfile,
+  setSessionReady,
+  setUser,
+  setWalletAddress,
+  setKycCompleted,
+  logout,
+} = authSlice.actions;
 export default authSlice.reducer;

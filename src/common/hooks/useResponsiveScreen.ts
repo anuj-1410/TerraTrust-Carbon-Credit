@@ -23,6 +23,8 @@ export function useResponsiveScreen() {
       topSpacing: topInset + (compactHeight ? 12 : 20),
       bottomSpacing: Math.max(bottomInset + 16, 24) + floatingTabInset,
       compactHeight,
+      topInset,
+      bottomInset,
     };
   }, [bottomInset, floatingTabInset, height, topInset, width]);
 }

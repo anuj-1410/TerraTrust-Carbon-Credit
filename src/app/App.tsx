@@ -1,3 +1,5 @@
+import ThemeProvider from '../common/theme/ThemeProvider';
+import {useTheme} from '../common/theme/theme';
 import React, { useCallback, useEffect, useRef } from 'react';
 import {
   AppState,
@@ -5,17 +7,20 @@ import {
   BackHandler,
   Platform,
   Text,
+  View,
   ToastAndroid,
   TouchableOpacity,
 } from 'react-native';
 import { Provider } from 'react-redux';
 import { PersistGate } from 'redux-persist/integration/react';
-import { NavigationContainer } from '@react-navigation/native';
+import { DarkTheme, DefaultTheme, NavigationContainer } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import BackgroundFetch from 'react-native-background-fetch';
 import NetInfo from '@react-native-community/netinfo';
 import FloatingTabBar from './FloatingTabBar';
+import AppErrorBoundary from './AppErrorBoundary';
+import {afterFirstPaint} from '../common/utils/afterFirstPaint';
 import {
   FloatingTabInsetContext,
   FLOATING_TAB_CONTENT_INSET,
@@ -35,7 +40,6 @@ import { useAppSelector, useAppDispatch } from '../store/hooks';
 import { hideBanner, setMaintenance, showBanner } from '../store/uiSlice';
 import Loader from '../common/components/Loader';
 import api, { retryPendingAuditUpload } from '../services/api';
-import { COLORS } from '../common/constants/colors';
 import { setPendingMint } from '../features/dashboard/store/creditsSlice';
 import {
   detectAndSetARTier,
@@ -45,6 +49,9 @@ import {
 import { syncAuditStatus } from '../features/ar-audit/utils/auditStatus';
 import { isOnboardingComplete } from '../common/utils/onboarding';
 import { setOnboardingComplete } from '../features/profile/store/profileSlice';
+import {setAuthenticatedProfile, setWalletAddress} from '../features/auth/store/authSlice';
+import {bootstrapAuthenticatedProfile, completeAuthenticatedWallet} from '../services/authBootstrap';
+import {getCurrentFirebaseUser, type AuthBootstrapResponse} from '../services/firebase';
 
 // Auth screens
 import SplashScreen from '../features/auth/screens/SplashScreen';
@@ -61,13 +68,7 @@ import DocumentUploadScreen from '../features/land/screens/DocumentUploadScreen'
 import BoundaryConfirmScreen from '../features/land/screens/BoundaryConfirmScreen';
 import ManualUploadGuideScreen from '../features/land/screens/ManualUploadGuideScreen';
 import LandRegistrationSuccessScreen from '../features/land/screens/LandRegistrationSuccessScreen';
-import {
-  mergeLandParcels,
-  normalizeLandParcels,
-  setLastSynced,
-  setParcels,
-  type LandListResponse,
-} from '../features/land/store/landSlice';
+import {fetchLandPage} from '../features/land/store/landSlice';
 
 // AR-audit screens
 import AuditStartScreen from '../features/ar-audit/screens/AuditStartScreen';
@@ -169,24 +170,6 @@ function primeAuditProcessingState(dispatch: typeof store.dispatch) {
   dispatch(setUploadStatus('processing'));
   dispatch(setPendingMint(true));
   dispatch(setAuditResult({ status: 'PROCESSING' }));
-}
-
-async function refreshLandSnapshot(dispatch: typeof store.dispatch) {
-  try {
-    const currentParcels = store.getState().land.parcels;
-    const { data } = await api.get<
-      LandListResponse | Array<Record<string, unknown>>
-    >('/api/v1/land/list', {
-      params: { page: 1, limit: 50 },
-    });
-
-    const items = Array.isArray(data) ? data : data.items ?? [];
-    const incomingParcels = normalizeLandParcels(items, currentParcels);
-    dispatch(setParcels(mergeLandParcels(currentParcels, incomingParcels)));
-    dispatch(setLastSynced(new Date().toISOString()));
-  } catch {
-    // Ignore foreground land refresh failures.
-  }
 }
 
 function HomeStackNavigator() {
@@ -334,7 +317,6 @@ async function configureBackgroundFetch() {
 
 function AppLifecycleEffects() {
   const dispatch = useAppDispatch();
-  const bannerType = useAppSelector(state => state.ui.bannerType);
   const maintenanceMode = useAppSelector(state => state.ui.maintenanceMode);
   const maintenanceMessage = useAppSelector(
     state => state.ui.maintenanceMessage,
@@ -344,7 +326,8 @@ function AppLifecycleEffects() {
   const auditResultStatus = useAppSelector(
     state => state.audit.auditResult?.status ?? null,
   );
-  const isAuthenticated = useAppSelector(state => state.auth.isAuthenticated);
+  const isAuthenticated = useAppSelector(state => state.auth.isAuthenticated && state.auth.sessionReady);
+  const sessionUid = useAppSelector(state => state.auth.sessionReady ? state.auth.user?.firebaseUid : null);
   const onboardingComplete = useAppSelector(
     state => state.profile.onboardingComplete,
   );
@@ -353,7 +336,6 @@ function AppLifecycleEffects() {
   const backgroundFetchConfiguredRef = useRef(false);
   const auditPollInFlightRef = useRef(false);
   const arTierRefreshInFlightRef = useRef<Promise<unknown> | null>(null);
-  const landRefreshInFlightRef = useRef<Promise<void> | null>(null);
   const appStateRef = useRef<AppStateStatus>(AppState.currentState);
 
   const refreshARTier = useCallback(async () => {
@@ -376,24 +358,12 @@ function AppLifecycleEffects() {
   }, [dispatch]);
 
   const refreshLandState = useCallback(async () => {
-    if (!isAuthenticated) {
+    if (!isAuthenticated || !sessionUid) {
       return;
     }
 
-    if (landRefreshInFlightRef.current) {
-      await landRefreshInFlightRef.current;
-      return;
-    }
-
-    const pendingRefresh = refreshLandSnapshot(dispatch).finally(() => {
-      if (landRefreshInFlightRef.current === pendingRefresh) {
-        landRefreshInFlightRef.current = null;
-      }
-    });
-
-    landRefreshInFlightRef.current = pendingRefresh;
-    await pendingRefresh;
-  }, [dispatch, isAuthenticated]);
+    await dispatch(fetchLandPage(1)).unwrap().catch(() => undefined);
+  }, [dispatch, isAuthenticated, sessionUid]);
 
   useEffect(() => {
     const persistedOnboardingComplete = isOnboardingComplete();
@@ -403,8 +373,44 @@ function AppLifecycleEffects() {
   }, [dispatch, onboardingComplete]);
 
   useEffect(() => {
-    void refreshARTier();
-  }, [refreshARTier]);
+    if (!isAuthenticated) { return; }
+    return afterFirstPaint(() => { void refreshARTier(); });
+  }, [isAuthenticated, refreshARTier]);
+
+  useEffect(() => {
+    if (!sessionUid) { return; }
+    let active = true;
+    const refreshProfile = async () => {
+      try {
+        const state = store.getState();
+        const cachedProfile: AuthBootstrapResponse = {
+          user_id: state.auth.user!.id,
+          firebase_uid: sessionUid,
+          phone_number: state.auth.user!.phone,
+          full_name: state.auth.user!.name,
+          kyc_completed: state.auth.kycCompleted,
+          wallet_address: state.auth.walletAddress,
+          wallet_recovery_status: state.profile.walletRecoveryStatus,
+          wallet_recovery_requested_at: state.profile.walletRecoveryRequestedAt,
+        };
+        const result = state.auth.profileFresh ? {profile: cachedProfile}
+          : await bootstrapAuthenticatedProfile();
+        if (!active || getCurrentFirebaseUser()?.uid !== sessionUid) { return; }
+        if (!state.auth.profileFresh && store.getState().auth.profileFresh) { return; }
+        dispatch(setAuthenticatedProfile(result.profile));
+        const completed = await completeAuthenticatedWallet(result.profile);
+        if (!active || getCurrentFirebaseUser()?.uid !== sessionUid) { return; }
+        dispatch(setWalletAddress(completed.profile.wallet_address));
+        if (completed.warning) {
+          dispatch(showBanner({message: completed.warning.message, type: 'info'}));
+        }
+      } catch {
+        // Cached sessions survive temporary server and connectivity failures.
+      }
+    };
+    const cancel = afterFirstPaint(() => { void refreshProfile(); });
+    return () => { active = false; cancel(); };
+  }, [dispatch, sessionUid]);
 
   useEffect(() => {
     const subscription = AppState.addEventListener('change', nextState => {
@@ -412,21 +418,21 @@ function AppLifecycleEffects() {
       appStateRef.current = nextState;
 
       if (nextState === 'active' && wasInactive) {
-        void refreshARTier();
+        if (isAuthenticated) { void refreshARTier(); }
         void refreshLandState();
       }
     });
 
     return () => subscription.remove();
-  }, [refreshARTier, refreshLandState]);
+  }, [isAuthenticated, refreshARTier, refreshLandState]);
 
   useEffect(() => {
     let isMounted = true;
 
     const bootstrapApp = async () => {
-      if (!backgroundFetchConfiguredRef.current) {
-        await configureBackgroundFetch();
+      if (!backgroundFetchConfiguredRef.current && isAuthenticated) {
         backgroundFetchConfiguredRef.current = true;
+        void configureBackgroundFetch().catch(() => { backgroundFetchConfiguredRef.current = false; });
       }
 
       if (!isAuthenticated) {
@@ -440,6 +446,7 @@ function AppLifecycleEffects() {
           networkState.isInternetReachable !== false;
 
         if (isOnline) {
+          void refreshLandState();
           const retriedUpload = await retryPendingAuditUpload();
 
           if (retriedUpload) {
@@ -455,7 +462,6 @@ function AppLifecycleEffects() {
             });
           }
 
-          await refreshLandState();
         }
       } catch {
         // Ignore bootstrap retry failures.
@@ -498,13 +504,15 @@ function AppLifecycleEffects() {
         return;
       }
 
-      if (bannerType === 'offline') {
+      if (store.getState().ui.bannerType === 'offline') {
         dispatch(hideBanner());
       }
 
       if (wasOfflineRef.current) {
         wasOfflineRef.current = false;
-        if (isAuthenticated) {
+        if (store.getState().auth.sessionReady) {
+          void refreshLandState();
+          void api.get('/api/v1/status').catch(() => undefined);
           void (async () => {
             const retriedUpload = await retryPendingAuditUpload();
 
@@ -520,17 +528,14 @@ function AppLifecycleEffects() {
                 getState: store.getState,
               });
             }
-          })();
+          })().catch(() => undefined);
         }
       }
 
-      if (isAuthenticated) {
-        void api.get('/api/v1/status').catch(() => undefined);
-      }
     });
 
     return unsubscribe;
-  }, [activeAuditId, auditUploadStatus, bannerType, dispatch, isAuthenticated]);
+  }, [dispatch, refreshLandState]);
 
   useEffect(() => {
     if (
@@ -635,6 +640,7 @@ function AppLifecycleEffects() {
 }
 
 function GlobalBanner() {
+  const {colors: COLORS} = useTheme();
   const bannerMessage = useAppSelector(state => state.ui.bannerMessage);
   const bannerType = useAppSelector(state => state.ui.bannerType);
   const dispatch = useAppDispatch();
@@ -642,11 +648,7 @@ function GlobalBanner() {
   if (!bannerMessage) return null;
 
   const backgroundColor =
-    bannerType === 'error'
-      ? COLORS.ERROR_RED
-      : bannerType === 'offline'
-      ? COLORS.WARNING_ORANGE
-      : COLORS.TEAL;
+    bannerType === 'error' ? COLORS.BANNER_ERROR : bannerType === 'offline' ? COLORS.BANNER_WARNING : COLORS.BANNER_INFO;
 
   return (
     <TouchableOpacity
@@ -662,12 +664,27 @@ function GlobalBanner() {
   );
 }
 
-const App = () => {
+const AppContent = () => {
+  const { colors: COLORS, isDark } = useTheme();
+  const baseTheme = isDark ? DarkTheme : DefaultTheme;
+  const navigationTheme = {
+    ...baseTheme,
+    colors: {
+      ...baseTheme.colors,
+      primary: COLORS.FOREST_GREEN,
+      background: COLORS.OFF_WHITE,
+      card: COLORS.CARD_WHITE,
+      text: COLORS.DARK_SLATE,
+      border: COLORS.BORDER,
+      notification: COLORS.ERROR_RED,
+    },
+  };
   return (
-    <Provider store={store}>
-      <PersistGate loading={<Loader />} persistor={persistor}>
+    <PersistGate loading={<Loader />} persistor={persistor}>
+      <AppErrorBoundary>
         <AppLifecycleEffects />
         <NavigationContainer
+          theme={navigationTheme}
           ref={navigationRef}
           onReady={() => {
             const uiState = store.getState().ui;
@@ -681,120 +698,133 @@ const App = () => {
             }
           }}
         >
-          <GlobalBanner />
-          <RootStack.Navigator
-            initialRouteName="SplashScreen"
-            screenOptions={{ headerShown: false }}
-          >
-            {/* Auth */}
-            <RootStack.Screen name="SplashScreen" component={SplashScreen} />
-            <RootStack.Screen name="LoginScreen" component={LoginScreen} />
-            <RootStack.Screen name="OTPScreen" component={OTPScreen} />
-            <RootStack.Screen
-              name="KYCScreen"
-              component={KYCScreen}
-              options={{ gestureEnabled: false }}
-            />
-            <RootStack.Screen
-              name="OnboardingScreen"
-              component={OnboardingScreen}
-              options={{ gestureEnabled: false }}
-            />
-
-            {/* Main app */}
-            <RootStack.Screen
-              name="HomeScreen"
-              component={MainTabs}
-              options={{ gestureEnabled: false }}
-            />
-
-            {/* Land flows */}
-            <RootStack.Screen
-              name="DocumentUploadScreen"
-              component={DocumentUploadScreen}
-              options={{ presentation: 'fullScreenModal' }}
-            />
-            <RootStack.Screen
-              name="BoundaryConfirmScreen"
-              component={BoundaryConfirmScreen}
-              options={{ presentation: 'fullScreenModal' }}
-            />
-            <RootStack.Screen
-              name="ManualUploadGuideScreen"
-              component={ManualUploadGuideScreen}
-              options={{ presentation: 'fullScreenModal' }}
-            />
-            <RootStack.Screen
-              name="LandRegistrationSuccessScreen"
-              component={LandRegistrationSuccessScreen}
-              options={{
-                gestureEnabled: false,
-                presentation: 'fullScreenModal',
+          <View style={{ flex: 1, backgroundColor: COLORS.OFF_WHITE }}>
+            <GlobalBanner />
+            <RootStack.Navigator
+              initialRouteName="SplashScreen"
+              screenOptions={{
+                headerShown: false,
+                contentStyle: { backgroundColor: COLORS.OFF_WHITE },
               }}
-            />
+            >
+              {/* Auth */}
+              <RootStack.Screen name="SplashScreen" component={SplashScreen} />
+              <RootStack.Screen name="LoginScreen" component={LoginScreen} />
+              <RootStack.Screen name="OTPScreen" component={OTPScreen} />
+              <RootStack.Screen
+                name="KYCScreen"
+                component={KYCScreen}
+                options={{ gestureEnabled: false, animation: 'fade' }}
+              />
+              <RootStack.Screen
+                name="OnboardingScreen"
+                component={OnboardingScreen}
+                options={{ gestureEnabled: false }}
+              />
 
-            {/* AR-Audit */}
-            <RootStack.Screen
-              name="AuditStartScreen"
-              component={AuditStartScreen}
-              options={{ presentation: 'fullScreenModal' }}
-            />
-            <RootStack.Screen
-              name="ZoneNavigationScreen"
-              component={ZoneNavigationScreen}
-              options={{ presentation: 'fullScreenModal' }}
-            />
-            <RootStack.Screen
-              name="ARCameraScreen"
-              component={ARCameraScreen}
-              options={{ presentation: 'fullScreenModal' }}
-            />
-            <RootStack.Screen
-              name="ManualMeasureScreen"
-              component={ManualMeasureScreen}
-              options={{ presentation: 'fullScreenModal' }}
-            />
-            <RootStack.Screen
-              name="TreeResultScreen"
-              component={TreeResultScreen}
-              options={{ presentation: 'fullScreenModal' }}
-            />
-            <RootStack.Screen
-              name="AuditCompleteScreen"
-              component={AuditCompleteScreen}
-              options={{
-                gestureEnabled: false,
-                presentation: 'fullScreenModal',
-              }}
-            />
-            <RootStack.Screen
-              name="AuditStatusScreen"
-              component={AuditStatusScreen}
-              options={{
-                gestureEnabled: false,
-                presentation: 'fullScreenModal',
-              }}
-            />
+              {/* Main app */}
+              <RootStack.Screen
+                name="HomeScreen"
+                component={MainTabs}
+                options={{ gestureEnabled: false }}
+              />
 
-            {/* Utility */}
-            <RootStack.Screen
-              name="NotificationsScreen"
-              component={NotificationsScreen}
-              options={{ presentation: 'fullScreenModal' }}
-            />
-            <RootStack.Screen
-              name="MaintenanceScreen"
-              component={MaintenanceScreen}
-              options={{
-                gestureEnabled: false,
-                presentation: 'fullScreenModal',
-              }}
-            />
-          </RootStack.Navigator>
+              {/* Land flows */}
+              <RootStack.Screen
+                name="DocumentUploadScreen"
+                component={DocumentUploadScreen}
+                options={{ presentation: 'fullScreenModal' }}
+              />
+              <RootStack.Screen
+                name="BoundaryConfirmScreen"
+                component={BoundaryConfirmScreen}
+                options={{ presentation: 'fullScreenModal' }}
+              />
+              <RootStack.Screen
+                name="ManualUploadGuideScreen"
+                component={ManualUploadGuideScreen}
+                options={{ presentation: 'fullScreenModal' }}
+              />
+              <RootStack.Screen
+                name="LandRegistrationSuccessScreen"
+                component={LandRegistrationSuccessScreen}
+                options={{
+                  gestureEnabled: false,
+                  presentation: 'fullScreenModal',
+                }}
+              />
+
+              {/* AR-Audit */}
+              <RootStack.Screen
+                name="AuditStartScreen"
+                component={AuditStartScreen}
+                options={{ presentation: 'fullScreenModal' }}
+              />
+              <RootStack.Screen
+                name="ZoneNavigationScreen"
+                component={ZoneNavigationScreen}
+                options={{ presentation: 'fullScreenModal' }}
+              />
+              <RootStack.Screen
+                name="ARCameraScreen"
+                component={ARCameraScreen}
+                options={{ presentation: 'fullScreenModal' }}
+              />
+              <RootStack.Screen
+                name="ManualMeasureScreen"
+                component={ManualMeasureScreen}
+                options={{ presentation: 'fullScreenModal' }}
+              />
+              <RootStack.Screen
+                name="TreeResultScreen"
+                component={TreeResultScreen}
+                options={{ presentation: 'fullScreenModal' }}
+              />
+              <RootStack.Screen
+                name="AuditCompleteScreen"
+                component={AuditCompleteScreen}
+                options={{
+                  gestureEnabled: false,
+                  presentation: 'fullScreenModal',
+                }}
+              />
+              <RootStack.Screen
+                name="AuditStatusScreen"
+                component={AuditStatusScreen}
+                options={{
+                  gestureEnabled: false,
+                  presentation: 'fullScreenModal',
+                }}
+              />
+
+              {/* Utility */}
+              <RootStack.Screen
+                name="NotificationsScreen"
+                component={NotificationsScreen}
+                options={{ presentation: 'fullScreenModal' }}
+              />
+              <RootStack.Screen
+                name="MaintenanceScreen"
+                component={MaintenanceScreen}
+                options={{
+                  gestureEnabled: false,
+                  presentation: 'fullScreenModal',
+                }}
+              />
+            </RootStack.Navigator>
+          </View>
         </NavigationContainer>
-      </PersistGate>
-    </Provider>
+      </AppErrorBoundary>
+    </PersistGate>
   );
 };
+
+const App = () => (
+  <Provider store={store}>
+    <ThemeProvider>
+      <AppContent />
+    </ThemeProvider>
+  </Provider>
+);
 
 export default App;

@@ -105,4 +105,16 @@ describe('wallet service', () => {
 
     expect(walletAddress).toBe('derived:0xstored-private');
   });
+  it('shares wallet creation so concurrent background setup cannot save two different keys', async () => {
+    mockGetGenericPassword.mockResolvedValue(false);
+    mockCreateRandom.mockReturnValue({privateKey: '0xprivate', address: '0xwallet'});
+    mockSetGenericPassword.mockResolvedValue({service: 'terratrust_wallet'});
+    mockGetSecurityLevel.mockResolvedValue('SECURE_SOFTWARE');
+    const [first, second] = await Promise.all([ensureFarmerWallet(), ensureFarmerWallet()]);
+    expect(first).toBe('0xwallet');
+    expect(second).toBe(first);
+    expect(mockCreateRandom).toHaveBeenCalledTimes(1);
+    expect(mockSetGenericPassword).toHaveBeenCalledTimes(1);
+  });
+
 });

@@ -169,6 +169,21 @@ export function getCurrentFirebaseUser(): FirebaseAuthTypes.User | null {
   return auth().currentUser;
 }
 
+export function waitForFirebaseAuthState(): Promise<FirebaseAuthTypes.User | null> {
+  return new Promise((resolve, reject) => {
+    let unsubscribe: (() => void) | undefined;
+    const timer = setTimeout(() => {
+      unsubscribe?.();
+      reject(new Error('AUTH_RESTORE_TIMEOUT'));
+    }, 10000);
+    unsubscribe = auth().onAuthStateChanged(user => {
+      clearTimeout(timer);
+      unsubscribe?.();
+      resolve(user);
+    });
+  });
+}
+
 export async function getFreshFirebaseIdToken(
   forceRefresh = false,
 ): Promise<string | null> {

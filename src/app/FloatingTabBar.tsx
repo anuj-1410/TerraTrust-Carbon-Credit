@@ -1,7 +1,9 @@
+import { useTheme } from '../common/theme/theme';
 import React, { useEffect, useRef, useState } from 'react';
 import {
   Animated,
   Keyboard,
+  Platform,
   Pressable,
   StyleSheet,
   Text,
@@ -12,7 +14,6 @@ import type { BottomTabBarProps } from '@react-navigation/bottom-tabs';
 import { getFocusedRouteNameFromRoute } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { MaterialDesignIcons as Icon } from '@react-native-vector-icons/material-design-icons';
-import { COLORS } from '../common/constants/colors';
 
 const ICONS = {
   HomeTab: 'home-outline',
@@ -38,6 +39,7 @@ function TabItem({
   onPress: () => void;
   onLongPress: () => void;
 }) {
+  const { colors: COLORS } = useTheme();
   const progress = useRef(new Animated.Value(focused ? 1 : 0)).current;
 
   useEffect(() => {
@@ -79,7 +81,7 @@ function TabItem({
             width: 64,
             height: 48,
             borderRadius: 25,
-            backgroundColor: '#E3F2E9',
+            backgroundColor: COLORS.SUCCESS_SURFACE,
             opacity: progress,
             transform: [
               {
@@ -108,7 +110,7 @@ function TabItem({
             <Icon
               name={ICONS[name]}
               size={24}
-              color={focused ? COLORS.FOREST_GREEN : '#84918C'}
+              color={focused ? COLORS.FOREST_GREEN : COLORS.DISABLED_GREY}
             />
             {badge ? (
               <View
@@ -128,7 +130,7 @@ function TabItem({
             numberOfLines={1}
             style={{
               marginTop: 2,
-              color: focused ? COLORS.FOREST_GREEN : '#84918C',
+              color: focused ? COLORS.FOREST_GREEN : COLORS.DISABLED_GREY,
               fontSize: 10,
               fontWeight: focused ? '700' : '500',
             }}
@@ -146,6 +148,7 @@ export default function FloatingTabBar({
   descriptors,
   navigation,
 }: BottomTabBarProps) {
+  const { colors: COLORS, isDark } = useTheme();
   const insets = useSafeAreaInsets();
   const [keyboardVisible, setKeyboardVisible] = useState(false);
 
@@ -186,19 +189,8 @@ export default function FloatingTabBar({
         backgroundColor: 'transparent',
       }}
     >
-      <BlurView
-        pointerEvents="none"
-        style={StyleSheet.absoluteFill}
-        blurType="light"
-        blurAmount={18}
-        blurRadius={14}
-        downsampleFactor={4}
-        enabled
-        autoUpdate
-        overlayColor="rgba(247, 250, 247, 0.16)"
-        reducedTransparencyFallbackColor="#F4F7F4"
-      />
       <View
+        collapsable={false}
         style={{
           height: 64,
           maxWidth: 520,
@@ -207,16 +199,21 @@ export default function FloatingTabBar({
           flexDirection: 'row',
           alignItems: 'center',
           borderRadius: 36,
-          backgroundColor: 'rgba(255, 255, 255, 0.68)',
+          backgroundColor: COLORS.CARD_WHITE,
           borderWidth: 1,
-          borderColor: 'rgba(255, 255, 255, 0.85)',
-          shadowColor: '#173D28',
-          shadowOffset: { width: 0, height: 7 },
-          shadowOpacity: 0.14,
-          shadowRadius: 16,
-          elevation: 9,
+          borderColor: COLORS.BORDER,
+          overflow: 'hidden',
         }}
       >
+        {Platform.OS === 'ios' ? (
+          <BlurView
+            pointerEvents="none"
+            style={StyleSheet.absoluteFill}
+            blurType={isDark ? 'dark' : 'light'}
+            blurAmount={12}
+            reducedTransparencyFallbackColor={COLORS.CARD_WHITE}
+          />
+        ) : null}
         {state.routes.map((route, index) => {
           const name = route.name as TabName;
           const options = descriptors[route.key].options;

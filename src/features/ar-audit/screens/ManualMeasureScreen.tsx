@@ -1,25 +1,23 @@
-import React, {useCallback, useEffect, useState} from 'react';
+import ScreenHeader from '../../../common/components/ScreenHeader';
+import { useTheme } from '../../../common/theme/theme';
+import React, { useCallback, useEffect, useState } from 'react';
+import { Keyboard, ScrollView, Text, TextInput, View } from 'react-native';
 import {
-  Keyboard,
-  ScrollView,
-  Text,
-  TextInput,
-  TouchableOpacity,
-  View,
-} from 'react-native';
-import {CommonActions, useNavigation, useRoute} from '@react-navigation/native';
-import type {NativeStackNavigationProp} from '@react-navigation/native-stack';
-import type {RouteProp} from '@react-navigation/native';
+  CommonActions,
+  useNavigation,
+  useRoute,
+} from '@react-navigation/native';
+import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import type { RouteProp } from '@react-navigation/native';
 import LottieView from 'lottie-react-native';
-import {MaterialDesignIcons as MaterialCommunityIcons} from '@react-native-vector-icons/material-design-icons';
+import { MaterialDesignIcons as MaterialCommunityIcons } from '@react-native-vector-icons/material-design-icons';
 
 import Badge from '../../../common/components/Badge';
 import Button from '../../../common/components/Button';
 import Card from '../../../common/components/Card';
-import {COLORS} from '../../../common/constants/colors';
-import {useResponsiveScreen} from '../../../common/hooks/useResponsiveScreen';
-import type {RootStackParamList} from '../../../types/navigation';
-import {mmkv} from '../../../store/mmkvStorage';
+import { useResponsiveScreen } from '../../../common/hooks/useResponsiveScreen';
+import type { RootStackParamList } from '../../../types/navigation';
+import { mmkv } from '../../../store/mmkvStorage';
 
 type NavProp = NativeStackNavigationProp<
   RootStackParamList,
@@ -28,10 +26,11 @@ type NavProp = NativeStackNavigationProp<
 type RouteType = RouteProp<RootStackParamList, 'ManualMeasureScreen'>;
 
 const ManualMeasureScreen = () => {
+  const { colors: COLORS } = useTheme();
   const navigation = useNavigation<NavProp>();
   const route = useRoute<RouteType>();
-  const {zoneId, zoneIndex, mode = 'diameter'} = route.params;
-  const {horizontalPadding, topSpacing, bottomSpacing, contentMaxWidth} =
+  const { zoneId, zoneIndex, mode = 'diameter' } = route.params;
+  const { horizontalPadding, bottomSpacing, contentMaxWidth } =
     useResponsiveScreen();
   const isHeightMode = mode === 'height';
 
@@ -109,8 +108,8 @@ const ManualMeasureScreen = () => {
           zoneId,
           zoneIndex,
           ...(isHeightMode
-            ? {returnHeight: calculatedValue}
-            : {returnDiameter: calculatedValue}),
+            ? { returnHeight: calculatedValue }
+            : { returnDiameter: calculatedValue }),
         },
         merge: true,
       }),
@@ -118,7 +117,12 @@ const ManualMeasureScreen = () => {
   }, [calculatedValue, isHeightMode, navigation, zoneId, zoneIndex]);
 
   return (
-    <View className="flex-1" style={{backgroundColor: COLORS.OFF_WHITE}}>
+    <View className="flex-1" style={{ backgroundColor: COLORS.OFF_WHITE }}>
+      <ScreenHeader
+        title={isHeightMode ? 'Enter tree height' : 'Measure with a string'}
+        eyebrow="Manual Fallback"
+        onBack={() => navigation.goBack()}
+      />
       <ScrollView
         className="flex-1"
         contentContainerStyle={{
@@ -126,37 +130,15 @@ const ManualMeasureScreen = () => {
           width: '100%',
           maxWidth: contentMaxWidth,
           paddingHorizontal: horizontalPadding,
-          paddingTop: topSpacing,
+          paddingTop: 16,
           paddingBottom: bottomSpacing,
         }}
-        keyboardShouldPersistTaps="handled">
-        <View className="flex-row items-center">
-          <TouchableOpacity
-            onPress={() => navigation.goBack()}
-            className="min-h-[48px] min-w-[48px] items-center justify-center rounded-full"
-            style={{backgroundColor: COLORS.CARD_WHITE}}
-            accessibilityLabel="Go back">
-            <MaterialCommunityIcons
-              color={COLORS.DARK_SLATE}
-              name="arrow-left"
-              size={22}
-            />
-          </TouchableOpacity>
-          <View className="ml-3 flex-1">
-            <Text
-              className="text-[13px] font-semibold uppercase tracking-[1.6px]"
-              style={{color: COLORS.FOREST_GREEN}}>
-              Manual Fallback
-            </Text>
-            <Text
-              className="mt-1 text-3xl font-bold"
-              style={{color: COLORS.DARK_SLATE}}>
-              {isHeightMode ? 'Enter tree height' : 'Measure with a string'}
-            </Text>
-          </View>
-        </View>
-
-        <Text className="mt-4 text-sm leading-6" style={{color: COLORS.DISABLED_GREY}}>
+        keyboardShouldPersistTaps="handled"
+      >
+        <Text
+          className="mt-4 text-sm leading-6"
+          style={{ color: COLORS.DISABLED_GREY }}
+        >
           {isHeightMode
             ? 'Use this only when GEDI or AR height is unavailable for the current tree.'
             : 'Measure the trunk circumference at chest height and TerraTrust will calculate the DBH for you.'}
@@ -168,20 +150,26 @@ const ManualMeasureScreen = () => {
               source={require('../../../assets/lottie/string_wrap_tutorial.json')}
               autoPlay
               loop
-              style={{width: 120, height: 120}}
+              style={{ width: 120, height: 120 }}
             />
             <Text
               className="mt-4 text-center text-lg font-semibold"
-              style={{color: COLORS.DARK_SLATE}}>
+              style={{ color: COLORS.DARK_SLATE }}
+            >
               Wrap the string once around the trunk at 1.3 m height
             </Text>
             <Text
               className="mt-2 text-center text-sm leading-6"
-              style={{color: COLORS.DISABLED_GREY}}>
+              style={{ color: COLORS.DISABLED_GREY }}
+            >
               Mark where the string meets, then measure that circumference using
               a ruler or measuring tape.
             </Text>
-            <Button className="mt-5 self-stretch" label="Got it" onPress={dismissTutorial} />
+            <Button
+              className="mt-5 self-stretch"
+              label="Got it"
+              onPress={dismissTutorial}
+            />
           </Card>
         ) : null}
 
@@ -191,9 +179,10 @@ const ManualMeasureScreen = () => {
               className="h-14 w-14 items-center justify-center rounded-2xl"
               style={{
                 backgroundColor: isHeightMode
-                  ? 'rgba(56,178,172,0.12)'
-                  : 'rgba(47,133,90,0.12)',
-              }}>
+                  ? COLORS.INFO_SURFACE
+                  : COLORS.SUCCESS_SURFACE,
+              }}
+            >
               <MaterialCommunityIcons
                 color={isHeightMode ? COLORS.TEAL : COLORS.FOREST_GREEN}
                 name={isHeightMode ? 'arrow-expand-vertical' : 'ruler'}
@@ -203,12 +192,16 @@ const ManualMeasureScreen = () => {
             <View className="ml-4 flex-1">
               <Text
                 className="text-lg font-semibold"
-                style={{color: COLORS.DARK_SLATE}}>
-                {isHeightMode ? 'Height in metres' : 'Circumference in centimetres'}
+                style={{ color: COLORS.DARK_SLATE }}
+              >
+                {isHeightMode
+                  ? 'Height in metres'
+                  : 'Circumference in centimetres'}
               </Text>
               <Text
                 className="mt-1 text-sm leading-6"
-                style={{color: COLORS.DISABLED_GREY}}>
+                style={{ color: COLORS.DISABLED_GREY }}
+              >
                 {isHeightMode
                   ? 'Enter the best available tree height.'
                   : 'TerraTrust converts circumference to DBH automatically.'}
@@ -220,35 +213,42 @@ const ManualMeasureScreen = () => {
             className="mt-6 flex-row items-center rounded-2xl border px-4 py-3"
             style={{
               borderColor: error
-                ? '#FCA5A5'
+                ? COLORS.ERROR_RED
                 : measurementInput
-                  ? '#A7D7BE'
-                  : '#E2E8F0',
-            }}>
+                ? COLORS.BORDER
+                : COLORS.BORDER,
+            }}
+          >
             <TextInput
               className="flex-1 text-3xl font-bold"
               placeholder={isHeightMode ? 'e.g. 12.5' : 'e.g. 62.8'}
-              placeholderTextColor="#A0AEC0"
+              placeholderTextColor={COLORS.DISABLED_GREY}
               keyboardType="decimal-pad"
               value={measurementInput}
               onChangeText={text => {
                 setMeasurementInput(text);
                 setError(null);
               }}
-              style={{color: COLORS.DARK_SLATE, fontFamily: 'RobotoMono-Bold'}}
+              style={{
+                color: COLORS.DARK_SLATE,
+                fontFamily: 'RobotoMono-Bold',
+              }}
               accessibilityLabel={
                 isHeightMode
                   ? 'Height input in metres'
                   : 'Circumference input in centimetres'
               }
             />
-            <Text className="ml-3 text-lg" style={{color: COLORS.DISABLED_GREY}}>
+            <Text
+              className="ml-3 text-lg"
+              style={{ color: COLORS.DISABLED_GREY }}
+            >
               {isHeightMode ? 'm' : 'cm'}
             </Text>
           </View>
 
           {error ? (
-            <Text className="mt-3 text-sm" style={{color: COLORS.ERROR_RED}}>
+            <Text className="mt-3 text-sm" style={{ color: COLORS.ERROR_RED }}>
               {error}
             </Text>
           ) : null}
@@ -262,21 +262,32 @@ const ManualMeasureScreen = () => {
         </Card>
 
         {calculatedValue !== null ? (
-          <Card className="mt-6 px-5 py-5" style={{backgroundColor: '#F2FBF7'}}>
+          <Card
+            className="mt-6 px-5 py-5"
+            style={{ backgroundColor: COLORS.SUCCESS_SURFACE }}
+          >
             <View className="flex-row items-center justify-between">
               <Text
                 className="text-sm font-semibold uppercase tracking-[1.2px]"
-                style={{color: COLORS.FOREST_GREEN}}>
+                style={{ color: COLORS.FOREST_GREEN }}
+              >
                 {isHeightMode ? 'Height ready' : 'Diameter ready'}
               </Text>
               <Badge label="Manual Measurement" variant="manual" />
             </View>
             <Text
               className="mt-3 text-4xl font-bold"
-              style={{color: COLORS.DARK_SLATE, fontFamily: 'RobotoMono-Bold'}}>
+              style={{
+                color: COLORS.DARK_SLATE,
+                fontFamily: 'RobotoMono-Bold',
+              }}
+            >
               {calculatedValue.toFixed(1)} {isHeightMode ? 'm' : 'cm'}
             </Text>
-            <Text className="mt-3 text-sm leading-6" style={{color: COLORS.DISABLED_GREY}}>
+            <Text
+              className="mt-3 text-sm leading-6"
+              style={{ color: COLORS.DISABLED_GREY }}
+            >
               {isHeightMode
                 ? `This manual height will be attached to the current tree scan.`
                 : `DBH calculated from ${measurementInput} cm circumference.`}
@@ -288,11 +299,15 @@ const ManualMeasureScreen = () => {
       <View
         className="border-t px-4 pt-4"
         style={{
-          borderTopColor: '#E2E8F0',
+          borderTopColor: COLORS.BORDER,
           backgroundColor: COLORS.OFF_WHITE,
           paddingBottom: bottomSpacing,
-        }}>
-        <View className="self-center w-full" style={{maxWidth: contentMaxWidth}}>
+        }}
+      >
+        <View
+          className="self-center w-full"
+          style={{ maxWidth: contentMaxWidth }}
+        >
           <Button
             label={
               isHeightMode

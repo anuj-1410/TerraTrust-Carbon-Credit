@@ -1,6 +1,9 @@
-import React, {useCallback, useEffect, useRef, useState} from 'react';
+import { useResponsiveScreen } from '../../../common/hooks/useResponsiveScreen';
+import { useTheme } from '../../../common/theme/theme';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ScrollView,
+  StatusBar,
   View,
   Text,
   TouchableOpacity,
@@ -8,20 +11,20 @@ import {
   ActivityIndicator,
   Linking,
 } from 'react-native';
-import {useNavigation, useRoute} from '@react-navigation/native';
-import type {NativeStackNavigationProp} from '@react-navigation/native-stack';
-import type {RouteProp} from '@react-navigation/native';
-import {Camera, useCameraDevice} from 'react-native-vision-camera';
+import { useNavigation, useRoute } from '@react-navigation/native';
+import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import type { RouteProp } from '@react-navigation/native';
+import { Camera, useCameraDevice } from 'react-native-vision-camera';
 import Geolocation from 'react-native-geolocation-service';
 import ReactNativeHapticFeedback from 'react-native-haptic-feedback';
-import {MaterialDesignIcons as MaterialCommunityIcons} from '@react-native-vector-icons/material-design-icons';
+import { MaterialDesignIcons as MaterialCommunityIcons } from '@react-native-vector-icons/material-design-icons';
 
-import type {RootStackParamList} from '../../../types/navigation';
+import type { RootStackParamList } from '../../../types/navigation';
 import Badge from '../../../common/components/Badge';
 import Button from '../../../common/components/Button';
 import BottomSheet from '../../../common/components/BottomSheet';
-import {isPointInsidePolygon} from '../../../common/utils/geoJson';
-import {useAppSelector} from '../../../store/hooks';
+import { isPointInsidePolygon } from '../../../common/utils/geoJson';
+import { useAppSelector } from '../../../store/hooks';
 import type {
   HeightCaptureMethod,
   SpeciesSource,
@@ -32,7 +35,7 @@ import {
   measureTreeHeight,
   identifySpecies,
 } from '../../../services/ar-bridge';
-import {deleteFile, hashFile, persistFile} from '../../../common/utils/hash';
+import { deleteFile, hashFile, persistFile } from '../../../common/utils/hash';
 import {
   APPROVED_SPECIES,
   getWoodDensity,
@@ -40,7 +43,7 @@ import {
   normalizeSpeciesName,
   SPECIES_MODEL_CONFIG,
 } from '../../../common/constants/species';
-import {v4 as uuidv4} from 'uuid';
+import { v4 as uuidv4 } from 'uuid';
 import {
   ensureCameraPermission,
   type PermissionStatus,
@@ -95,9 +98,11 @@ function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
 }
 
 const ARCameraScreen = () => {
+  const { colors: COLORS } = useTheme();
+  const { topInset, bottomInset } = useResponsiveScreen();
   const navigation = useNavigation<NavProp>();
   const route = useRoute<RouteType>();
-  const {zoneId, zoneIndex} = route.params;
+  const { zoneId, zoneIndex } = route.params;
   const cameraRef = useRef<Camera>(null);
   const visionCameraStateRef = useRef<VisionCameraState>('starting');
   const visionCameraActiveWaitersRef = useRef<Array<() => void>>([]);
@@ -108,11 +113,12 @@ const ARCameraScreen = () => {
   const gpsHighAccuracy = useAppSelector(
     state => state.profile.settingsHighAccuracyGPS,
   );
-  const boundary = useAppSelector(state =>
-    state.land.parcels.find(parcel => parcel.id === state.audit.activeLandId)
-      ?.boundary_geojson ?? null,
+  const boundary = useAppSelector(
+    state =>
+      state.land.parcels.find(parcel => parcel.id === state.audit.activeLandId)
+        ?.boundary_geojson ?? null,
   );
-  const {zones, scannedTrees, arTier} = audit;
+  const { zones, scannedTrees, arTier } = audit;
   const currentZone = zones[zoneIndex] ?? null;
   const returnedDiameter = route.params.returnDiameter;
   const returnedHeight = route.params.returnHeight;
@@ -127,7 +133,9 @@ const ARCameraScreen = () => {
   // Species
   const [speciesName, setSpeciesName] = useState<string | null>(null);
   const [speciesConfidence, setSpeciesConfidence] = useState(0);
-  const [speciesSource, setSpeciesSource] = useState<SpeciesSource | null>(null);
+  const [speciesSource, setSpeciesSource] = useState<SpeciesSource | null>(
+    null,
+  );
   const [speciesResolutionMode, setSpeciesResolutionMode] = useState<
     'none' | 'confirm' | 'manual'
   >('none');
@@ -138,10 +146,11 @@ const ARCameraScreen = () => {
   // Measurement
   const [diameterCm, setDiameterCm] = useState<number | null>(null);
   const [arHeightM, setArHeightM] = useState<number | null>(null);
-  const [heightCaptureMethod, setHeightCaptureMethod] = useState<HeightCaptureMethod>(
-    currentZone?.gedi_available ? 'GEDI' : 'AR',
+  const [heightCaptureMethod, setHeightCaptureMethod] =
+    useState<HeightCaptureMethod>(currentZone?.gedi_available ? 'GEDI' : 'AR');
+  const [measureConfidence, setMeasureConfidence] = useState<number | null>(
+    null,
   );
-  const [measureConfidence, setMeasureConfidence] = useState<number | null>(null);
   const [tierUsed, setTierUsed] = useState<1 | 2 | 3>(arTier as 1 | 2 | 3);
   const [, setConsecutiveFailures] = useState(0);
   const [, setConsecutiveHeightFailures] = useState(0);
@@ -156,7 +165,8 @@ const ARCameraScreen = () => {
   const [gpsAccuracy, setGpsAccuracy] = useState(0);
   const [gpsHasFix, setGpsHasFix] = useState(false);
   const [gpsIsMocked, setGpsIsMocked] = useState(false);
-  const [cameraPermissionStatus, setCameraPermissionStatus] = useState<PermissionStatus | null>(null);
+  const [cameraPermissionStatus, setCameraPermissionStatus] =
+    useState<PermissionStatus | null>(null);
   const [isVisionCameraActive, setIsVisionCameraActive] = useState(true);
 
   const resolveVisionCameraWaiters = useCallback(
@@ -202,7 +212,11 @@ const ARCameraScreen = () => {
           waitersRef.current = waitersRef.current.filter(
             waiter => waiter !== resolveWaiter,
           );
-          reject(new Error(`Camera failed to become ${targetState} within 5 seconds`));
+          reject(
+            new Error(
+              `Camera failed to become ${targetState} within 5 seconds`,
+            ),
+          );
         }, timeoutMs);
 
         waitersRef.current.push(resolveWaiter);
@@ -230,7 +244,11 @@ const ARCameraScreen = () => {
     await new Promise(resolve => setTimeout(resolve, 50));
 
     await waitForVisionCameraState('active');
-  }, [isVisionCameraActive, setVisionCameraDesiredActive, waitForVisionCameraState]);
+  }, [
+    isVisionCameraActive,
+    setVisionCameraDesiredActive,
+    waitForVisionCameraState,
+  ]);
 
   const ensureVisionCameraInactive = useCallback(async () => {
     if (visionCameraStateRef.current === 'inactive' && !isVisionCameraActive) {
@@ -250,17 +268,24 @@ const ARCameraScreen = () => {
       // camera device starts closing. Continue with an extra guard delay so ARCore
       // can still attempt acquisition and use native retry/error handling.
       if (__DEV__) {
-        console.warn('VisionCamera inactive callback timeout, continuing with delay', error);
+        console.warn(
+          'VisionCamera inactive callback timeout, continuing with delay',
+          error,
+        );
       }
       visionCameraStateRef.current = 'inactive';
       await new Promise(resolve => setTimeout(resolve, 650));
     }
-  }, [isVisionCameraActive, setVisionCameraDesiredActive, waitForVisionCameraState]);
+  }, [
+    isVisionCameraActive,
+    setVisionCameraDesiredActive,
+    waitForVisionCameraState,
+  ]);
 
   const runWithExclusiveArCameraAccess = useCallback(
     async function <T>(
       operation: () => Promise<T>,
-      options?: {resumeVisionCamera?: boolean},
+      options?: { resumeVisionCamera?: boolean },
     ): Promise<T> {
       if (__DEV__) {
         console.log('VisionCamera transitioning to inactive');
@@ -294,7 +319,7 @@ const ARCameraScreen = () => {
       throw new Error('Camera preview is not ready yet.');
     }
 
-    return cameraRef.current.takeSnapshot({quality: 80});
+    return cameraRef.current.takeSnapshot({ quality: 80 });
   }, [ensureVisionCameraActive]);
 
   const captureEvidencePhoto = useCallback(async () => {
@@ -340,7 +365,12 @@ const ARCameraScreen = () => {
     setConsecutiveHeightFailures(0);
     setEvidenceUri(null);
     setEvidenceHash(null);
-  }, [arTier, currentZone?.gedi_available, evidenceUri, setVisionCameraDesiredActive]);
+  }, [
+    arTier,
+    currentZone?.gedi_available,
+    evidenceUri,
+    setVisionCameraDesiredActive,
+  ]);
 
   useEffect(() => {
     let mounted = true;
@@ -399,7 +429,11 @@ const ARCameraScreen = () => {
         setGpsIsMocked(pos.mocked === true);
       },
       () => {},
-      {enableHighAccuracy: gpsHighAccuracy, distanceFilter: 1, interval: 3000},
+      {
+        enableHighAccuracy: gpsHighAccuracy,
+        distanceFilter: 1,
+        interval: 3000,
+      },
     );
     return () => Geolocation.clearWatch(watchId);
   }, [gpsHighAccuracy]);
@@ -484,7 +518,11 @@ const ARCameraScreen = () => {
       setSuggestedSpecies(null);
       setSuggestedConfidence(0);
       setPhase(diameterCm !== null ? 'result' : 'species_done');
-      setStatusText(diameterCm !== null ? 'Measurement complete' : DIAMETER_READY_STATUS_TEXT);
+      setStatusText(
+        diameterCm !== null
+          ? 'Measurement complete'
+          : DIAMETER_READY_STATUS_TEXT,
+      );
     },
     [diameterCm],
   );
@@ -523,10 +561,10 @@ const ARCameraScreen = () => {
         (!isApprovedSpeciesName(detectedSpeciesName)
           ? 'REJECTED'
           : result.confidence >= SPECIES_MODEL_CONFIG.hardAcceptanceThreshold
-            ? 'ACCEPTED'
-            : result.confidence >= SPECIES_MODEL_CONFIG.uiFallbackThreshold
-              ? 'MEDIUM_CONFIDENCE'
-              : 'LOW_CONFIDENCE');
+          ? 'ACCEPTED'
+          : result.confidence >= SPECIES_MODEL_CONFIG.uiFallbackThreshold
+          ? 'MEDIUM_CONFIDENCE'
+          : 'LOW_CONFIDENCE');
 
       if (
         inferredStatus === 'REJECTED' ||
@@ -565,10 +603,8 @@ const ARCameraScreen = () => {
       openManualSpeciesPicker(result.confidence);
     } catch (error: unknown) {
       const errorCode =
-        error != null &&
-        typeof error === 'object' &&
-        'code' in error
-          ? (error as {code: string}).code
+        error != null && typeof error === 'object' && 'code' in error
+          ? (error as { code: string }).code
           : '';
 
       if (errorCode === 'MODEL_UNAVAILABLE') {
@@ -580,14 +616,21 @@ const ARCameraScreen = () => {
         return;
       }
 
-      Alert.alert('Species ID Failed', 'Could not identify species. Please try again.');
+      Alert.alert(
+        'Species ID Failed',
+        'Could not identify species. Please try again.',
+      );
       setSpeciesResolutionMode('none');
       setPhase('idle');
       setStatusText(
         getDefaultArCameraStatusText(IS_AUDIT_SPECIES_DETECTION_DISABLED),
       );
     }
-  }, [applySpeciesSelection, openManualSpeciesPicker, takeVisionCameraSnapshot]);
+  }, [
+    applySpeciesSelection,
+    openManualSpeciesPicker,
+    takeVisionCameraSnapshot,
+  ]);
 
   // ──── MEASURE DIAMETER ────
   const handleMeasureDiameter = useCallback(async () => {
@@ -675,10 +718,8 @@ const ARCameraScreen = () => {
     } catch (err: unknown) {
       // Distinguish user cancellation (back press) from a real AR failure
       const errorCode =
-        err != null &&
-        typeof err === 'object' &&
-        'code' in err
-          ? (err as {code: string}).code
+        err != null && typeof err === 'object' && 'code' in err
+          ? (err as { code: string }).code
           : '';
 
       if (errorCode === 'MEASUREMENT_CANCELLED') {
@@ -702,8 +743,8 @@ const ARCameraScreen = () => {
         err != null &&
         typeof err === 'object' &&
         'message' in err &&
-        typeof (err as {message?: unknown}).message === 'string'
-          ? (err as {message: string}).message
+        typeof (err as { message?: unknown }).message === 'string'
+          ? (err as { message: string }).message
           : '';
 
       setConsecutiveFailures(prev => {
@@ -717,7 +758,8 @@ const ARCameraScreen = () => {
         } else {
           Alert.alert(
             'Measurement Failed',
-            errorMessage || 'Keep the trunk centered and move gently sideways, then try again.',
+            errorMessage ||
+              'Keep the trunk centered and move gently sideways, then try again.',
           );
           setPhase(getReadyPhase());
           setStatusText('Try again — Measure diameter');
@@ -771,17 +813,15 @@ const ARCameraScreen = () => {
       setPhase(getReadyPhase());
     } catch (error: unknown) {
       const errorCode =
-        error != null &&
-        typeof error === 'object' &&
-        'code' in error
-          ? (error as {code: string}).code
+        error != null && typeof error === 'object' && 'code' in error
+          ? (error as { code: string }).code
           : '';
       const errorMessage =
         error != null &&
         typeof error === 'object' &&
         'message' in error &&
-        typeof (error as {message?: unknown}).message === 'string'
-          ? (error as {message: string}).message
+        typeof (error as { message?: unknown }).message === 'string'
+          ? (error as { message: string }).message
           : '';
 
       if (errorCode === 'HEIGHT_CAPTURE_CANCELLED') {
@@ -816,7 +856,8 @@ const ARCameraScreen = () => {
 
       Alert.alert(
         'Height Measurement Unavailable',
-        errorMessage || 'Could not complete AR height measurement. Please try again.',
+        errorMessage ||
+          'Could not complete AR height measurement. Please try again.',
       );
       setConsecutiveHeightFailures(prev => {
         const next = prev + 1;
@@ -896,7 +937,7 @@ const ARCameraScreen = () => {
       !IS_AUDIT_DEMO_MODE &&
       boundary &&
       hasValidGpsCoordinates(gpsLat, gpsLng) &&
-      !isPointInsidePolygon({lat: gpsLat, lng: gpsLng}, boundary)
+      !isPointInsidePolygon({ lat: gpsLat, lng: gpsLng }, boundary)
     ) {
       Alert.alert(
         'Outside Registered Land',
@@ -943,7 +984,7 @@ const ARCameraScreen = () => {
 
     setEvidenceUri(null);
     setEvidenceHash(null);
-    navigation.navigate('TreeResultScreen', {pendingTree});
+    navigation.navigate('TreeResultScreen', { pendingTree });
   }, [
     arHeightM,
     diameterCm,
@@ -984,14 +1025,17 @@ const ARCameraScreen = () => {
 
   const precisionBadge = (() => {
     if (tierUsed === 1) {
-      return {label: 'High Precision', variant: 'high-precision' as const};
+      return { label: 'High Precision', variant: 'high-precision' as const };
     }
 
     if (tierUsed === 2) {
-      return {label: 'Standard Precision', variant: 'standard-precision' as const};
+      return {
+        label: 'Standard Precision',
+        variant: 'standard-precision' as const,
+      };
     }
 
-    return {label: 'Manual Measurement', variant: 'manual' as const};
+    return { label: 'Manual Measurement', variant: 'manual' as const };
   })();
 
   const hasCameraPermission = cameraPermissionStatus === 'granted';
@@ -1016,9 +1060,12 @@ const ARCameraScreen = () => {
               setCameraPermissionStatus(result.status);
             });
           }}
-          className="mt-6 rounded-xl bg-[#2D6A4F] px-6 py-3">
+          className="mt-6 rounded-xl bg-primary px-6 py-3"
+        >
           <Text className="font-bold text-white">
-            {isCameraPermissionBlocked ? 'Open Settings' : 'Allow Camera Access'}
+            {isCameraPermissionBlocked
+              ? 'Open Settings'
+              : 'Allow Camera Access'}
           </Text>
         </TouchableOpacity>
       </View>
@@ -1028,7 +1075,9 @@ const ARCameraScreen = () => {
   if (cameraPermissionStatus === null) {
     return (
       <View className="flex-1 items-center justify-center bg-black">
-        <Text className="text-lg text-white">Checking camera permission...</Text>
+        <Text className="text-lg text-white">
+          Checking camera permission...
+        </Text>
       </View>
     );
   }
@@ -1043,10 +1092,18 @@ const ARCameraScreen = () => {
 
   return (
     <View className="flex-1 bg-black">
+      <StatusBar barStyle="light-content" />
       {/* Camera full screen */}
       <Camera
         ref={cameraRef}
-        style={{flex: 1, position: 'absolute', top: 0, left: 0, right: 0, bottom: 0}}
+        style={{
+          flex: 1,
+          position: 'absolute',
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
+        }}
         device={device}
         isActive={isVisionCameraActive && phase !== 'success'}
         onStarted={() => resolveVisionCameraWaiters('active')}
@@ -1057,10 +1114,14 @@ const ARCameraScreen = () => {
       />
 
       {/* Top bar overlay */}
-      <View className="absolute top-0 left-0 right-0 pt-12 pb-3 px-5 flex-row items-center bg-black/50">
+      <View
+        className="absolute top-0 left-0 right-0 pb-3 px-5 flex-row items-center bg-black/50"
+        style={{ paddingTop: topInset + 8 }}
+      >
         <TouchableOpacity
           onPress={() => navigation.goBack()}
-          className="w-12 h-12 items-center justify-center">
+          className="w-12 h-12 items-center justify-center"
+        >
           <MaterialCommunityIcons color="#FFFFFF" name="arrow-left" size={24} />
         </TouchableOpacity>
         <Text className="flex-1 text-white text-base text-center">
@@ -1078,7 +1139,10 @@ const ARCameraScreen = () => {
 
       {/* Crosshair reticle */}
       {phase !== 'result' && phase !== 'success' && phase !== 'opening_ar' && (
-        <View className="absolute inset-0 items-center justify-center" pointerEvents="none">
+        <View
+          className="absolute inset-0 items-center justify-center"
+          pointerEvents="none"
+        >
           {/* Horizontal line */}
           <View className="absolute w-20 h-px bg-white/80" />
           {/* Vertical line */}
@@ -1090,29 +1154,37 @@ const ARCameraScreen = () => {
 
       {/* Species overlay card — visible after identification */}
       {speciesName &&
-      phase !== 'idle' &&
-      phase !== 'identifying' &&
-      phase !== 'success' &&
-      phase !== 'opening_ar' && (
-        <View className="absolute top-28 left-5 right-5 bg-black/60 rounded-2xl p-4">
-          <View className="flex-row items-center justify-between">
-            <View className="flex-row items-center">
-              <MaterialCommunityIcons color="#FFFFFF" name="sprout" size={18} />
-              <Text className="ml-2 text-white text-lg font-bold">
-                {speciesName}
+        phase !== 'idle' &&
+        phase !== 'identifying' &&
+        phase !== 'success' &&
+        phase !== 'opening_ar' && (
+          <View
+            className="absolute left-5 right-5 bg-black/60 rounded-2xl p-4"
+            style={{ top: topInset + 90 }}
+          >
+            <View className="flex-row items-center justify-between">
+              <View className="flex-row items-center">
+                <MaterialCommunityIcons
+                  color="#FFFFFF"
+                  name="sprout"
+                  size={18}
+                />
+                <Text className="ml-2 text-white text-lg font-bold">
+                  {speciesName}
+                </Text>
+              </View>
+              <Text className="text-[#4ADE80] text-base font-bold">
+                {Math.round(speciesConfidence * 100)}%
               </Text>
             </View>
-            <Text className="text-[#4ADE80] text-base font-bold">
-              {Math.round(speciesConfidence * 100)}%
+            <Text
+              className="text-white/70 text-xs mt-1"
+              style={{ fontFamily: 'RobotoMono-Regular' }}
+            >
+              Density: {woodDensity.toFixed(2)} g/cm³
             </Text>
           </View>
-          <Text
-            className="text-white/70 text-xs mt-1"
-            style={{fontFamily: 'RobotoMono-Regular'}}>
-            Density: {woodDensity.toFixed(2)} g/cm³
-          </Text>
-        </View>
-      )}
+        )}
 
       {phase === 'opening_ar' && (
         <View className="absolute inset-0 items-center justify-center bg-black/55 px-8">
@@ -1131,16 +1203,24 @@ const ARCameraScreen = () => {
       {/* Bottom action buttons */}
       {speciesResolutionMode === 'none' &&
       (phase === 'idle' || phase === 'species_done') ? (
-        <View className="absolute bottom-0 left-0 right-0 px-5 pb-8 pt-6 bg-gradient-to-t from-black/80">
+        <View
+          className="absolute bottom-0 left-0 right-0 px-5 pt-6 bg-black/70"
+          style={{ paddingBottom: bottomInset + 24 }}
+        >
           <View className="flex-row items-center">
             {!IS_AUDIT_SPECIES_DETECTION_DISABLED ? (
               <TouchableOpacity
                 onPress={handleIdentifySpecies}
                 className="mx-1 flex-1 rounded-xl border-2 items-center justify-center px-3 py-3"
                 style={{
-                  borderColor: speciesName ? 'rgba(74, 222, 128, 0.85)' : 'rgba(255,255,255,0.6)',
-                  backgroundColor: speciesName ? 'rgba(34, 197, 94, 0.18)' : 'transparent',
-                }}>
+                  borderColor: speciesName
+                    ? 'rgba(74, 222, 128, 0.85)'
+                    : 'rgba(255,255,255,0.6)',
+                  backgroundColor: speciesName
+                    ? 'rgba(34, 197, 94, 0.18)'
+                    : 'transparent',
+                }}
+              >
                 <MaterialCommunityIcons
                   color="#FFFFFF"
                   name={speciesName ? 'refresh' : 'magnify'}
@@ -1158,8 +1238,9 @@ const ARCameraScreen = () => {
               }}
               className="mx-1 flex-1 rounded-xl items-center justify-center px-3 py-3"
               style={{
-                backgroundColor: '#2D6A4F',
-              }}>
+                backgroundColor: COLORS.BUTTON_BACKGROUND,
+              }}
+            >
               <MaterialCommunityIcons color="#FFFFFF" name="ruler" size={18} />
               <Text className="mt-1 text-center text-xs font-semibold text-white">
                 {diameterCm !== null ? 'Re-measure DBH' : 'Measure Diameter'}
@@ -1176,14 +1257,19 @@ const ARCameraScreen = () => {
                   backgroundColor: canStartHeightMeasurement
                     ? '#2D6A4F'
                     : 'rgba(107, 114, 128, 0.75)',
-                }}>
-                <MaterialCommunityIcons color="#FFFFFF" name="arrow-expand-vertical" size={18} />
+                }}
+              >
+                <MaterialCommunityIcons
+                  color="#FFFFFF"
+                  name="arrow-expand-vertical"
+                  size={18}
+                />
                 <Text className="mt-1 text-center text-xs font-semibold text-white">
                   {arHeightM !== null
                     ? 'Update Height'
                     : canMeasureArHeight
-                      ? 'Measure Height'
-                      : 'Enter Height'}
+                    ? 'Measure Height'
+                    : 'Enter Height'}
                 </Text>
               </TouchableOpacity>
             ) : null}
@@ -1193,69 +1279,92 @@ const ARCameraScreen = () => {
 
       {/* Measurement result bottom sheet */}
       {phase === 'result' && diameterCm !== null && (
-        <View className="absolute bottom-0 left-0 right-0 bg-white rounded-t-3xl px-5 pt-3 pb-8">
+        <View
+          className="absolute bottom-0 left-0 right-0 bg-surface rounded-t-3xl px-5 pt-3"
+          style={{ paddingBottom: bottomInset + 24 }}
+        >
           {/* Handle bar */}
-          <View className="self-center w-10 h-1 bg-[#D1D5DB] rounded-full mb-4" />
+          <View className="self-center w-10 h-1 bg-line rounded-full mb-4" />
 
-          <Text className="text-[#6B7280] text-sm mb-1">Species</Text>
-          <Text
-            className="text-[#191C1B] text-2xl font-bold"
-            numberOfLines={1}>
+          <Text className="text-muted text-sm mb-1">Species</Text>
+          <Text className="text-content text-2xl font-bold" numberOfLines={1}>
             {resolvedSpeciesName ?? 'Not selected yet'}
           </Text>
-          <Text className="mb-4 mt-2 text-sm" style={{color: '#6B7280'}}>
+          <Text
+            className="mb-4 mt-2 text-sm"
+            style={{ color: COLORS.DISABLED_GREY }}
+          >
             {resolvedSpeciesName
-              ? `${resolvedSpeciesSource === 'MANUAL_SELECTED' ? 'Manual selection' : 'Detected with camera'}${resolvedSpeciesConfidence > 0 ? ` • ${Math.round(resolvedSpeciesConfidence * 100)}% confidence` : ''}`
+              ? `${
+                  resolvedSpeciesSource === 'MANUAL_SELECTED'
+                    ? 'Manual selection'
+                    : 'Detected with camera'
+                }${
+                  resolvedSpeciesConfidence > 0
+                    ? ` • ${Math.round(
+                        resolvedSpeciesConfidence * 100,
+                      )}% confidence`
+                    : ''
+                }`
               : 'Required before saving this tree'}
           </Text>
 
-          <Text className="text-[#6B7280] text-sm mb-1">Diameter</Text>
+          <Text className="text-muted text-sm mb-1">Diameter</Text>
           <Text
-            className="text-[#191C1B] text-4xl font-bold mb-3"
-            style={{fontFamily: 'RobotoMono-Bold'}}>
+            className="text-content text-4xl font-bold mb-3"
+            style={{ fontFamily: 'RobotoMono-Bold' }}
+          >
             {diameterCm.toFixed(1)} cm
           </Text>
 
           {/* Precision badge */}
           <View className="mb-3 self-start">
-            <Badge label={precisionBadge.label} variant={precisionBadge.variant} />
+            <Badge
+              label={precisionBadge.label}
+              variant={precisionBadge.variant}
+            />
           </View>
 
           {/* Confidence */}
           {measureConfidence !== null ? (
             <View className="flex-row items-center mb-5">
-              <Text className="text-[#6B7280] text-sm mr-2">Confidence</Text>
-              <View className="flex-1 h-2 bg-[#E5E7EB] rounded-full overflow-hidden">
+              <Text className="text-muted text-sm mr-2">Confidence</Text>
+              <View className="flex-1 h-2 bg-line rounded-full overflow-hidden">
                 <View
-                  className="h-full bg-[#2D6A4F] rounded-full"
-                  style={{width: `${Math.round(measureConfidence * 100)}%`}}
+                  className="h-full bg-primary rounded-full"
+                  style={{ width: `${Math.round(measureConfidence * 100)}%` }}
                 />
               </View>
               <Text
-                className="text-[#191C1B] text-sm font-bold ml-2"
-                style={{fontFamily: 'RobotoMono-Regular'}}>
+                className="text-content text-sm font-bold ml-2"
+                style={{ fontFamily: 'RobotoMono-Regular' }}
+              >
                 {Math.round(measureConfidence * 100)}%
               </Text>
             </View>
           ) : (
-            <Text className="mb-5 text-sm" style={{color: '#6B7280'}}>
+            <Text
+              className="mb-5 text-sm"
+              style={{ color: COLORS.DISABLED_GREY }}
+            >
               Confidence: Manual entry
             </Text>
           )}
 
           <View className="mb-5">
-            <Text className="text-[#6B7280] text-sm mb-1">Height</Text>
+            <Text className="text-muted text-sm mb-1">Height</Text>
             <Text
-              className="text-[#191C1B] text-lg font-bold"
-              style={{fontFamily: 'RobotoMono-Regular'}}>
+              className="text-content text-lg font-bold"
+              style={{ fontFamily: 'RobotoMono-Regular' }}
+            >
               {needsArHeight
                 ? arHeightM !== null
                   ? heightCaptureMethod === 'MANUAL'
                     ? `Manual height: ${arHeightM.toFixed(1)} m`
                     : `AR height: ${arHeightM.toFixed(1)} m`
                   : canMeasureArHeight
-                    ? 'Not measured yet'
-                    : 'Manual height required'
+                  ? 'Not measured yet'
+                  : 'Manual height required'
                 : 'From GEDI Satellite'}
             </Text>
           </View>
@@ -1265,8 +1374,9 @@ const ARCameraScreen = () => {
               onPress={() => {
                 void handleStartHeightMeasurement();
               }}
-              className="mb-3 h-12 rounded-xl border-2 border-[#2D6A4F] items-center justify-center">
-              <Text className="text-[#2D6A4F] text-base font-semibold">
+              className="mb-3 h-12 rounded-xl border-2 border-accent items-center justify-center"
+            >
+              <Text className="text-accent text-base font-semibold">
                 {canMeasureArHeight ? 'Measure Height' : 'Enter Height'}
               </Text>
             </TouchableOpacity>
@@ -1275,7 +1385,9 @@ const ARCameraScreen = () => {
           <View className="mb-3 gap-3">
             {!IS_AUDIT_SPECIES_DETECTION_DISABLED ? (
               <Button
-                label={resolvedSpeciesName ? 'Update species' : 'Identify species'}
+                label={
+                  resolvedSpeciesName ? 'Update species' : 'Identify species'
+                }
                 onPress={() => {
                   void handleIdentifySpecies();
                 }}
@@ -1283,7 +1395,9 @@ const ARCameraScreen = () => {
               />
             ) : null}
             <Button
-              label={diameterCm !== null ? 'Re-measure diameter' : 'Measure diameter'}
+              label={
+                diameterCm !== null ? 'Re-measure diameter' : 'Measure diameter'
+              }
               onPress={() => {
                 if (diameterCm !== null) {
                   handleRetry();
@@ -1299,8 +1413,8 @@ const ARCameraScreen = () => {
                   arHeightM !== null
                     ? 'Update height'
                     : canMeasureArHeight
-                      ? 'Measure height'
-                      : 'Enter height'
+                    ? 'Measure height'
+                    : 'Enter height'
                 }
                 onPress={() => {
                   void handleStartHeightMeasurement();
@@ -1310,7 +1424,7 @@ const ARCameraScreen = () => {
             ) : null}
           </View>
 
-          <View className="flex-row" style={{gap: 12}}>
+          <View className="flex-row" style={{ gap: 12 }}>
             <View className="flex-1">
               <Button
                 label="Reset diameter"
@@ -1320,7 +1434,9 @@ const ARCameraScreen = () => {
             </View>
             <View className="flex-1">
               <Button
-                label={canSaveTree ? 'Accept & Save' : 'Complete Required Steps'}
+                label={
+                  canSaveTree ? 'Accept & Save' : 'Complete Required Steps'
+                }
                 onPress={() => {
                   void handleAcceptSave();
                 }}
@@ -1339,16 +1455,24 @@ const ARCameraScreen = () => {
           setStatusText(
             getDefaultArCameraStatusText(IS_AUDIT_SPECIES_DETECTION_DISABLED),
           );
-        }}>
-        <Text className="text-lg font-bold" style={{color: '#191C1B'}}>
+        }}
+      >
+        <Text
+          className="text-lg font-bold"
+          style={{ color: COLORS.DARK_SLATE }}
+        >
           Is this the correct species?
         </Text>
-        <Text className="mt-3 leading-6" style={{color: '#6B7280'}}>
-          TerraTrust detected {suggestedSpecies ?? 'this tree'} with {Math.round(suggestedConfidence * 100)}% confidence.
+        <Text
+          className="mt-3 leading-6"
+          style={{ color: COLORS.DISABLED_GREY }}
+        >
+          TerraTrust detected {suggestedSpecies ?? 'this tree'} with{' '}
+          {Math.round(suggestedConfidence * 100)}% confidence.
         </Text>
         <TouchableOpacity
           className="mt-6 h-12 rounded-xl items-center justify-center"
-          style={{backgroundColor: '#2D6A4F'}}
+          style={{ backgroundColor: COLORS.BUTTON_BACKGROUND }}
           onPress={() => {
             if (!suggestedSpecies) {
               return;
@@ -1360,18 +1484,25 @@ const ARCameraScreen = () => {
               'MODEL_CONFIRMED',
             );
           }}
-          activeOpacity={0.7}>
-          <Text className="text-base font-semibold text-white">Yes, continue</Text>
+          activeOpacity={0.7}
+        >
+          <Text className="text-base font-semibold text-white">
+            Yes, continue
+          </Text>
         </TouchableOpacity>
         <TouchableOpacity
           className="mt-3 h-12 rounded-xl border items-center justify-center"
-          style={{borderColor: '#2D6A4F'}}
+          style={{ borderColor: COLORS.FOREST_GREEN }}
           onPress={() => {
             setSpeciesResolutionMode('manual');
             setStatusText('Select the correct approved species');
           }}
-          activeOpacity={0.7}>
-          <Text className="text-base font-semibold" style={{color: '#2D6A4F'}}>
+          activeOpacity={0.7}
+        >
+          <Text
+            className="text-base font-semibold"
+            style={{ color: COLORS.FOREST_GREEN }}
+          >
             No, choose manually
           </Text>
         </TouchableOpacity>
@@ -1384,19 +1515,27 @@ const ARCameraScreen = () => {
           setStatusText(
             getDefaultArCameraStatusText(IS_AUDIT_SPECIES_DETECTION_DISABLED),
           );
-        }}>
-        <Text className="text-lg font-bold" style={{color: '#191C1B'}}>
+        }}
+      >
+        <Text
+          className="text-lg font-bold"
+          style={{ color: COLORS.DARK_SLATE }}
+        >
           Select an approved species
         </Text>
-        <Text className="mt-3 leading-6" style={{color: '#6B7280'}}>
-          Choose the approved species that best matches this tree when the model is uncertain.
+        <Text
+          className="mt-3 leading-6"
+          style={{ color: COLORS.DISABLED_GREY }}
+        >
+          Choose the approved species that best matches this tree when the model
+          is uncertain.
         </Text>
-        <ScrollView className="mt-4" style={{maxHeight: 280}}>
+        <ScrollView className="mt-4" style={{ maxHeight: 280 }}>
           {APPROVED_SPECIES.map(species => (
             <TouchableOpacity
               key={species.name}
               className="mb-3 rounded-xl border px-4 py-3"
-              style={{borderColor: '#D1D5DB'}}
+              style={{ borderColor: COLORS.BORDER }}
               onPress={() => {
                 applySpeciesSelection(
                   species.name,
@@ -1404,18 +1543,24 @@ const ARCameraScreen = () => {
                   'MANUAL_SELECTED',
                 );
               }}
-              activeOpacity={0.7}>
-              <Text className="text-base font-semibold" style={{color: '#191C1B'}}>
+              activeOpacity={0.7}
+            >
+              <Text
+                className="text-base font-semibold"
+                style={{ color: COLORS.DARK_SLATE }}
+              >
                 {species.name}
               </Text>
-              <Text className="mt-1 text-sm" style={{color: '#6B7280'}}>
+              <Text
+                className="mt-1 text-sm"
+                style={{ color: COLORS.DISABLED_GREY }}
+              >
                 {species.scientificName}
               </Text>
             </TouchableOpacity>
           ))}
         </ScrollView>
       </BottomSheet>
-
     </View>
   );
 };

@@ -1,4 +1,7 @@
-import React, {useCallback, useState} from 'react';
+import { useResponsiveScreen } from '../../../common/hooks/useResponsiveScreen';
+import ScreenHeader from '../../../common/components/ScreenHeader';
+import { useTheme } from '../../../common/theme/theme';
+import React, { useCallback, useState } from 'react';
 import {
   Image,
   Linking,
@@ -7,18 +10,26 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
-import {useNavigation} from '@react-navigation/native';
-import type {NativeStackNavigationProp} from '@react-navigation/native-stack';
-import {pick, types, isErrorWithCode, errorCodes} from '@react-native-documents/picker';
+import { useNavigation } from '@react-navigation/native';
+import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import {
+  pick,
+  types,
+  isErrorWithCode,
+  errorCodes,
+} from '@react-native-documents/picker';
 import NetInfo from '@react-native-community/netinfo';
 import LottieView from 'lottie-react-native';
-import {MaterialDesignIcons as MaterialCommunityIcons} from '@react-native-vector-icons/material-design-icons';
+import { MaterialDesignIcons as MaterialCommunityIcons } from '@react-native-vector-icons/material-design-icons';
 
-import type {RootStackParamList} from '../../../types/navigation';
-import {useAppDispatch, useAppSelector} from '../../../store/hooks';
-import {setCurrentDraft, type BoundarySource, type GeoJSONPolygon} from '../store/landSlice';
+import type { RootStackParamList } from '../../../types/navigation';
+import { useAppDispatch, useAppSelector } from '../../../store/hooks';
+import {
+  setCurrentDraft,
+  type BoundarySource,
+  type GeoJSONPolygon,
+} from '../store/landSlice';
 import api from '../../../services/api';
-import {COLORS} from '../../../common/constants/colors';
 
 type Nav = NativeStackNavigationProp<RootStackParamList>;
 
@@ -40,20 +51,34 @@ interface Step {
 
 interface ManualBoundaryResponse {
   status?: string;
-  geojson?: {geometry: GeoJSONPolygon};
+  geojson?: { geometry: GeoJSONPolygon };
   boundary?: GeoJSONPolygon;
   boundary_source?: string;
   satellite_thumbnail_url?: string;
 }
 
 const STEPS: Step[] = [
-  {number: 1, title: 'Open bhunaksha.mahabhumi.gov.in', description: ''},
-  {number: 2, title: 'Select your District, Taluka, Village from the menus', description: ''},
-  {number: 3, title: 'Find your Survey Number and tap Download', description: ''},
-  {number: 4, title: 'Come back here and upload the downloaded image', description: ''},
+  { number: 1, title: 'Open bhunaksha.mahabhumi.gov.in', description: '' },
+  {
+    number: 2,
+    title: 'Select your District, Taluka, Village from the menus',
+    description: '',
+  },
+  {
+    number: 3,
+    title: 'Find your Survey Number and tap Download',
+    description: '',
+  },
+  {
+    number: 4,
+    title: 'Come back here and upload the downloaded image',
+    description: '',
+  },
 ];
 
 const ManualUploadGuideScreen = () => {
+  const { colors: COLORS } = useTheme();
+  const { bottomSpacing } = useResponsiveScreen();
   const navigation = useNavigation<Nav>();
   const dispatch = useAppDispatch();
   const currentDraft = useAppSelector(state => state.land.currentDraft);
@@ -79,7 +104,7 @@ const ManualUploadGuideScreen = () => {
     setIsOffline(false);
 
     try {
-      const [result] = await pick({type: [types.images]});
+      const [result] = await pick({ type: [types.images] });
 
       if (result.size && result.size > MAX_FILE_SIZE) {
         setErrorMessage('Image is too large. Please use a smaller file.');
@@ -114,7 +139,7 @@ const ManualUploadGuideScreen = () => {
       setIsLoading(true);
       setLoadingText('Processing your map...');
       setErrorMessage(null);
-      dispatch(setCurrentDraft({fetchStatus: 'fetching'}));
+      dispatch(setCurrentDraft({ fetchStatus: 'fetching' }));
 
       const formData = new FormData();
       formData.append('map_image', {
@@ -131,10 +156,11 @@ const ManualUploadGuideScreen = () => {
       const response = await api.post<ManualBoundaryResponse>(
         '/api/v1/land/fetch-boundary',
         formData,
-        {headers: {'Content-Type': 'multipart/form-data'}},
+        { headers: { 'Content-Type': 'multipart/form-data' } },
       );
 
-      const boundary = response.data.geojson?.geometry ?? response.data.boundary;
+      const boundary =
+        response.data.geojson?.geometry ?? response.data.boundary;
 
       if (!boundary) {
         throw new Error('BOUNDARY_EXTRACTION_FAILED');
@@ -151,8 +177,8 @@ const ManualUploadGuideScreen = () => {
       );
       navigation.navigate('BoundaryConfirmScreen');
     } catch (err: unknown) {
-      const axiosErr = err as {response?: {status?: number}};
-      dispatch(setCurrentDraft({fetchStatus: 'error'}));
+      const axiosErr = err as { response?: { status?: number } };
+      dispatch(setCurrentDraft({ fetchStatus: 'error' }));
 
       if (!axiosErr.response) {
         setIsOffline(true);
@@ -169,32 +195,24 @@ const ManualUploadGuideScreen = () => {
   }, [dispatch, navigation, ocrResult, selectedMap]);
 
   return (
-    <View style={{flex: 1, backgroundColor: COLORS.DARK_SLATE}}>
+    <View style={{ flex: 1, backgroundColor: COLORS.OFF_WHITE }}>
       {/* Header */}
-      <View className="px-6 pt-14 pb-4">
-        <TouchableOpacity
-          className="min-w-[48px] min-h-[48px] w-12 h-12 justify-center items-center self-start mb-4"
-          onPress={goToDocumentUpload}
-          activeOpacity={0.7}>
-          <MaterialCommunityIcons color="#FFFFFF" name="arrow-left" size={22} />
-        </TouchableOpacity>
-        <Text className="text-white text-2xl font-bold tracking-tight">
-          Upload Land Map
-        </Text>
-        <Text className="text-white/50 text-sm mt-2 leading-5">
-          We couldn't find your boundary automatically. Follow these steps to
-          upload it manually.
-        </Text>
-        <View className="mt-3 flex-row items-center gap-2">
-          <View className="h-2.5 w-2.5 rounded-full bg-white" />
-          <View className="h-2.5 w-2.5 rounded-full bg-white" />
-          <View className="h-2.5 w-2.5 rounded-full bg-white/30" />
-        </View>
-      </View>
+      <ScreenHeader
+        title="Upload Land Map"
+        eyebrow="Land Registration"
+        onBack={goToDocumentUpload}
+      />
 
+      <Text className="px-6 pt-4 text-muted">
+        We could not find your boundary automatically. Follow these steps to
+        upload it manually.
+      </Text>
       {/* Offline banner */}
       {isOffline && (
-        <View className="bg-amber-600 px-4 py-2">
+        <View
+          className="px-4 py-2"
+          style={{ backgroundColor: COLORS.BANNER_WARNING }}
+        >
           <Text className="text-white text-sm text-center font-medium">
             You are offline. Please check your connection.
           </Text>
@@ -202,48 +220,54 @@ const ManualUploadGuideScreen = () => {
       )}
 
       {selectedMap ? (
-        <ScrollView className="flex-1 px-6" contentContainerStyle={{paddingBottom: 24}}>
-          <Text className="text-white text-xl font-bold mt-2">
+        <ScrollView
+          className="flex-1 px-6"
+          contentContainerStyle={{ paddingBottom: 24 }}
+        >
+          <Text className="text-content text-xl font-bold mt-2">
             Review Your Downloaded Map
           </Text>
-          <Text className="mt-2 text-sm leading-6 text-white/60">
-            Make sure the downloaded boundary map is clear before TerraTrust processes it.
+          <Text className="mt-2 text-sm leading-6 text-muted">
+            Make sure the downloaded boundary map is clear before TerraTrust
+            processes it.
           </Text>
 
-          <View className="mt-6 overflow-hidden rounded-2xl border border-white/10 bg-white/5">
+          <View className="mt-6 overflow-hidden rounded-2xl border border-line bg-input">
             <Image
-              source={{uri: selectedMap.uri}}
+              source={{ uri: selectedMap.uri }}
               className="h-80 w-full"
               resizeMode="cover"
             />
           </View>
 
           {errorMessage ? (
-            <View className="mt-4 rounded-lg bg-red-900/40 p-3">
-              <Text className="text-sm text-red-300">{errorMessage}</Text>
+            <View className="mt-4 rounded-lg bg-danger-soft p-3">
+              <Text className="text-sm text-danger">{errorMessage}</Text>
             </View>
           ) : null}
 
           <TouchableOpacity
             className="mt-6 min-h-[48px] items-center justify-center rounded-xl"
-            style={{backgroundColor: COLORS.FOREST_GREEN}}
+            style={{ backgroundColor: COLORS.BUTTON_BACKGROUND }}
             onPress={() => {
               void processSelectedMap();
             }}
             disabled={isLoading}
-            activeOpacity={0.7}>
+            activeOpacity={0.7}
+          >
             <Text className="text-base font-semibold text-white">
               Process This Map
             </Text>
           </TouchableOpacity>
 
           <TouchableOpacity
-            className="mt-3 min-h-[48px] items-center justify-center rounded-xl border border-white/20"
+            className="mt-3 min-h-[48px] items-center justify-center rounded-xl border border-line"
             onPress={() => {
               void selectMap();
             }}
-            activeOpacity={0.7}>
-            <Text className="text-base font-semibold text-white/80">
+            activeOpacity={0.7}
+          >
+            <Text className="text-base font-semibold text-muted">
               Choose Another Map
             </Text>
           </TouchableOpacity>
@@ -251,34 +275,39 @@ const ManualUploadGuideScreen = () => {
           <TouchableOpacity
             className="mt-3 min-h-[48px] items-center justify-center"
             onPress={goToDocumentUpload}
-            activeOpacity={0.7}>
-            <Text style={{color: COLORS.TEAL}}>Go Back</Text>
+            activeOpacity={0.7}
+          >
+            <Text style={{ color: COLORS.TEAL }}>Go Back</Text>
           </TouchableOpacity>
         </ScrollView>
       ) : (
         <>
           {/* Steps */}
-          <ScrollView className="flex-1 px-6" contentContainerStyle={{paddingBottom: 24}}>
+          <ScrollView
+            className="flex-1 px-6"
+            contentContainerStyle={{ paddingBottom: 24 }}
+          >
             {STEPS.map((step, index) => (
               <View key={step.number} className="flex-row mb-0">
                 <View className="items-center mr-4">
                   <View
                     className={`w-10 h-10 rounded-full items-center justify-center ${
                       step.number === 1
-                        ? 'bg-[#2F855A]'
-                        : 'bg-white/10 border-2 border-white/20'
-                    }`}>
-                    <Text className="text-white font-bold text-base">
+                        ? 'bg-success-soft'
+                        : 'bg-input border-2 border-line'
+                    }`}
+                  >
+                    <Text className="text-content font-bold text-base">
                       {step.number}
                     </Text>
                   </View>
                   {index < STEPS.length - 1 && (
-                    <View className="w-0.5 flex-1 bg-white/10 my-1 min-h-[48px]" />
+                    <View className="w-0.5 flex-1 bg-input my-1 min-h-[48px]" />
                   )}
                 </View>
 
                 <View className="flex-1 pb-6">
-                  <Text className="text-white text-base font-bold mt-2">
+                  <Text className="text-content text-base font-bold mt-2">
                     {step.number === 3 && surveyNumber
                       ? `Find Survey Number ${surveyNumber} and tap Download`
                       : step.title}
@@ -286,10 +315,14 @@ const ManualUploadGuideScreen = () => {
                   {step.number === 1 ? (
                     <TouchableOpacity
                       className="rounded-lg p-3 mt-2 flex-row items-center min-h-[48px]"
-                      style={{backgroundColor: 'rgba(47,133,90,0.2)'}}
+                      style={{ backgroundColor: COLORS.SUCCESS_SURFACE }}
                       onPress={openPortal}
-                      activeOpacity={0.7}>
-                      <Text style={{color: COLORS.TEAL}} className="text-sm font-medium flex-1">
+                      activeOpacity={0.7}
+                    >
+                      <Text
+                        style={{ color: COLORS.TEAL }}
+                        className="text-sm font-medium flex-1"
+                      >
                         Open bhunaksha.mahabhumi.gov.in
                       </Text>
                       <MaterialCommunityIcons
@@ -304,27 +337,28 @@ const ManualUploadGuideScreen = () => {
             ))}
 
             {errorMessage ? (
-              <View className="mb-4 rounded-lg bg-red-900/40 p-3">
-                <Text className="text-sm text-red-300">{errorMessage}</Text>
+              <View className="mb-4 rounded-lg bg-danger-soft p-3">
+                <Text className="text-sm text-danger">{errorMessage}</Text>
               </View>
             ) : null}
           </ScrollView>
 
-          <View className="px-6 pb-8 pt-4">
+          <View className="px-6 pt-4" style={{ paddingBottom: bottomSpacing }}>
             <TouchableOpacity
               className="rounded-xl h-[52px] items-center justify-center flex-row min-h-[48px]"
-              style={{backgroundColor: COLORS.FOREST_GREEN}}
+              style={{ backgroundColor: COLORS.BUTTON_BACKGROUND }}
               onPress={() => {
                 void selectMap();
               }}
               disabled={isLoading}
-              activeOpacity={0.7}>
+              activeOpacity={0.7}
+            >
               <MaterialCommunityIcons color="#FFFFFF" name="upload" size={18} />
               <Text className="text-white font-semibold text-base">
                 Upload Downloaded Map
               </Text>
             </TouchableOpacity>
-            <Text className="text-white/30 text-xs text-center mt-3">
+            <Text className="text-muted text-xs text-center mt-3">
               Supported formats: JPG, PNG • Max 10 MB
             </Text>
           </View>
@@ -338,7 +372,7 @@ const ManualUploadGuideScreen = () => {
             source={require('../../../assets/lottie/spinning_leaf.json')}
             autoPlay
             loop
-            style={{width: 120, height: 120}}
+            style={{ width: 120, height: 120 }}
           />
           <Text className="text-white text-lg mt-4 font-medium">
             {loadingText}

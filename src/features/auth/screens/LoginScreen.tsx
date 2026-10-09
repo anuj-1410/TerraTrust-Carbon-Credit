@@ -1,6 +1,9 @@
-import React, { useMemo, useState } from 'react';
+import ScreenHeader from '../../../common/components/ScreenHeader';
+import { useTheme } from '../../../common/theme/theme';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   View,
+  Keyboard,
   Text,
   TextInput,
   KeyboardAvoidingView,
@@ -11,11 +14,13 @@ import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { MaterialDesignIcons as MaterialCommunityIcons } from '@react-native-vector-icons/material-design-icons';
 import type { RootStackParamList } from '../../../types/navigation';
-import { sendPhoneOtp } from '../../../services/firebase';
+import {
+  getCurrentFirebaseUser,
+  sendPhoneOtp,
+} from '../../../services/firebase';
 import { useResponsiveScreen } from '../../../common/hooks/useResponsiveScreen';
 import Button from '../../../common/components/Button';
 import Card from '../../../common/components/Card';
-import { COLORS } from '../../../common/constants/colors';
 
 type Nav = NativeStackNavigationProp<RootStackParamList, 'LoginScreen'>;
 
@@ -32,12 +37,21 @@ function getPhoneValidationError(phoneNumber: string): string | null {
 }
 
 const LoginScreen = () => {
+  const { colors: COLORS } = useTheme();
   const navigation = useNavigation<Nav>();
+  const operationRef = useRef(false);
+  const mountedRef = useRef(true);
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
   const [isLoading, setIsLoading] = useState(false);
   const [apiError, setApiError] = useState<string | null>(null);
   const [phoneNumber, setPhoneNumber] = useState('');
   const [showPhoneError, setShowPhoneError] = useState(false);
-  const { horizontalPadding, topSpacing, bottomSpacing, contentMaxWidth } =
+  const { horizontalPadding, bottomSpacing, contentMaxWidth } =
     useResponsiveScreen();
 
   const phoneError = useMemo(
@@ -47,17 +61,29 @@ const LoginScreen = () => {
   const isPhoneValid = getPhoneValidationError(phoneNumber) === null;
 
   const onSubmit = async () => {
-    if (!isPhoneValid || isLoading) {
+    if (!isPhoneValid || operationRef.current) {
       setShowPhoneError(true);
       return;
     }
 
+    operationRef.current = true;
+    Keyboard.dismiss();
     setIsLoading(true);
     setApiError(null);
     try {
       const phone = `+91${phoneNumber}`;
       // App verification can open a browser challenge; do not time out that user flow.
       const otpSession = await sendPhoneOtp(phone);
+      if (!mountedRef.current) {
+        return;
+      }
+      if (
+        !otpSession.verificationId &&
+        getCurrentFirebaseUser()?.phoneNumber === phone
+      ) {
+        navigation.replace('SplashScreen');
+        return;
+      }
       navigation.navigate('OTPScreen', {
         phone,
         verificationId: otpSession.verificationId,
@@ -100,7 +126,10 @@ const LoginScreen = () => {
         );
       }
     } finally {
-      setIsLoading(false);
+      operationRef.current = false;
+      if (mountedRef.current) {
+        setIsLoading(false);
+      }
     }
   };
 
@@ -110,6 +139,7 @@ const LoginScreen = () => {
       style={{ backgroundColor: COLORS.OFF_WHITE }}
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
     >
+      <ScreenHeader title="Welcome to TerraTrust" eyebrow="Farmer Sign In" />
       <ScrollView
         contentContainerStyle={{ flexGrow: 1 }}
         keyboardShouldPersistTaps="handled"
@@ -119,13 +149,13 @@ const LoginScreen = () => {
           style={{
             maxWidth: contentMaxWidth,
             paddingHorizontal: horizontalPadding,
-            paddingTop: topSpacing,
+            paddingTop: 16,
             paddingBottom: bottomSpacing,
           }}
         >
           <View
             className="mb-6 h-[72px] w-[72px] items-center justify-center rounded-[28px]"
-            style={{ backgroundColor: 'rgba(47,133,90,0.12)' }}
+            style={{ backgroundColor: COLORS.SUCCESS_SURFACE }}
           >
             <MaterialCommunityIcons
               color={COLORS.FOREST_GREEN}
@@ -133,44 +163,33 @@ const LoginScreen = () => {
               size={34}
             />
           </View>
-          <View
-            className="self-start rounded-full px-4 py-2"
-            style={{ backgroundColor: 'rgba(47, 133, 90, 0.12)' }}
-          >
-            <Text className="text-xs font-semibold uppercase tracking-[1.2px] text-[#2F855A]">
-              Farmer Sign In
-            </Text>
-          </View>
-          <Text className="text-3xl font-bold text-gray-900">
-            Welcome to TerraTrust
-          </Text>
-          <Text className="mt-3 text-base leading-6 text-gray-600">
+
+          <Text className="mt-3 text-base leading-6 text-muted">
             Enter your mobile number to receive a one-time password and
             continue.
           </Text>
 
           <Card className="mt-10 p-5">
-            <Text className="mb-2 text-sm font-medium text-gray-700">
+            <Text className="mb-2 text-sm font-medium text-content">
               Mobile Number
             </Text>
             <View
               className="flex-row items-center overflow-hidden rounded-[20px] border"
               style={{
-                borderColor: phoneError || apiError ? '#FCA5A5' : '#D4DDD6',
+                borderColor:
+                  phoneError || apiError ? COLORS.ERROR_RED : COLORS.BORDER,
               }}
             >
               <View
                 className="items-center justify-center self-stretch px-4"
-                style={{ backgroundColor: 'rgba(47, 133, 90, 0.1)' }}
+                style={{ backgroundColor: COLORS.SUCCESS_SURFACE }}
               >
-                <Text className="text-base font-semibold text-[#2F855A]">
-                  +91
-                </Text>
+                <Text className="text-base font-semibold text-accent">+91</Text>
               </View>
               <TextInput
-                className="flex-1 bg-white px-4 py-4 text-base text-gray-900"
+                className="flex-1 bg-surface px-4 py-4 text-base text-content"
                 placeholder="Enter 10-digit number"
-                placeholderTextColor="#9CA3AF"
+                placeholderTextColor={COLORS.DISABLED_GREY}
                 keyboardType="phone-pad"
                 maxLength={10}
                 onBlur={() => setShowPhoneError(true)}
@@ -182,12 +201,12 @@ const LoginScreen = () => {
               />
             </View>
             {phoneError && (
-              <Text className="mt-1 text-sm text-red-500">{phoneError}</Text>
+              <Text className="mt-1 text-sm text-danger">{phoneError}</Text>
             )}
             {apiError && (
-              <Text className="mt-1 text-sm text-red-500">{apiError}</Text>
+              <Text className="mt-1 text-sm text-danger">{apiError}</Text>
             )}
-            <Text className="mt-4 text-sm leading-5 text-gray-500">
+            <Text className="mt-4 text-sm leading-5 text-muted">
               Standard SMS rates may apply. Your phone number is processed by
               Google/Firebase for abuse prevention.
             </Text>

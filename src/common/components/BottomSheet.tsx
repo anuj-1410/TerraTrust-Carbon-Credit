@@ -1,7 +1,7 @@
+import { useTheme } from '../theme/theme';
 import React from 'react';
-import {View, Modal, Pressable} from 'react-native';
-import {useSafeAreaInsets} from 'react-native-safe-area-context';
-import {COLORS} from '../constants/colors';
+import { View, Modal, Pressable } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 interface BottomSheetProps {
   visible: boolean;
@@ -9,7 +9,8 @@ interface BottomSheetProps {
   children: React.ReactNode;
 }
 
-const BottomSheet = ({visible, onClose, children}: BottomSheetProps) => {
+const BottomSheet = ({ visible, onClose, children }: BottomSheetProps) => {
+  const { colors: COLORS } = useTheme();
   const insets = useSafeAreaInsets();
 
   return (
@@ -17,17 +18,20 @@ const BottomSheet = ({visible, onClose, children}: BottomSheetProps) => {
       visible={visible}
       transparent
       animationType="slide"
-      onRequestClose={onClose}>
+      onRequestClose={onClose}
+    >
       <View className="flex-1 justify-end bg-black/50">
         <Pressable className="flex-1" onPress={onClose} />
         <View
-          className="self-center rounded-t-[32px] border border-b-0 bg-white px-6 pt-4"
+          className="self-center rounded-t-[32px] border border-b-0 bg-surface px-6 pt-4"
           style={{
             width: '100%',
             maxWidth: 560,
-            borderColor: '#DCE7DF',
+            borderColor: COLORS.BORDER,
+            backgroundColor: COLORS.CARD_WHITE,
             paddingBottom: Math.max(insets.bottom + 18, 28),
-          }}>
+          }}
+        >
           <View
             style={{
               width: 40,

@@ -1,41 +1,52 @@
-import React, {useState, useCallback} from 'react';
+import ScreenHeader from '../../../common/components/ScreenHeader';
+import { useTheme } from '../../../common/theme/theme';
+import type { ThemeColors } from '../../../common/constants/colors';
+import React, { useState, useCallback } from 'react';
 import {
   View,
   Text,
-  TouchableOpacity,
   ScrollView,
   Alert,
   BackHandler,
   Image,
   Linking,
 } from 'react-native';
-import {useNavigation, useRoute} from '@react-navigation/native';
-import type {NativeStackNavigationProp} from '@react-navigation/native-stack';
-import type {RouteProp} from '@react-navigation/native';
+import { useNavigation, useRoute } from '@react-navigation/native';
+import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import type { RouteProp } from '@react-navigation/native';
 import LottieView from 'lottie-react-native';
 import DeviceInfo from 'react-native-device-info';
-import {MaterialDesignIcons as MaterialCommunityIcons} from '@react-native-vector-icons/material-design-icons';
-import type {RootStackParamList} from '../../../types/navigation';
-import {useAppDispatch, useAppSelector} from '../../../store/hooks';
-import {detectAndSetARTier, fetchZones, setOriginTab} from '../store/auditSlice';
-import type {FetchZonesError} from '../store/auditSlice';
-import {hectaresToAcres} from '../../../common/utils/units';
+import { MaterialDesignIcons as MaterialCommunityIcons } from '@react-native-vector-icons/material-design-icons';
+import type { RootStackParamList } from '../../../types/navigation';
+import { useAppDispatch, useAppSelector } from '../../../store/hooks';
+import {
+  detectAndSetARTier,
+  fetchZones,
+  setOriginTab,
+} from '../store/auditSlice';
+import type { FetchZonesError } from '../store/auditSlice';
+import { hectaresToAcres } from '../../../common/utils/units';
 import {
   ensureCameraPermission,
   ensureLocationPermission,
 } from '../../../common/utils/permissions';
 import Button from '../../../common/components/Button';
 import Card from '../../../common/components/Card';
-import {COLORS} from '../../../common/constants/colors';
-import {useResponsiveScreen} from '../../../common/hooks/useResponsiveScreen';
-import {IS_AUDIT_DEMO_MODE} from '../utils/demoMode';
-import {getCurrentLocationFix, isMockedGeoPosition} from '../../../common/utils/location';
+import { useResponsiveScreen } from '../../../common/hooks/useResponsiveScreen';
+import { IS_AUDIT_DEMO_MODE } from '../utils/demoMode';
+import {
+  getCurrentLocationFix,
+  isMockedGeoPosition,
+} from '../../../common/utils/location';
 import {
   openArCoreStoreListing,
   type ARSupportState,
 } from '../../../services/ar-bridge';
 
-type NavProp = NativeStackNavigationProp<RootStackParamList, 'AuditStartScreen'>;
+type NavProp = NativeStackNavigationProp<
+  RootStackParamList,
+  'AuditStartScreen'
+>;
 type RouteType = RouteProp<RootStackParamList, 'AuditStartScreen'>;
 type RootAwareDeviceInfo = typeof DeviceInfo & {
   isRooted?: () => Promise<boolean>;
@@ -45,6 +56,7 @@ function getArSupportCopy(
   supportState: ARSupportState,
   arTier: 1 | 2 | 3,
   arTierResolved: boolean,
+  COLORS: ThemeColors,
 ) {
   if (supportState === 'camera-permission-required') {
     return {
@@ -126,9 +138,10 @@ function getArSupportCopy(
 }
 
 const AuditStartScreen = () => {
+  const { colors: COLORS } = useTheme();
   const navigation = useNavigation<NavProp>();
   const route = useRoute<RouteType>();
-  const {landId, landName, originTab = 'HomeTab'} = route.params;
+  const { landId, landName, originTab = 'HomeTab' } = route.params;
   const dispatch = useAppDispatch();
 
   const parcels = useAppSelector(state => state.land.parcels);
@@ -137,7 +150,7 @@ const AuditStartScreen = () => {
   const arTierResolved = useAppSelector(state => state.audit.arTierResolved);
   const arSupportState = useAppSelector(state => state.audit.arSupportState);
   const parcel = parcels.find(p => p.id === landId);
-  const {horizontalPadding, topSpacing, bottomSpacing, contentMaxWidth} =
+  const { horizontalPadding, bottomSpacing, contentMaxWidth } =
     useResponsiveScreen();
 
   const [loading, setLoading] = useState(false);
@@ -147,6 +160,7 @@ const AuditStartScreen = () => {
     arSupportState,
     arTier as 1 | 2 | 3,
     arTierResolved,
+    COLORS,
   );
 
   const handleOpenSettings = useCallback(() => {
@@ -167,8 +181,8 @@ const AuditStartScreen = () => {
             'Camera Permission Blocked',
             'Enable camera access in Settings so TerraTrust can verify AR precision and scan trees during the audit.',
             [
-              {text: 'Cancel', style: 'cancel'},
-              {text: 'Open Settings', onPress: handleOpenSettings},
+              { text: 'Cancel', style: 'cancel' },
+              { text: 'Open Settings', onPress: handleOpenSettings },
             ],
           );
         }
@@ -189,12 +203,7 @@ const AuditStartScreen = () => {
     }
 
     await dispatch(detectAndSetARTier());
-  }, [
-    arSupportState,
-    dispatch,
-    handleOpenArCoreStore,
-    handleOpenSettings,
-  ]);
+  }, [arSupportState, dispatch, handleOpenArCoreStore, handleOpenSettings]);
 
   React.useEffect(() => {
     const rootAwareDeviceInfo = DeviceInfo as RootAwareDeviceInfo;
@@ -218,14 +227,14 @@ const AuditStartScreen = () => {
 
   const handleCancelAudit = useCallback(() => {
     Alert.alert('Cancel audit?', 'Your progress will be saved.', [
-      {text: 'Keep auditing', style: 'cancel'},
+      { text: 'Keep auditing', style: 'cancel' },
       {
         text: 'Exit audit',
         style: 'destructive',
         onPress: () =>
           navigation.reset({
             index: 0,
-            routes: [{name: 'HomeScreen', params: {screen: originTab}}],
+            routes: [{ name: 'HomeScreen', params: { screen: originTab } }],
           }),
       },
     ]);
@@ -255,8 +264,8 @@ const AuditStartScreen = () => {
               'Location Permission Blocked',
               'TerraTrust cannot start an audit until location access is enabled in Settings.',
               [
-                {text: 'Cancel', style: 'cancel'},
-                {text: 'Open Settings', onPress: handleOpenSettings},
+                { text: 'Cancel', style: 'cancel' },
+                { text: 'Open Settings', onPress: handleOpenSettings },
               ],
             );
           } else {
@@ -296,8 +305,8 @@ const AuditStartScreen = () => {
             'Camera Permission Blocked',
             'TerraTrust cannot verify AR precision or scan trees until camera access is enabled in Settings.',
             [
-              {text: 'Cancel', style: 'cancel'},
-              {text: 'Open Settings', onPress: handleOpenSettings},
+              { text: 'Cancel', style: 'cancel' },
+              { text: 'Open Settings', onPress: handleOpenSettings },
             ],
           );
         } else {
@@ -325,8 +334,8 @@ const AuditStartScreen = () => {
               'Install AR Services',
               'This phone looks AR-compatible, but Google Play Services for AR must be installed before scanning can begin.',
               [
-                {text: 'Cancel', style: 'cancel'},
-                {text: 'Install', onPress: handleOpenArCoreStore},
+                { text: 'Cancel', style: 'cancel' },
+                { text: 'Install', onPress: handleOpenArCoreStore },
               ],
             );
           } else if (capability.supportState === 'arcore-update-required') {
@@ -334,8 +343,8 @@ const AuditStartScreen = () => {
               'Update AR Services',
               'Update Google Play Services for AR before starting the audit so TerraTrust can use this phone’s scanning capability correctly.',
               [
-                {text: 'Cancel', style: 'cancel'},
-                {text: 'Update', onPress: handleOpenArCoreStore},
+                { text: 'Cancel', style: 'cancel' },
+                { text: 'Update', onPress: handleOpenArCoreStore },
               ],
             );
           } else {
@@ -375,7 +384,7 @@ const AuditStartScreen = () => {
         fetchZonesError.message ||
           audit.errorMessage ||
           'Please check your connection and try again.',
-        [{text: 'Retry', onPress: handleStartAudit}, {text: 'Cancel'}],
+        [{ text: 'Retry', onPress: handleStartAudit }, { text: 'Cancel' }],
       );
     } finally {
       setLoading(false);
@@ -400,7 +409,10 @@ const AuditStartScreen = () => {
   // FR-012: Mock GPS full blocking screen
   if (mockBlocked) {
     return (
-      <View className="flex-1 items-center justify-center px-8" style={{backgroundColor: COLORS.DARK_SLATE}}>
+      <View
+        className="flex-1 items-center justify-center px-8"
+        style={{ backgroundColor: COLORS.HERO_BACKGROUND }}
+      >
         <MaterialCommunityIcons
           color="#FFFFFF"
           name="map-marker-off"
@@ -417,25 +429,13 @@ const AuditStartScreen = () => {
   }
 
   return (
-    <View className="flex-1" style={{backgroundColor: COLORS.OFF_WHITE}}>
+    <View className="flex-1" style={{ backgroundColor: COLORS.OFF_WHITE }}>
       {/* Header */}
-      <View
-        className="flex-row items-center pb-5"
-        style={{
-          backgroundColor: COLORS.DARK_SLATE,
-          paddingTop: topSpacing,
-          paddingHorizontal: horizontalPadding,
-        }}>
-        <TouchableOpacity
-          onPress={handleCancelAudit}
-          className="w-12 h-12 items-center justify-center rounded-full"
-          accessibilityLabel="Cancel audit">
-          <MaterialCommunityIcons color="#FFFFFF" name="close" size={24} />
-        </TouchableOpacity>
-        <Text className="flex-1 text-white text-xl font-bold text-center mr-12">
-          Annual Audit
-        </Text>
-      </View>
+      <ScreenHeader
+        title="Annual Audit"
+        onBack={handleCancelAudit}
+        backIcon="close"
+      />
 
       <ScrollView
         className="flex-1"
@@ -445,15 +445,25 @@ const AuditStartScreen = () => {
           maxWidth: contentMaxWidth,
           paddingHorizontal: horizontalPadding,
           paddingBottom: bottomSpacing,
-        }}>
+        }}
+      >
         {/* Rooted device warning — FR-013 */}
         {showRootWarning && (
           <Card
             className="mt-4 flex-row items-center rounded-2xl px-4 py-3"
-            style={{backgroundColor: '#FEF3C7'}}>
-            <MaterialCommunityIcons color="#92400E" name="alert-outline" size={20} />
-            <Text className="flex-1 text-sm leading-5" style={{color: '#92400E'}}>
-              This device appears to be rooted. For your security, some features may not work correctly.
+            style={{ backgroundColor: COLORS.WARNING_SURFACE }}
+          >
+            <MaterialCommunityIcons
+              color={COLORS.WARNING_ORANGE}
+              name="alert-outline"
+              size={20}
+            />
+            <Text
+              className="flex-1 text-sm leading-5"
+              style={{ color: COLORS.WARNING_ORANGE }}
+            >
+              This device appears to be rooted. For your security, some features
+              may not work correctly.
             </Text>
           </Card>
         )}
@@ -463,14 +473,15 @@ const AuditStartScreen = () => {
           <View className="mb-4 flex-row items-center">
             {parcel?.thumbnail_url ? (
               <Image
-                source={{uri: parcel.thumbnail_url}}
+                source={{ uri: parcel.thumbnail_url }}
                 className="h-20 w-20 rounded-2xl"
                 resizeMode="cover"
               />
             ) : (
               <View
                 className="h-20 w-20 items-center justify-center rounded-2xl"
-                style={{backgroundColor: '#D1FAE5'}}>
+                style={{ backgroundColor: COLORS.SUCCESS_SURFACE }}
+              >
                 <MaterialCommunityIcons
                   color={COLORS.FOREST_GREEN}
                   name="sprout"
@@ -479,10 +490,16 @@ const AuditStartScreen = () => {
               </View>
             )}
             <View className="ml-4 flex-1">
-              <Text className="text-xl font-bold" style={{color: COLORS.DARK_SLATE}}>
+              <Text
+                className="text-xl font-bold"
+                style={{ color: COLORS.DARK_SLATE }}
+              >
                 {landName}
               </Text>
-              <Text className="mt-1 text-sm" style={{color: '#6B7280'}}>
+              <Text
+                className="mt-1 text-sm"
+                style={{ color: COLORS.DISABLED_GREY }}
+              >
                 Annual audit for this verified parcel
               </Text>
             </View>
@@ -491,49 +508,89 @@ const AuditStartScreen = () => {
           {/* Area row */}
           <View className="flex-row items-center justify-between py-3">
             <View className="flex-row items-center">
-              <MaterialCommunityIcons color="#6B7280" name="ruler" size={18} />
-              <Text className="text-sm" style={{color: '#6B7280'}}>Area</Text>
+              <MaterialCommunityIcons
+                color={COLORS.DISABLED_GREY}
+                name="ruler"
+                size={18}
+              />
+              <Text className="text-sm" style={{ color: COLORS.DISABLED_GREY }}>
+                Area
+              </Text>
             </View>
-            <Text className="text-base font-bold" style={{fontFamily: 'RobotoMono-Bold', color: COLORS.DARK_SLATE}}>
+            <Text
+              className="text-base font-bold"
+              style={{
+                fontFamily: 'RobotoMono-Bold',
+                color: COLORS.DARK_SLATE,
+              }}
+            >
               {areaAcres} acres
             </Text>
           </View>
 
-          <View className="h-px bg-[#F2F4F2]" />
+          <View className="h-px bg-line" />
 
           {/* Last Audit row */}
           <View className="flex-row items-center justify-between py-3">
             <View className="flex-row items-center">
-              <MaterialCommunityIcons color="#6B7280" name="calendar-blank-outline" size={18} />
-              <Text className="text-sm" style={{color: '#6B7280'}}>Last Audit</Text>
+              <MaterialCommunityIcons
+                color={COLORS.DISABLED_GREY}
+                name="calendar-blank-outline"
+                size={18}
+              />
+              <Text className="text-sm" style={{ color: COLORS.DISABLED_GREY }}>
+                Last Audit
+              </Text>
             </View>
-            <Text className="text-base" style={{fontFamily: 'RobotoMono-Regular', color: COLORS.DARK_SLATE}}>
+            <Text
+              className="text-base"
+              style={{
+                fontFamily: 'RobotoMono-Regular',
+                color: COLORS.DARK_SLATE,
+              }}
+            >
               {lastAudit}
             </Text>
           </View>
 
-          <View className="h-px bg-[#F2F4F2]" />
+          <View className="h-px bg-line" />
 
           {/* Status row */}
           <View className="flex-row items-center justify-between py-3">
             <View className="flex-row items-center">
-              <MaterialCommunityIcons color="#6B7280" name="check-circle-outline" size={18} />
-              <Text className="text-sm" style={{color: '#6B7280'}}>Status</Text>
+              <MaterialCommunityIcons
+                color={COLORS.DISABLED_GREY}
+                name="check-circle-outline"
+                size={18}
+              />
+              <Text className="text-sm" style={{ color: COLORS.DISABLED_GREY }}>
+                Status
+              </Text>
             </View>
-            <Text className="text-base" style={{fontFamily: 'RobotoMono-Regular', color: COLORS.DARK_SLATE}}>
+            <Text
+              className="text-base"
+              style={{
+                fontFamily: 'RobotoMono-Regular',
+                color: COLORS.DARK_SLATE,
+              }}
+            >
               Ready to start
             </Text>
           </View>
         </Card>
 
         <Card className="mt-4 rounded-2xl p-5">
-          <Text className="text-sm uppercase tracking-widest" style={{color: COLORS.DISABLED_GREY}}>
+          <Text
+            className="text-sm uppercase tracking-widest"
+            style={{ color: COLORS.DISABLED_GREY }}
+          >
             AR Precision
           </Text>
           <View className="mt-4 flex-row items-start">
             <View
               className="mr-4 h-12 w-12 items-center justify-center rounded-2xl"
-              style={{backgroundColor: `${arSupportCopy.iconColor}18`}}>
+              style={{ backgroundColor: `${arSupportCopy.iconColor}18` }}
+            >
               <MaterialCommunityIcons
                 color={arSupportCopy.iconColor}
                 name={arSupportCopy.icon}
@@ -541,10 +598,16 @@ const AuditStartScreen = () => {
               />
             </View>
             <View className="flex-1">
-              <Text className="text-lg font-bold" style={{color: COLORS.DARK_SLATE}}>
+              <Text
+                className="text-lg font-bold"
+                style={{ color: COLORS.DARK_SLATE }}
+              >
                 {arSupportCopy.title}
               </Text>
-              <Text className="mt-2 text-sm leading-6" style={{color: COLORS.DISABLED_GREY}}>
+              <Text
+                className="mt-2 text-sm leading-6"
+                style={{ color: COLORS.DISABLED_GREY }}
+              >
                 {arSupportCopy.description}
               </Text>
             </View>
@@ -559,10 +622,10 @@ const AuditStartScreen = () => {
                 arSupportState === 'camera-permission-required'
                   ? 'Allow Camera Access'
                   : arSupportState === 'arcore-install-required'
-                    ? 'Install AR Services'
-                    : arSupportState === 'arcore-update-required'
-                      ? 'Update AR Services'
-                      : 'Retry Capability Check'
+                  ? 'Install AR Services'
+                  : arSupportState === 'arcore-update-required'
+                  ? 'Update AR Services'
+                  : 'Retry Capability Check'
               }
               onPress={() => {
                 void handleResolveCapability();
@@ -579,17 +642,20 @@ const AuditStartScreen = () => {
         <Card className="mt-4 rounded-2xl p-5">
           <Text
             className="text-sm uppercase tracking-widest"
-            style={{color: COLORS.DISABLED_GREY}}>
+            style={{ color: COLORS.DISABLED_GREY }}
+          >
             Audit Flow
           </Text>
           <Text
             className="mt-3 text-lg font-bold"
-            style={{color: COLORS.DARK_SLATE}}>
+            style={{ color: COLORS.DARK_SLATE }}
+          >
             TerraTrust will prepare your zone map first
           </Text>
           <Text
             className="mt-2 text-sm leading-6"
-            style={{color: COLORS.DISABLED_GREY}}>
+            style={{ color: COLORS.DISABLED_GREY }}
+          >
             Once the zones are ready, the app will guide you from one sampling
             point to the next and keep track of how many trees are needed in
             each area.
@@ -621,25 +687,30 @@ const AuditStartScreen = () => {
               <View
                 key={item.step}
                 className="flex-row rounded-2xl px-4 py-4"
-                style={{backgroundColor: COLORS.OFF_WHITE}}>
+                style={{ backgroundColor: COLORS.OFF_WHITE }}
+              >
                 <View
                   className="h-11 w-11 items-center justify-center rounded-2xl"
-                  style={{backgroundColor: 'rgba(47,133,90,0.12)'}}>
+                  style={{ backgroundColor: COLORS.SUCCESS_SURFACE }}
+                >
                   <Text
                     className="text-sm font-bold"
-                    style={{color: COLORS.FOREST_GREEN}}>
+                    style={{ color: COLORS.FOREST_GREEN }}
+                  >
                     {item.step}
                   </Text>
                 </View>
                 <View className="ml-4 flex-1">
                   <Text
                     className="text-base font-semibold"
-                    style={{color: COLORS.DARK_SLATE}}>
+                    style={{ color: COLORS.DARK_SLATE }}
+                  >
                     {item.title}
                   </Text>
                   <Text
                     className="mt-1 text-sm leading-6"
-                    style={{color: COLORS.DISABLED_GREY}}>
+                    style={{ color: COLORS.DISABLED_GREY }}
+                  >
                     {item.body}
                   </Text>
                 </View>
@@ -655,19 +726,29 @@ const AuditStartScreen = () => {
               source={require('../../../assets/lottie/spinning_leaf.json')}
               autoPlay
               loop
-              style={{width: 120, height: 120}}
+              style={{ width: 120, height: 120 }}
             />
           ) : (
-            <View className="w-28 h-28 rounded-full items-center justify-center" style={{backgroundColor: '#D1FAE5'}}>
-              <MaterialCommunityIcons color={COLORS.FOREST_GREEN} name="sprout" size={46} />
+            <View
+              className="w-28 h-28 rounded-full items-center justify-center"
+              style={{ backgroundColor: COLORS.SUCCESS_SURFACE }}
+            >
+              <MaterialCommunityIcons
+                color={COLORS.FOREST_GREEN}
+                name="sprout"
+                size={46}
+              />
             </View>
           )}
         </View>
 
         {/* Description text */}
-        <Text className="text-sm text-center mt-5 leading-6 px-4" style={{color: '#6B7280'}}>
-          TerraTrust will generate your sampling zones and guide you through each tree scan on your land.
-          This usually takes about 20-30 minutes.
+        <Text
+          className="text-sm text-center mt-5 leading-6 px-4"
+          style={{ color: COLORS.DISABLED_GREY }}
+        >
+          TerraTrust will generate your sampling zones and guide you through
+          each tree scan on your land. This usually takes about 20-30 minutes.
         </Text>
       </ScrollView>
 
@@ -678,33 +759,40 @@ const AuditStartScreen = () => {
           paddingHorizontal: horizontalPadding,
           paddingTop: 12,
           paddingBottom: bottomSpacing,
-        }}>
+        }}
+      >
         <Card
           className="self-center px-4 py-4"
-          style={{width: '100%', maxWidth: contentMaxWidth}}>
+          style={{ width: '100%', maxWidth: contentMaxWidth }}
+        >
           <View className="mb-4 flex-row items-center justify-between">
             <View className="flex-1 pr-4">
               <Text
                 className="text-base font-semibold"
-                style={{color: COLORS.DARK_SLATE}}>
+                style={{ color: COLORS.DARK_SLATE }}
+              >
                 Ready to generate your audit zones
               </Text>
               <Text
                 className="mt-1 text-sm leading-6"
-                style={{color: COLORS.DISABLED_GREY}}>
+                style={{ color: COLORS.DISABLED_GREY }}
+              >
                 Estimated time: 20 to 30 minutes for a complete field audit.
               </Text>
             </View>
             <View
               className="rounded-full px-3 py-2"
-              style={{backgroundColor: 'rgba(56,178,172,0.12)'}}>
-              <Text className="font-semibold" style={{color: COLORS.TEAL}}>
+              style={{ backgroundColor: COLORS.INFO_SURFACE }}
+            >
+              <Text className="font-semibold" style={{ color: COLORS.TEAL }}>
                 Secure
               </Text>
             </View>
           </View>
           <Button
-            label={loading ? 'Generating Audit Zones...' : 'Generate Audit Zones'}
+            label={
+              loading ? 'Generating Audit Zones...' : 'Generate Audit Zones'
+            }
             onPress={() => {
               void handleStartAudit();
             }}

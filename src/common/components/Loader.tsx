@@ -1,7 +1,7 @@
+import { useTheme } from '../theme/theme';
 import React from 'react';
-import {View, Text, Modal} from 'react-native';
+import { View, Text, Modal } from 'react-native';
 import LottieView from 'lottie-react-native';
-import {COLORS} from '../constants/colors';
 
 interface LoaderProps {
   size?: number;
@@ -9,7 +9,8 @@ interface LoaderProps {
   message?: string;
 }
 
-const Loader = ({size = 120, overlay = false, message}: LoaderProps) => {
+const Loader = ({ size = 120, overlay = false, message }: LoaderProps) => {
+  const { colors: COLORS } = useTheme();
   if (overlay) {
     return (
       <Modal transparent visible>
@@ -19,7 +20,8 @@ const Loader = ({size = 120, overlay = false, message}: LoaderProps) => {
             backgroundColor: 'rgba(15, 23, 20, 0.34)',
             justifyContent: 'center',
             alignItems: 'center',
-          }}>
+          }}
+        >
           <View
             style={{
               minWidth: 180,
@@ -28,12 +30,13 @@ const Loader = ({size = 120, overlay = false, message}: LoaderProps) => {
               backgroundColor: COLORS.CARD_WHITE,
               paddingHorizontal: 24,
               paddingVertical: 20,
-            }}>
+            }}
+          >
             <LottieView
               source={require('../../assets/lottie/spinning_leaf.json')}
               autoPlay
               loop
-              style={{width: 84, height: 84}}
+              style={{ width: 84, height: 84 }}
             />
             {message && (
               <Text
@@ -42,7 +45,8 @@ const Loader = ({size = 120, overlay = false, message}: LoaderProps) => {
                   fontSize: 14,
                   color: COLORS.DARK_SLATE,
                   textAlign: 'center',
-                }}>
+                }}
+              >
                 {message}
               </Text>
             )}
@@ -55,12 +59,13 @@ const Loader = ({size = 120, overlay = false, message}: LoaderProps) => {
   return (
     <View
       className="flex-1 items-center justify-center"
-      style={{backgroundColor: COLORS.OFF_WHITE}}>
+      style={{ backgroundColor: COLORS.OFF_WHITE }}
+    >
       <LottieView
         source={require('../../assets/lottie/spinning_leaf.json')}
         autoPlay
         loop
-        style={{width: size, height: size}}
+        style={{ width: size, height: size }}
       />
     </View>
   );

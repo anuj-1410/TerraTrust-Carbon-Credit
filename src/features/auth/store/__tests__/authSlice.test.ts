@@ -52,6 +52,7 @@ describe('authSlice', () => {
 
   it('should reset all fields to initial state on logout', () => {
     const loggedInState: AuthState = {
+      ...authInitialState,
       user: {
         id: '123',
         firebaseUid: 'firebase-user-2',

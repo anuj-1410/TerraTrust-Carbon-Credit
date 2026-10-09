@@ -1,5 +1,8 @@
-import React, {useState, useRef, useEffect, useCallback} from 'react';
+import ScreenHeader from '../../../common/components/ScreenHeader';
+import { useTheme } from '../../../common/theme/theme';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
 import {
+  Keyboard,
   View,
   Text,
   TextInput,
@@ -9,31 +12,27 @@ import {
   ScrollView,
   useWindowDimensions,
 } from 'react-native';
-import type {NativeStackScreenProps} from '@react-navigation/native-stack';
-import type {RootStackParamList} from '../../../types/navigation';
+import type { NativeStackScreenProps } from '@react-navigation/native-stack';
+import type { RootStackParamList } from '../../../types/navigation';
 import {
   confirmPhoneOtp,
   getCurrentFirebaseUser,
   sendPhoneOtp,
   type AuthBootstrapResponse,
 } from '../../../services/firebase';
-import {bootstrapAuthenticatedProfile} from '../../../services/authBootstrap';
-import {MaterialDesignIcons as MaterialCommunityIcons} from '@react-native-vector-icons/material-design-icons';
-import {useAppDispatch} from '../../../store/hooks';
-import {setUser, setWalletAddress, setKycCompleted} from '../store/authSlice';
+import { bootstrapAuthenticatedProfile } from '../../../services/authBootstrap';
+
+import { useAppDispatch } from '../../../store/hooks';
+import { setAuthenticatedProfile } from '../store/authSlice';
 import {
   getAuthenticatedEntryRoute,
   markOnboardingComplete,
 } from '../../../common/utils/onboarding';
-import {
-  setOnboardingComplete,
-  setWalletRecoveryState,
-} from '../../profile/store/profileSlice';
-import {useResponsiveScreen} from '../../../common/hooks/useResponsiveScreen';
-import {showBanner} from '../../../store/uiSlice';
+import { setOnboardingComplete } from '../../profile/store/profileSlice';
+import { useResponsiveScreen } from '../../../common/hooks/useResponsiveScreen';
+import { showBanner } from '../../../store/uiSlice';
 import Button from '../../../common/components/Button';
 import Card from '../../../common/components/Card';
-import {COLORS} from '../../../common/constants/colors';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'OTPScreen'>;
 
@@ -42,11 +41,12 @@ const COUNTDOWN_SECONDS = 28;
 const OTP_BOOTSTRAP_ERROR_MESSAGE =
   'OTP verified, but we could not finish sign-in. Please check your connection and try again.';
 
-const OTPScreen = ({route, navigation}: Props) => {
-  const {phone, verificationId} = route.params;
+const OTPScreen = ({ route, navigation }: Props) => {
+  const { colors: COLORS } = useTheme();
+  const { phone, verificationId } = route.params;
   const dispatch = useAppDispatch();
-  const {width} = useWindowDimensions();
-  const {horizontalPadding, topSpacing, bottomSpacing, contentMaxWidth} =
+  const { width } = useWindowDimensions();
+  const { horizontalPadding, bottomSpacing, contentMaxWidth } =
     useResponsiveScreen();
 
   const [digits, setDigits] = useState<string[]>(Array(OTP_LENGTH).fill(''));
@@ -54,12 +54,14 @@ const OTPScreen = ({route, navigation}: Props) => {
   const [error, setError] = useState<string | null>(null);
   const [countdown, setCountdown] = useState(COUNTDOWN_SECONDS);
   const [focusedIndex, setFocusedIndex] = useState(0);
-  const [activeVerificationId, setActiveVerificationId] = useState<string | null>(
-    verificationId ?? null,
-  );
+  const [activeVerificationId, setActiveVerificationId] = useState<
+    string | null
+  >(verificationId ?? null);
   const [hasVerifiedOtp, setHasVerifiedOtp] = useState(false);
 
   const inputRefs = useRef<(TextInput | null)[]>([]);
+  const operationRef = useRef(false);
+  const mountedRef = useRef(true);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   // Countdown timer
@@ -82,8 +84,10 @@ const OTPScreen = ({route, navigation}: Props) => {
   }, []);
 
   useEffect(() => {
+    mountedRef.current = true;
     startTimer();
     return () => {
+      mountedRef.current = false;
       if (timerRef.current) {
         clearInterval(timerRef.current);
       }
@@ -91,10 +95,7 @@ const OTPScreen = ({route, navigation}: Props) => {
   }, [startTimer]);
 
   // Mask phone: show last 4 digits
-  const maskedPhone = phone.replace(
-    /(\+91)(\d{6})(\d{4})/,
-    '$1 XXXXXX$3',
-  );
+  const maskedPhone = phone.replace(/(\+91)(\d{6})(\d{4})/, '$1 XXXXXX$3');
   const otpGap = width < 360 ? 6 : 8;
   const otpAvailableWidth = Math.min(
     width - horizontalPadding * 2 - 24,
@@ -119,29 +120,17 @@ const OTPScreen = ({route, navigation}: Props) => {
 
   const applyProfile = useCallback(
     (profile: AuthBootstrapResponse) => {
-      dispatch(
-        setUser({
-          id: profile.user_id,
-          firebaseUid: profile.firebase_uid,
-          name: profile.full_name ?? '',
-          phone: profile.phone_number,
-        }),
-      );
-      dispatch(setWalletAddress(profile.wallet_address));
-      dispatch(setKycCompleted(profile.kyc_completed));
-      dispatch(
-        setWalletRecoveryState({
-          status: profile.wallet_recovery_status,
-          requestedAt: profile.wallet_recovery_requested_at,
-        }),
-      );
+      dispatch(setAuthenticatedProfile(profile));
     },
     [dispatch],
   );
 
   const bootstrapProfile = useCallback(async () => {
-    const {profile, warning} = await bootstrapAuthenticatedProfile();
+    const { profile, warning } = await bootstrapAuthenticatedProfile();
 
+    if (!mountedRef.current) {
+      return;
+    }
     if (warning) {
       dispatch(
         showBanner({
@@ -157,88 +146,112 @@ const OTPScreen = ({route, navigation}: Props) => {
       dispatch(setOnboardingComplete(true));
     }
 
+    Keyboard.dismiss();
     const nextRoute = getAuthenticatedEntryRoute(profile.kyc_completed);
 
     if (nextRoute !== 'KYCScreen') {
-      navigation.reset({index: 0, routes: [{name: nextRoute}]});
+      navigation.reset({ index: 0, routes: [{ name: nextRoute }] });
       return;
     }
 
     navigation.replace(nextRoute);
   }, [applyProfile, dispatch, navigation]);
 
-  const handleVerifyOtp = useCallback(
-    async () => {
-      if (isLoading) {
-        return;
-      }
+  const handleVerifyOtp = useCallback(async () => {
+    if (operationRef.current) {
+      return;
+    }
 
-      if (!isOtpComplete) {
-        setError('Enter the full 6-digit OTP to continue.');
-        return;
-      }
+    if (!isOtpComplete) {
+      setError('Enter the full 6-digit OTP to continue.');
+      return;
+    }
 
-      setIsLoading(true);
-      setError(null);
+    operationRef.current = true;
+    setIsLoading(true);
+    setError(null);
 
-      if (!hasVerifiedOtp || !getCurrentFirebaseUser()) {
-        try {
-          await confirmPhoneOtp(otpValue, activeVerificationId);
-          setHasVerifiedOtp(true);
-        } catch (caughtError) {
-          const firebaseErr = caughtError as {code?: string; message?: string};
-          if (
-            firebaseErr.message === 'OTP_SESSION_MISSING' ||
-            firebaseErr.code === 'auth/session-expired' ||
-            firebaseErr.code === 'auth/invalid-verification-id'
-          ) {
-            setError('OTP session expired. Please resend the code.');
-          } else if (firebaseErr.code === 'auth/invalid-verification-code') {
-            setError('Incorrect code. Please try again.');
-          } else if (firebaseErr.code === 'auth/network-request-failed') {
-            setError('Network issue while verifying OTP. Please try again.');
-          } else {
-            setError('Something went wrong. Please try again.');
-          }
-          resetOtpInputs();
+    const currentUser = getCurrentFirebaseUser();
+    if (
+      (!hasVerifiedOtp && currentUser?.phoneNumber !== phone) ||
+      !currentUser
+    ) {
+      try {
+        await confirmPhoneOtp(otpValue, activeVerificationId);
+        if (!mountedRef.current) {
+          operationRef.current = false;
           return;
         }
-      }
-
-      try {
-        await bootstrapProfile();
+        setHasVerifiedOtp(true);
       } catch (caughtError) {
-        const axiosErr = caughtError as {
-          response?: {status?: number};
-          message?: string;
-        };
-        if (axiosErr.message === 'APP_CONFIG_MISSING_API_BASE_URL') {
-          setError(
-            'This release build is missing server configuration. Please reinstall the latest release APK.',
-          );
-        } else if (axiosErr.response?.status === 401) {
-          setError('Your session expired while loading your account. Please try again.');
-        } else if (axiosErr.response?.status && axiosErr.response.status >= 500) {
-          setError('Server issue while finishing sign-in. Please try again in a moment.');
-        } else if (axiosErr.message === 'Network Error') {
-          setError(OTP_BOOTSTRAP_ERROR_MESSAGE);
+        const firebaseErr = caughtError as { code?: string; message?: string };
+        if (
+          firebaseErr.message === 'OTP_SESSION_MISSING' ||
+          firebaseErr.code === 'auth/session-expired' ||
+          firebaseErr.code === 'auth/invalid-verification-id'
+        ) {
+          setError('OTP session expired. Please resend the code.');
+        } else if (firebaseErr.code === 'auth/invalid-verification-code') {
+          setError('Incorrect code. Please try again.');
+        } else if (firebaseErr.code === 'auth/network-request-failed') {
+          setError('Network issue while verifying OTP. Please try again.');
         } else {
-          setError(OTP_BOOTSTRAP_ERROR_MESSAGE);
+          setError('Something went wrong. Please try again.');
         }
-      } finally {
+        resetOtpInputs();
+        operationRef.current = false;
+        setIsLoading(false);
+        return;
+      }
+    }
+
+    try {
+      await bootstrapProfile();
+    } catch (caughtError) {
+      const axiosErr = caughtError as {
+        response?: { status?: number };
+        message?: string;
+        code?: string;
+      };
+      if (axiosErr.message === 'APP_CONFIG_MISSING_API_BASE_URL') {
+        setError(
+          'This release build is missing server configuration. Please reinstall the latest release APK.',
+        );
+      } else if (
+        axiosErr.code === 'ECONNABORTED' ||
+        axiosErr.code === 'ETIMEDOUT'
+      ) {
+        setError(
+          'OTP verified. The server is taking longer than expected; tap Continue to retry.',
+        );
+      } else if (axiosErr.response?.status === 401) {
+        setError(
+          'Your session expired while loading your account. Please try again.',
+        );
+      } else if (axiosErr.response?.status && axiosErr.response.status >= 500) {
+        setError(
+          'Server issue while finishing sign-in. Please try again in a moment.',
+        );
+      } else if (axiosErr.message === 'Network Error') {
+        setError(OTP_BOOTSTRAP_ERROR_MESSAGE);
+      } else {
+        setError(OTP_BOOTSTRAP_ERROR_MESSAGE);
+      }
+    } finally {
+      operationRef.current = false;
+      if (mountedRef.current) {
         setIsLoading(false);
       }
-    },
-    [
-      activeVerificationId,
-      bootstrapProfile,
-      hasVerifiedOtp,
-      isLoading,
-      isOtpComplete,
-      otpValue,
-      resetOtpInputs,
-    ],
-  );
+    }
+  }, [
+    activeVerificationId,
+    bootstrapProfile,
+    hasVerifiedOtp,
+    isOtpComplete,
+    otpValue,
+    phone,
+    resetOtpInputs,
+  ]);
 
   const handleDigitChange = (text: string, index: number) => {
     const sanitized = text.replace(/[^0-9]/g, '');
@@ -272,7 +285,7 @@ const OTPScreen = ({route, navigation}: Props) => {
   };
 
   const handleKeyPress = (
-    e: {nativeEvent: {key: string}},
+    e: { nativeEvent: { key: string } },
     index: number,
   ) => {
     if (e.nativeEvent.key === 'Backspace' && !digits[index] && index > 0) {
@@ -285,6 +298,11 @@ const OTPScreen = ({route, navigation}: Props) => {
   };
 
   const handleResend = async () => {
+    if (operationRef.current || countdown > 0) {
+      return;
+    }
+    operationRef.current = true;
+    setIsLoading(true);
     try {
       const otpSession = await sendPhoneOtp(phone);
       setActiveVerificationId(otpSession.verificationId);
@@ -293,11 +311,16 @@ const OTPScreen = ({route, navigation}: Props) => {
       setError(null);
       startTimer();
     } catch (caughtError) {
-      const firebaseErr = caughtError as {code?: string};
+      const firebaseErr = caughtError as { code?: string };
       if (firebaseErr.code === 'auth/network-request-failed') {
         setError('Network issue while resending OTP. Please try again.');
       } else {
         setError('Failed to resend OTP. Try again.');
+      }
+    } finally {
+      operationRef.current = false;
+      if (mountedRef.current) {
+        setIsLoading(false);
       }
     }
   };
@@ -305,50 +328,37 @@ const OTPScreen = ({route, navigation}: Props) => {
   return (
     <KeyboardAvoidingView
       className="flex-1"
-      style={{backgroundColor: COLORS.OFF_WHITE}}
-      behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+      style={{ backgroundColor: COLORS.OFF_WHITE }}
+      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+    >
+      <ScreenHeader
+        title="Confirm your OTP"
+        eyebrow="Secure Verification"
+        onBack={() => navigation.replace('LoginScreen')}
+        backDisabled={isLoading}
+      />
       <ScrollView
-        contentContainerStyle={{flexGrow: 1}}
-        keyboardShouldPersistTaps="handled">
+        contentContainerStyle={{ flexGrow: 1 }}
+        keyboardShouldPersistTaps="handled"
+      >
         <View
           className="flex-1 w-full self-center"
           style={{
             maxWidth: contentMaxWidth,
             paddingHorizontal: horizontalPadding,
-            paddingTop: topSpacing,
+            paddingTop: 16,
             paddingBottom: bottomSpacing,
-          }}>
-          <TouchableOpacity
-            className="min-h-[48px] min-w-[48px] items-center justify-center self-start"
-            onPress={() => navigation.replace('LoginScreen')}
-            activeOpacity={0.7}>
-            <MaterialCommunityIcons
-              color="#2F855A"
-              name="arrow-left"
-              size={24}
-            />
-          </TouchableOpacity>
-
-          <View
-            className="mt-5 self-start rounded-full px-4 py-2"
-            style={{backgroundColor: 'rgba(47, 133, 90, 0.12)'}}>
-            <Text className="text-xs font-semibold uppercase tracking-[1.2px] text-[#2F855A]">
-              Secure Verification
-            </Text>
-          </View>
-
-          <Text className="mt-5 text-3xl font-bold text-gray-900">
-            Confirm your OTP
-          </Text>
-          <Text className="mt-3 text-base leading-6 text-gray-600">
+          }}
+        >
+          <Text className="mt-3 text-base leading-6 text-muted">
             Enter the 6-digit code sent to the mobile number below.
           </Text>
-          <Text className="mt-4 text-base font-bold text-[#2F855A]">
+          <Text className="mt-4 text-base font-bold text-accent">
             {maskedPhone}
           </Text>
 
           <Card className="mt-8 p-5">
-            <Text className="text-sm leading-5 text-gray-600">
+            <Text className="text-sm leading-5 text-muted">
               Enter the verification code below to continue securely.
             </Text>
             <View
@@ -356,36 +366,41 @@ const OTPScreen = ({route, navigation}: Props) => {
               style={{
                 width: otpRowWidth,
                 justifyContent: 'center',
-              }}>
+              }}
+            >
               {digits.map((digit, index) => (
                 <View
                   key={index}
-                  className="items-center justify-center rounded-[18px] border-2 bg-white"
+                  className="items-center justify-center rounded-[18px] border-2 bg-surface"
                   style={{
                     width: otpCellSize,
                     height: otpCellSize,
                     marginRight: index === OTP_LENGTH - 1 ? 0 : otpGap,
                     borderColor: error
-                      ? '#FCA5A5'
+                      ? COLORS.ERROR_RED
                       : focusedIndex === index
-                        ? '#2F855A'
-                        : digit
-                          ? '#A7D7BE'
-                          : '#D4DDD6',
-                    backgroundColor: digit ? '#F4FBF7' : '#FFFFFF',
-                  }}>
+                      ? COLORS.FOREST_GREEN
+                      : digit
+                      ? COLORS.BORDER
+                      : COLORS.BORDER,
+                    backgroundColor: digit
+                      ? COLORS.INPUT_BACKGROUND
+                      : COLORS.CARD_WHITE,
+                  }}
+                >
                   <TextInput
                     ref={ref => {
                       inputRefs.current[index] = ref;
                     }}
-                    className="w-full text-center text-[22px] font-bold text-gray-900"
+                    className="w-full text-center text-[22px] font-bold text-content"
                     style={{
                       height: otpCellSize,
                       lineHeight: 26,
                       textAlignVertical: 'center',
                     }}
                     keyboardType="number-pad"
-                    maxLength={1}
+                    maxLength={OTP_LENGTH - index}
+                    accessibilityLabel={`OTP digit ${index + 1}`}
                     value={digit}
                     onChangeText={text => handleDigitChange(text, index)}
                     onKeyPress={e => handleKeyPress(e, index)}
@@ -400,7 +415,7 @@ const OTPScreen = ({route, navigation}: Props) => {
             </View>
 
             {error && (
-              <Text className="mt-4 text-center text-sm text-red-500">
+              <Text className="mt-4 text-center text-sm text-danger">
                 {error}
               </Text>
             )}
@@ -414,8 +429,8 @@ const OTPScreen = ({route, navigation}: Props) => {
                   ? 'Continuing...'
                   : 'Verifying...'
                 : hasVerifiedOtp
-                  ? 'Continue'
-                  : 'Verify OTP'
+                ? 'Continue'
+                : 'Verify OTP'
             }
             onPress={() => {
               void handleVerifyOtp();
@@ -426,15 +441,14 @@ const OTPScreen = ({route, navigation}: Props) => {
           {/* Countdown / Resend */}
           <View className="mt-6 items-center">
             {countdown > 0 ? (
-              <Text className="text-sm text-gray-500">
-                Resend in {countdown}s
-              </Text>
+              <Text className="text-sm text-muted">Resend in {countdown}s</Text>
             ) : (
               <TouchableOpacity
                 className="min-h-[48px] min-w-[48px] items-center justify-center"
                 onPress={handleResend}
-                activeOpacity={0.7}>
-                <Text className="text-sm font-bold text-[#2F855A]">
+                activeOpacity={0.7}
+              >
+                <Text className="text-sm font-bold text-accent">
                   Resend OTP
                 </Text>
               </TouchableOpacity>

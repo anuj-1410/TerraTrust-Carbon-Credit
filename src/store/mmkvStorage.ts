@@ -22,8 +22,12 @@ export const mmkvStorage: Storage = {
 
 export function clearPersistedAppStatePreserveOnboarding(): void {
   const onboardingComplete = mmkv.getBoolean('onboarding_complete');
+  const appearanceMode = mmkv.getString('appearance_mode');
 
   mmkv.clearAll();
+  if (appearanceMode === 'light' || appearanceMode === 'dark') {
+    mmkv.set('appearance_mode', appearanceMode);
+  }
 
   if (onboardingComplete === true) {
     mmkv.set('onboarding_complete', true);

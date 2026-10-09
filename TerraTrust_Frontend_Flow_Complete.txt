@@ -192,27 +192,32 @@ Back:       None
 What farmer sees:
   - TerraTrust logo centred on #F7FAFC background
   - Lottie spinning_leaf.json animation below logo
-  - No text. Pure visual load state.
+  - TerraTrust wordmark beneath the sprout logo, with colors matching the saved theme.
+  - Keep the logo visible for 2.5 seconds on a cold launch. Restore Firebase and
+    load an uncached profile during this interval; only navigation waits.
+    OTP transitions and later auth retries do not replay the launch delay.
 
-Logic (runs silently, farmer just sees the animation):
-  Step 1: Check Firebase currentUser.
-  Step 2: If no Firebase user → navigate to LoginScreen (replace, no back).
-  Step 3: If Firebase user exists:
-            Refresh ID token.
-            Call GET /api/v1/auth/me.
-  Step 4: If /auth/me returns 200:
-            If kyc_completed is false → navigate to KYCScreen (replace).
-            If kyc_completed is true:
-              Check if this is the very first time the main app is loaded
-              (MMKV key 'onboarding_complete' is missing or false).
-              If onboarding not done → navigate to OnboardingScreen.
-              If onboarding done → navigate to HomeScreen (tab navigator, replace).
-  Step 5: If /auth/me returns 401 or network error:
-            Clear Firebase session.
-            Navigate to LoginScreen.
+Logic (updated after the October 2026 session reliability fixes):
+  Step 1: Wait for the initial Firebase onAuthStateChanged event. A currentUser
+          value read before that event is not proof that the farmer signed out.
+  Step 2: If Firebase confirms no user, reset account data and replace LoginScreen.
+  Step 3: If Firebase confirms the same UID as the persisted profile, open the
+          cached KYC/Home route after the launch-brand interval. Revalidate
+          /auth/me in the background.
+          Account-owned cached data must never open for another Firebase UID.
+  Step 4: If no matching profile is cached, GET /api/v1/auth/me with a 15-second
+          request timeout and commit user, wallet, KYC, and recovery metadata in
+          one Redux action before navigating. Completed KYC enters Home; existing
+          completed users are marked onboarded, matching the returning-user flow.
+  Step 5: Keep Firebase sign-in on network errors, server errors, and timeouts.
+          An uncached profile failure displays a Retry screen. The native auth
+          restore wait is bounded to 10 seconds and also offers Retry on timeout.
+  Step 6: For HTTP 401, refresh the Firebase token once and retry the request.
+          Clear the session only after persistent 401 or a revoked/disabled token.
+          Connectivity failure during token refresh does not sign the farmer out.
 
-Timeout: If /auth/me takes more than 10 seconds, navigate to LoginScreen
-         with banner: "Connection issue. Please log in again."
+Wallet creation and registration run after the destination screen paints.
+Redux resets preserve persistence metadata so subsequent logins remain saved.
 
 --------------------------------------------------------------------------------
 SCREEN 2: LoginScreen
@@ -267,10 +272,9 @@ On "Verify" tap:
   - Call confirmation.confirm(code) from Firebase.
   - On success:
       Call GET /api/v1/auth/me.
-      If wallet_address is null:
-        Run silent wallet creation (ethers.js → react-native-keychain).
-        Call POST /api/v1/auth/register-wallet with public address only.
-        Refresh /auth/me state in Redux.
+      Commit the authenticated profile before navigating.
+      If wallet_address is null, run silent wallet creation and registration
+      after navigation. A wallet failure does not block entry to KYC/Home.
       If kyc_completed is false → navigate to KYCScreen.
       If kyc_completed is true:
         If onboarding_complete is false → navigate to OnboardingScreen.
@@ -1076,6 +1080,10 @@ Header:     "Settings", back arrow
 Back:       Yes — goes back to ProfileScreen
 
 What farmer sees (toggle rows):
+  "Dark Mode" toggle (off = light, on = dark) — switches all app surfaces,
+    text, forms, status indicators, charts, sheets, navigation, and tab colors.
+    Saved in MMKV as appearance_mode; persists across relaunch and logout.
+    Live camera imagery and document photos retain their natural colors.
   "Notifications" toggle (on/off) — enables/disables push notifications from
     react-native-background-fetch success events.
   "GPS High Accuracy Mode" toggle — enables/disables high accuracy GPS drain.
@@ -1358,8 +1366,10 @@ All screens — 500 server error:
   (Already handled by Axios interceptor in api.ts)
 
 All screens — 401 token expired:
-  Firebase signOut. Navigate to LoginScreen.
-  (Already handled by Axios interceptor in api.ts)
+  Share one forced token refresh between concurrent failed requests and retry once.
+  A second 401 clears the session and resets LoginScreen. Offline refresh preserves
+  the session. Ignore responses belonging to a previous Firebase account.
+  (Handled by Axios interceptor in api.ts)
 
 ================================================================================
 SECTION 8: REDUX STATE — ADDITIONS NEEDED FOR NEW SCREENS
@@ -1500,3 +1510,13 @@ Navigation structure detailed here:
   - Header bar specifications for every screen
 
 ================================================================================
+
+
+UI UPDATE — 8 OCTOBER 2026
+Shared ScreenHeader title/back rows are outside ScrollView/FlatList content and
+account for the status-bar safe inset. Audit exit/save guards remain in place.
+Camera controls stay fixed over the preview with safe-inset spacing. Android
+uses a crisp floating pill with transparent surroundings and no native blur
+or elevation; iOS confines optional blur to the clipped pill. Foreground tab
+icons and labels remain opaque. Theme tokens support persisted light/dark
+palettes. See UI_UX_VALIDATION.md for verification and device checks.

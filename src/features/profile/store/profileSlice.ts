@@ -1,4 +1,5 @@
 import {createSlice, type PayloadAction} from '@reduxjs/toolkit';
+import {setAuthenticatedProfile} from '../../auth/store/authSlice';
 
 export type WalletRecoveryStatus =
   | 'PENDING'
@@ -49,6 +50,13 @@ const profileSlice = createSlice({
       state.walletRecoveryPending = action.payload.status === 'PENDING';
       state.walletRecoveryRequestedAt = action.payload.requestedAt ?? null;
     },
+  },
+  extraReducers: builder => {
+    builder.addCase(setAuthenticatedProfile, (state, {payload}) => {
+      state.walletRecoveryStatus = payload.wallet_recovery_status;
+      state.walletRecoveryPending = payload.wallet_recovery_status === 'PENDING';
+      state.walletRecoveryRequestedAt = payload.wallet_recovery_requested_at;
+    });
   },
 });
 
