@@ -233,6 +233,8 @@ const AuditStatusScreen = () => {
     <View className="flex-1" style={{ backgroundColor: COLORS.OFF_WHITE }}>
       <ScreenHeader title="Audit status" />
       <ScrollView
+        showsVerticalScrollIndicator={false}
+        showsHorizontalScrollIndicator={false}
         contentContainerStyle={{
           alignSelf: 'center',
           width: '100%',

@@ -140,7 +140,7 @@ it('lets the farmer dismiss the drawer while verifying and discards the late res
   const { screen, onVerified, onClose } = setup();
   fireEvent.changeText(screen.getByLabelText('Verification code'), '123456');
   fireEvent.press(screen.getByLabelText('Close verification drawer'));
-  expect(onClose).toHaveBeenCalledTimes(1);
+  await waitFor(() => expect(onClose).toHaveBeenCalledTimes(1));
   screen.unmount();
   await act(async () => finish());
   expect(onVerified).not.toHaveBeenCalled();
@@ -162,8 +162,16 @@ it('resends with a new verification ID after the cooldown and uses it for the ne
       ),
     );
     expect(mockConfirm).toHaveBeenCalledWith('654321', 'verification-2');
-    expect(onVerified).toHaveBeenCalledTimes(1);
+    await waitFor(() => expect(onVerified).toHaveBeenCalledTimes(1));
   } finally {
     jest.useRealTimers();
   }
+});
+
+it('hides the complete native input rendering layer while retaining six-digit autofill', () => {
+  const { screen } = setup();
+  const input = screen.getByLabelText('Verification code');
+  expect(input.props.style.opacity).toBe(0);
+  expect(input.props.maxLength).toBe(6);
+  expect(input.props.importantForAutofill).toBe('yes');
 });

@@ -1,4 +1,5 @@
 import { useTheme } from '../common/theme/theme';
+import { useReducedMotion } from '../common/hooks/useReducedMotion';
 import React, { useEffect, useRef, useState } from 'react';
 import {
   Animated,
@@ -41,16 +42,24 @@ function TabItem({
 }) {
   const { colors: COLORS } = useTheme();
   const progress = useRef(new Animated.Value(focused ? 1 : 0)).current;
+  const reduced = useReducedMotion();
 
   useEffect(() => {
-    Animated.spring(progress, {
+    if (reduced) {
+      progress.setValue(focused ? 1 : 0);
+      return;
+    }
+    const animation = Animated.spring(progress, {
       toValue: focused ? 1 : 0,
       stiffness: 260,
       damping: 24,
       mass: 0.8,
       useNativeDriver: true,
-    }).start();
-  }, [focused, progress]);
+      isInteraction: false,
+    });
+    animation.start();
+    return () => animation.stop();
+  }, [focused, progress, reduced]);
 
   return (
     <Pressable

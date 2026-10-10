@@ -1,16 +1,13 @@
+import { isUsableLandRecord } from '../utils/landRecord';
+import { openExternalLink } from '../../../common/utils/openExternalLink';
+import { readBoundaryResponse } from '../utils/boundaryResponse';
+import { useLandOperation } from '../hooks/useLandOperation';
 import { useResponsiveScreen } from '../../../common/hooks/useResponsiveScreen';
 import ScreenHeader from '../../../common/components/ScreenHeader';
 import { useTheme } from '../../../common/theme/theme';
 import React, { useCallback, useState } from 'react';
-import {
-  Image,
-  Linking,
-  ScrollView,
-  Text,
-  TouchableOpacity,
-  View,
-} from 'react-native';
-import { useNavigation } from '@react-navigation/native';
+import { Image, ScrollView, Text, TouchableOpacity, View } from 'react-native';
+import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import {
   pick,
@@ -24,11 +21,7 @@ import { MaterialDesignIcons as MaterialCommunityIcons } from '@react-native-vec
 
 import type { RootStackParamList } from '../../../types/navigation';
 import { useAppDispatch, useAppSelector } from '../../../store/hooks';
-import {
-  setCurrentDraft,
-  type BoundarySource,
-  type GeoJSONPolygon,
-} from '../store/landSlice';
+import { setCurrentDraft, type GeoJSONPolygon } from '../store/landSlice';
 import api from '../../../services/api';
 
 type Nav = NativeStackNavigationProp<RootStackParamList>;
@@ -81,118 +74,163 @@ const ManualUploadGuideScreen = () => {
   const { bottomSpacing } = useResponsiveScreen();
   const navigation = useNavigation<Nav>();
   const dispatch = useAppDispatch();
+  const { run, cancel } = useLandOperation();
   const currentDraft = useAppSelector(state => state.land.currentDraft);
   const ocrResult = currentDraft.ocrResult;
   const surveyNumber = ocrResult?.survey_number ?? '';
 
   const [isLoading, setIsLoading] = useState(false);
+  useFocusEffect(
+    useCallback(() => {
+      setIsLoading(false);
+    }, []),
+  );
   const [loadingText, setLoadingText] = useState('Processing your map...');
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [isOffline, setIsOffline] = useState(false);
   const [selectedMap, setSelectedMap] = useState<SelectedMap | null>(null);
 
   const goToDocumentUpload = useCallback(() => {
+    cancel();
     navigation.replace('DocumentUploadScreen');
-  }, [navigation]);
+  }, [cancel, navigation]);
 
   const openPortal = useCallback(() => {
-    void Linking.openURL(BHUNAKSHA_URL);
+    void openExternalLink(BHUNAKSHA_URL);
   }, []);
 
-  const selectMap = useCallback(async () => {
-    setErrorMessage(null);
-    setIsOffline(false);
+  const selectMap = useCallback(
+    () =>
+      run(
+        async operation => {
+          setErrorMessage(null);
+          setIsOffline(false);
 
-    try {
-      const [result] = await pick({ type: [types.images] });
+          try {
+            const [result] = await pick({ type: [types.images] });
+            if (!operation.isCurrent()) {
+              return;
+            }
 
-      if (result.size && result.size > MAX_FILE_SIZE) {
-        setErrorMessage('Image is too large. Please use a smaller file.');
-        return;
-      }
+            if (result.size && result.size > MAX_FILE_SIZE) {
+              setErrorMessage('Image is too large. Please use a smaller file.');
+              return;
+            }
 
-      setSelectedMap({
-        uri: result.uri,
-        type: result.nativeType ?? 'image/jpeg',
-        name: result.name ?? 'map.jpg',
-      });
-    } catch (err: unknown) {
-      if (isErrorWithCode(err) && err.code === errorCodes.OPERATION_CANCELED) {
-        return;
-      }
-      setErrorMessage('Could not open this image. Please try again.');
-    }
-  }, []);
+            setSelectedMap({
+              uri: result.uri,
+              type: result.nativeType ?? 'image/jpeg',
+              name: result.name ?? 'map.jpg',
+            });
+          } catch (err: unknown) {
+            if (!operation.isCurrent()) {
+              return;
+            }
+            if (
+              isErrorWithCode(err) &&
+              err.code === errorCodes.OPERATION_CANCELED
+            ) {
+              return;
+            }
+            setErrorMessage('Could not open this image. Please try again.');
+          }
+        },
+        () => {
+          setErrorMessage('Could not finish this step. Please try again.');
+          setIsLoading(false);
+        },
+      ),
+    [run],
+  );
 
-  const processSelectedMap = useCallback(async () => {
-    if (!selectedMap || !ocrResult) {
-      return;
-    }
+  const processSelectedMap = useCallback(
+    () =>
+      run(
+        async operation => {
+          if (!selectedMap || !isUsableLandRecord(ocrResult)) {
+            return;
+          }
 
-    const netInfo = await NetInfo.fetch();
-    if (!netInfo.isConnected) {
-      setIsOffline(true);
-      return;
-    }
+          const netInfo = await NetInfo.fetch();
+          if (!operation.isCurrent()) {
+            return;
+          }
+          if (
+            netInfo.isConnected === false ||
+            netInfo.isInternetReachable === false
+          ) {
+            setIsOffline(true);
+            return;
+          }
 
-    try {
-      setIsLoading(true);
-      setLoadingText('Processing your map...');
-      setErrorMessage(null);
-      dispatch(setCurrentDraft({ fetchStatus: 'fetching' }));
+          try {
+            setIsLoading(true);
+            setLoadingText('Processing your map...');
+            setErrorMessage(null);
+            dispatch(setCurrentDraft({ fetchStatus: 'fetching' }));
 
-      const formData = new FormData();
-      formData.append('map_image', {
-        uri: selectedMap.uri,
-        type: selectedMap.type,
-        name: selectedMap.name,
-      } as unknown as Blob);
-      formData.append('survey_number', ocrResult.survey_number);
-      formData.append('district', ocrResult.district);
-      formData.append('taluka', ocrResult.taluka);
-      formData.append('village', ocrResult.village);
-      formData.append('state', ocrResult.state);
+            const formData = new FormData();
+            formData.append('map_image', {
+              uri: selectedMap.uri,
+              type: selectedMap.type,
+              name: selectedMap.name,
+            } as unknown as Blob);
+            formData.append('survey_number', ocrResult.survey_number);
+            formData.append('district', ocrResult.district);
+            formData.append('taluka', ocrResult.taluka);
+            formData.append('village', ocrResult.village);
+            formData.append('state', ocrResult.state);
 
-      const response = await api.post<ManualBoundaryResponse>(
-        '/api/v1/land/fetch-boundary',
-        formData,
-        { headers: { 'Content-Type': 'multipart/form-data' } },
-      );
+            const response = await api.post<ManualBoundaryResponse>(
+              '/api/v1/land/fetch-boundary',
+              formData,
+              {
+                signal: operation.signal,
+                headers: { 'Content-Type': 'multipart/form-data' },
+              },
+            );
+            if (!operation.isCurrent()) {
+              return;
+            }
 
-      const boundary =
-        response.data.geojson?.geometry ?? response.data.boundary;
+            dispatch(
+              setCurrentDraft(readBoundaryResponse(response.data, 'MANUAL')),
+            );
+            setIsLoading(false);
+            navigation.navigate('BoundaryConfirmScreen');
+          } catch (err: unknown) {
+            if (!operation.isCurrent()) {
+              return;
+            }
+            const axiosErr = err as { response?: { status?: number } };
+            dispatch(setCurrentDraft({ fetchStatus: 'error' }));
 
-      if (!boundary) {
-        throw new Error('BOUNDARY_EXTRACTION_FAILED');
-      }
-
-      dispatch(
-        setCurrentDraft({
-          boundary,
-          boundarySource:
-            (response.data.boundary_source as BoundarySource) ?? 'MANUAL',
-          satelliteThumbnailUrl: response.data.satellite_thumbnail_url ?? null,
-          fetchStatus: 'success',
-        }),
-      );
-      navigation.navigate('BoundaryConfirmScreen');
-    } catch (err: unknown) {
-      const axiosErr = err as { response?: { status?: number } };
-      dispatch(setCurrentDraft({ fetchStatus: 'error' }));
-
-      if (!axiosErr.response) {
-        setIsOffline(true);
-      } else if (axiosErr.response.status === 422) {
-        setErrorMessage(
-          'Could not extract boundary from this image. Please try a different file.',
-        );
-      } else {
-        setErrorMessage('Something went wrong. Please try again.');
-      }
-    } finally {
-      setIsLoading(false);
-    }
-  }, [dispatch, navigation, ocrResult, selectedMap]);
+            if ((err as Error).message === 'BOUNDARY_RESPONSE_INVALID') {
+              setErrorMessage(
+                'The map did not contain a valid closed land boundary. Please try a different image.',
+              );
+            } else if (!axiosErr.response) {
+              setIsOffline(true);
+            } else if (axiosErr.response.status === 422) {
+              setErrorMessage(
+                'Could not extract boundary from this image. Please try a different file.',
+              );
+            } else {
+              setErrorMessage('Something went wrong. Please try again.');
+            }
+          } finally {
+            if (operation.isCurrent()) {
+              setIsLoading(false);
+            }
+          }
+        },
+        () => {
+          setErrorMessage('Could not finish this step. Please try again.');
+          setIsLoading(false);
+        },
+      ),
+    [dispatch, navigation, ocrResult, selectedMap, run],
+  );
 
   return (
     <View style={{ flex: 1, backgroundColor: COLORS.OFF_WHITE }}>
@@ -221,6 +259,8 @@ const ManualUploadGuideScreen = () => {
 
       {selectedMap ? (
         <ScrollView
+          showsVerticalScrollIndicator={false}
+          showsHorizontalScrollIndicator={false}
           className="flex-1 px-6"
           contentContainerStyle={{ paddingBottom: 24 }}
         >
@@ -284,6 +324,8 @@ const ManualUploadGuideScreen = () => {
         <>
           {/* Steps */}
           <ScrollView
+            showsVerticalScrollIndicator={false}
+            showsHorizontalScrollIndicator={false}
             className="flex-1 px-6"
             contentContainerStyle={{ paddingBottom: 24 }}
           >

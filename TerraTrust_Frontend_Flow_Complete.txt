@@ -507,12 +507,16 @@ Back:       Depends on access origin (React Navigation handles this automaticall
 Tab:        TAB 1 (HomeStack push) or TAB 3 (HistoryStack root)
 
 What farmer sees:
-  TOP — Bar chart (react-native-chart-kit):
-    Year-over-year CTT earnings across all parcels.
-    X-axis: years. Y-axis: CTT earned.
-    Teal (#38B2AC) bars.
+  TOP — Annual credits chart (updated 10 October 2026):
+    Horizontal bars compare total CTT issued across all parcels per audit year.
+    Each bar has an explicit year and exact CTT value; totals are not labelled
+    as percentage growth. Uses shared light/dark theme accents.
+    Up to five years per chart page, with Older years / Newer years controls.
+    Filter chart and list together: All years, 1/3/5/10 calendar years ending
+    in the current year, or custom inclusive From/To years (1900-current year).
+    Selected ranges include zero-issuance years. All years shows actual years.
 
-  BELOW CHART — Complete audit list (paginated, infinite scroll):
+  BELOW CHART — Complete audit list (virtualized):
     Each entry:
       Land name (e.g. "North Field")
       Audit Year (e.g. 2025)
@@ -522,12 +526,16 @@ What farmer sees:
       "View Certificate" button → opens Pinata gateway URL in browser
 
   Empty state: "No credit history yet. Complete your first audit to earn credits."
-  Loading state: Lottie spinning_leaf.json centred on screen.
-  Offline state: Show cached history with "Last updated [time]" banner at top.
+  Loading state: Keep cached records visible with progress indication.
+  Offline/failure state: Show cached history and last-update time, explain that
+    totals may be incomplete, and offer Retry. Pull-to-refresh reloads history.
 
 Pagination:
-  Load page 1 on mount. Append more on scroll to bottom when has_more=true.
-  API: GET /api/v1/credits/balance with page and limit parameters.
+  Load sequential pages in batches of 20 on mount/refresh until has_more=false
+  so annual totals include every returned page. Deduplicate overlapping records
+  and stop repeated/non-advancing pages. Failed later pages can resume on Retry.
+  API: GET /api/v1/credits/balance with existing page and limit parameters.
+  No fixed overall record/year limit; device memory and service limits apply.
 
 ================================================================================
 MAIN APP SCREENS — TAB 2: LAND STACK
@@ -1550,3 +1558,18 @@ Wallet creation initializes native secure randomness before ethers loads.
 New keys/setup requests are scoped to Firebase UID; failures retry silently
 in the background and expose a Profile retry action instead of a global
 wallet banner. See UI_UX_VALIDATION.md for the current verification record.
+
+UI/LAND/HISTORY UPDATE — 10 OCTOBER 2026
+OTP cells display each digit once; the backing autofill input is visually
+hidden. Shared drawers use one native-driven sheet/backdrop animation and
+complete dismissal before login handoff. Focus is deferred until opening or
+editable input restoration. Stacks, tabs, and sheets honor reduced motion.
+Both scroll indicators are hidden throughout the app; scrolling remains.
+Land requests are owned by the focused screen/session and discard obsolete
+results. Duplicate submissions are locked, drafts/responses validated, and
+loading cancellation/error recovery supplied. Shared land pagination tracks
+the current snapshot; explicit null status fields clear old audit values.
+Boundary maps occupy the area above bottom controls, include polygon holes,
+and label client area estimates as approximate; server area is authoritative.
+CreditHistoryScreen uses the annual chart/filter/pagination rules in Screen 9.
+See UI_UX_VALIDATION.md for tests, limitations, and deployed demo-reset caveat.

@@ -1,15 +1,12 @@
 import ScreenHeader from '../../../common/components/ScreenHeader';
 import { useTheme } from '../../../common/theme/theme';
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useMemo, useState } from 'react';
+import { View, Text, Image, ScrollView, TouchableOpacity } from 'react-native';
 import {
-  View,
-  Text,
-  Image,
-  ScrollView,
-  TouchableOpacity,
-  Linking,
-} from 'react-native';
-import { useNavigation, useRoute } from '@react-navigation/native';
+  useNavigation,
+  useRoute,
+  useFocusEffect,
+} from '@react-navigation/native';
 import type { RouteProp } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { MaterialDesignIcons as MaterialCommunityIcons } from '@react-native-vector-icons/material-design-icons';
@@ -19,7 +16,9 @@ import Card from '../../../common/components/Card';
 import { useResponsiveScreen } from '../../../common/hooks/useResponsiveScreen';
 import { getLandStatusMeta } from '../../../common/utils/getLandStatus';
 import { hectaresToAcres } from '../../../common/utils/units';
-import { useAppSelector } from '../../../store/hooks';
+import { useLandOperation } from '../hooks/useLandOperation';
+import { useLandParcel } from '../hooks/useLandParcel';
+import { openExternalLink } from '../../../common/utils/openExternalLink';
 import api from '../../../services/api';
 import type { RootStackParamList } from '../../../types/navigation';
 
@@ -40,46 +39,80 @@ const LandDetailScreen = () => {
   const navigation = useNavigation<Nav>();
   const route = useRoute<RouteType>();
   const { landId, originTab = 'LandTab' } = route.params;
-  const parcel = useAppSelector(state =>
-    state.land.parcels.find(item => item.id === landId),
-  );
+  const parcel = useLandParcel(landId);
+  const { run, cancel } = useLandOperation();
 
   const [history, setHistory] = useState<ParcelAuditHistory[]>([]);
   const [isLoadingHistory, setIsLoadingHistory] = useState(false);
+  const [historyError, setHistoryError] = useState<string | null>(null);
+  const [historyPage, setHistoryPage] = useState(1);
+  const [failedPage, setFailedPage] = useState(1);
+  const [hasMore, setHasMore] = useState(false);
+  const loadHistory = useCallback(
+    (page = 1) =>
+      run(
+        async operation => {
+          try {
+            setIsLoadingHistory(true);
+            setHistoryError(null);
+            setFailedPage(page);
+            const response = await api.get(`/api/v1/audit/history/${landId}`, {
+              params: { page, limit: 20 },
+              signal: operation.signal,
+            });
+            if (!operation.isCurrent()) {
+              return;
+            }
+            const records = Array.isArray(response.data)
+              ? response.data
+              : Array.isArray(response.data?.items)
+              ? response.data.items
+              : [];
 
-  useEffect(() => {
-    let isMounted = true;
-
-    const loadHistory = async () => {
-      try {
-        setIsLoadingHistory(true);
-        const response = await api.get(`/api/v1/audit/history/${landId}`);
-        const records = Array.isArray(response.data)
-          ? response.data
-          : Array.isArray(response.data?.items)
-          ? response.data.items
-          : [];
-
-        if (isMounted) {
-          setHistory(records as ParcelAuditHistory[]);
-        }
-      } catch {
-        if (isMounted) {
-          setHistory([]);
-        }
-      } finally {
-        if (isMounted) {
+            setHistory(previous =>
+              page === 1
+                ? records
+                : [...previous, ...records].filter(
+                    (record, index, all) =>
+                      all.findIndex(
+                        other =>
+                          (other.audit_id ??
+                            `${other.audit_year}:${other.status}`) ===
+                          (record.audit_id ??
+                            `${record.audit_year}:${record.status}`),
+                      ) === index,
+                  ),
+            );
+            setHistoryPage(page);
+            setHasMore(
+              Boolean(
+                response.data?.has_more ??
+                  page * 20 < Number(response.data?.total ?? records.length),
+              ),
+            );
+          } catch {
+            if (operation.isCurrent()) {
+              setHistoryError('Could not load audit history. Tap to retry.');
+            }
+          } finally {
+            if (operation.isCurrent()) {
+              setIsLoadingHistory(false);
+            }
+          }
+        },
+        () => {
           setIsLoadingHistory(false);
-        }
-      }
-    };
-
-    void loadHistory();
-
-    return () => {
-      isMounted = false;
-    };
-  }, [landId]);
+          setHistoryError('Could not load audit history. Tap to retry.');
+        },
+      ),
+    [landId, run],
+  );
+  useFocusEffect(
+    useCallback(() => {
+      void loadHistory(1);
+      return cancel;
+    }, [cancel, loadHistory]),
+  );
 
   const statusMeta = useMemo(() => {
     if (!parcel) {
@@ -138,6 +171,8 @@ const LandDetailScreen = () => {
         }
       />
       <ScrollView
+        showsVerticalScrollIndicator={false}
+        showsHorizontalScrollIndicator={false}
         contentContainerStyle={{ paddingBottom: Math.max(32, bottomSpacing) }}
       >
         {parcel.thumbnail_url ? (
@@ -204,7 +239,9 @@ const LandDetailScreen = () => {
               </Text>
               <Text style={{ color: COLORS.DARK_SLATE }}>
                 <Text className="font-semibold">Registered:</Text>{' '}
-                {new Date(parcel.created_at).toLocaleDateString('en-GB')}
+                {Number.isNaN(Date.parse(parcel.created_at))
+                  ? 'Unavailable'
+                  : new Date(parcel.created_at).toLocaleDateString('en-GB')}
               </Text>
             </View>
           </Card>
@@ -220,7 +257,8 @@ const LandDetailScreen = () => {
               <Text className="mt-3" style={{ color: COLORS.DISABLED_GREY }}>
                 Loading audit history...
               </Text>
-            ) : history.length === 0 ? (
+            ) : historyError && history.length === 0 ? null : history.length ===
+              0 ? (
               <Text className="mt-3" style={{ color: COLORS.DISABLED_GREY }}>
                 No audit history for this land yet.
               </Text>
@@ -249,7 +287,7 @@ const LandDetailScreen = () => {
                     <TouchableOpacity
                       className="mt-2"
                       onPress={() =>
-                        void Linking.openURL(
+                        void openExternalLink(
                           record.ipfs_certificate_url as string,
                         )
                       }
@@ -262,6 +300,35 @@ const LandDetailScreen = () => {
                 </View>
               ))
             )}
+            {historyError ? (
+              <TouchableOpacity
+                accessibilityRole="button"
+                onPress={() => void loadHistory(failedPage)}
+                style={{
+                  minHeight: 48,
+                  justifyContent: 'center',
+                  marginTop: 12,
+                }}
+              >
+                <Text style={{ color: COLORS.ERROR_RED }}>{historyError}</Text>
+              </TouchableOpacity>
+            ) : null}
+            {hasMore && !historyError ? (
+              <TouchableOpacity
+                accessibilityRole="button"
+                disabled={isLoadingHistory}
+                onPress={() => void loadHistory(historyPage + 1)}
+                style={{
+                  minHeight: 48,
+                  justifyContent: 'center',
+                  marginTop: 12,
+                }}
+              >
+                <Text style={{ color: COLORS.FOREST_GREEN }}>
+                  Load more audits
+                </Text>
+              </TouchableOpacity>
+            ) : null}
           </Card>
 
           <View className="mt-4 gap-3">
@@ -310,7 +377,7 @@ const LandDetailScreen = () => {
                 className="min-h-[52px] items-center justify-center rounded-xl border"
                 style={{ borderColor: COLORS.TEAL }}
                 onPress={() =>
-                  void Linking.openURL(parcel.latest_certificate_url as string)
+                  void openExternalLink(parcel.latest_certificate_url as string)
                 }
               >
                 <Text style={{ color: COLORS.TEAL }}>

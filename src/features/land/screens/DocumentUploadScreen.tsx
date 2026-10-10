@@ -1,3 +1,6 @@
+import { isUsableLandRecord } from '../utils/landRecord';
+import { readBoundaryResponse } from '../utils/boundaryResponse';
+import { useLandOperation } from '../hooks/useLandOperation';
 import ScreenHeader from '../../../common/components/ScreenHeader';
 import { useTheme } from '../../../common/theme/theme';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
@@ -5,7 +8,6 @@ import {
   BackHandler,
   Image,
   Linking,
-  Platform,
   ScrollView,
   Text,
   TextInput,
@@ -13,7 +15,7 @@ import {
   StatusBar,
   View,
 } from 'react-native';
-import { useNavigation } from '@react-navigation/native';
+import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { Camera, useCameraDevice } from 'react-native-vision-camera';
 import {
@@ -129,6 +131,7 @@ const DocumentUploadScreen = () => {
   const { colors: COLORS } = useTheme();
   const navigation = useNavigation<Nav>();
   const dispatch = useAppDispatch();
+  const { run, cancel } = useLandOperation();
   const registeredOwnerName = useAppSelector(
     state => state.auth.user?.name ?? '',
   );
@@ -157,6 +160,7 @@ const DocumentUploadScreen = () => {
   );
 
   const closeRegistrationFlow = useCallback(() => {
+    cancel();
     dispatch(clearCurrentDraft());
     navigation.reset({
       index: 0,
@@ -170,19 +174,25 @@ const DocumentUploadScreen = () => {
         },
       ],
     });
-  }, [dispatch, navigation]);
+  }, [cancel, dispatch, navigation]);
 
-  useEffect(() => {
-    const subscription = BackHandler.addEventListener(
-      'hardwareBackPress',
-      () => {
-        closeRegistrationFlow();
-        return true;
-      },
-    );
+  useFocusEffect(
+    useCallback(() => {
+      const subscription = BackHandler.addEventListener(
+        'hardwareBackPress',
+        () => {
+          if (screenState === 'camera') {
+            setScreenState('capture');
+            return true;
+          }
+          closeRegistrationFlow();
+          return true;
+        },
+      );
 
-    return () => subscription.remove();
-  }, [closeRegistrationFlow]);
+      return () => subscription.remove();
+    }, [closeRegistrationFlow, screenState]),
+  );
 
   useEffect(() => {
     setManualRecord(currentRecord => {
@@ -216,213 +226,338 @@ const DocumentUploadScreen = () => {
     [],
   );
 
-  const openCamera = useCallback(async () => {
-    const permission = await Camera.requestCameraPermission();
-    if (permission !== 'granted') {
-      setErrorMessage('Camera access is needed to photograph your document.');
-      setScreenState('error');
-      return;
-    }
-    setScreenState('camera');
-  }, []);
-
-  const takePhoto = useCallback(async () => {
-    if (!cameraRef.current) {
-      return;
-    }
-
-    const photo = await cameraRef.current.takePhoto({ flash: 'off' });
-    const uri = Platform.OS === 'android' ? `file://${photo.path}` : photo.path;
-
-    try {
-      const response = await fetch(uri);
-      const blob = await response.blob();
-      if (blob.size > MAX_FILE_SIZE) {
-        setErrorMessage(
-          'Image is too large. Please take a clearer, smaller photo.',
-        );
-        setScreenState('error');
-        return;
-      }
-    } catch {
-      // Continue even if blob size cannot be checked.
-    }
-
-    setImageUri(uri);
-    setImageMime('image/jpeg');
-    setManualEntryError(null);
-    setErrorMessage(null);
-    setScreenState('preview');
-  }, []);
-
-  const pickFromGallery = useCallback(async () => {
-    try {
-      const [result] = await pick({ type: [types.images] });
-
-      if (result.size && result.size > MAX_FILE_SIZE) {
-        setErrorMessage(
-          'Image is too large. Please choose a clearer, smaller photo.',
-        );
-        setScreenState('error');
-        return;
-      }
-
-      setImageUri(result.uri);
-      setImageMime(result.nativeType ?? 'image/jpeg');
-      setManualEntryError(null);
-      setErrorMessage(null);
-      setScreenState('preview');
-    } catch (error: unknown) {
-      if (
-        isErrorWithCode(error) &&
-        error.code === errorCodes.OPERATION_CANCELED
-      ) {
-        return;
-      }
-
-      setErrorMessage('Failed to pick image. Please try again.');
-      setScreenState('error');
-    }
-  }, []);
-
-  const onConfirmAndProcess = useCallback(async () => {
-    if (!imageUri) {
-      return;
-    }
-
-    const netInfo = await NetInfo.fetch();
-    if (!netInfo.isConnected) {
-      setIsOffline(true);
-      return;
-    }
-
-    setLoadingMessage('Reading your document...');
-    setScreenState('loading');
-    setIsOffline(false);
-
-    const formData = new FormData();
-    formData.append('image', {
-      uri: imageUri,
-      type: imageMime,
-      name: 'document.jpg',
-    } as unknown as Blob);
-
-    try {
-      const { data } = await api.post(
-        '/api/v1/land/verify-document',
-        formData,
-        {
-          headers: { 'Content-Type': 'multipart/form-data' },
-          timeout: 60_000,
+  const openCamera = useCallback(
+    () =>
+      run(
+        async operation => {
+          const permission = await Camera.requestCameraPermission();
+          if (!operation.isCurrent()) {
+            return;
+          }
+          if (permission !== 'granted') {
+            setErrorMessage(
+              'Camera access is needed to photograph your document.',
+            );
+            setScreenState('error');
+            return;
+          }
+          if (!device) {
+            setErrorMessage(
+              'Camera is unavailable. Choose a document from your gallery.',
+            );
+            setScreenState('error');
+            return;
+          }
+          setScreenState('camera');
         },
-      );
+        () => {
+          setErrorMessage('Could not finish this step. Please try again.');
+          setScreenState('error');
+        },
+      ),
+    [device, run],
+  );
 
-      const result = data as OCRResult;
-      setOcrResult(result);
-      dispatch(setCurrentDraft({ ocrResult: result }));
-      setScreenState('ocr_result');
-    } catch (error: unknown) {
-      const axiosErr = error as {
-        response?: { status?: number; data?: { error?: string } };
-      };
+  const takePhoto = useCallback(
+    () =>
+      run(
+        async operation => {
+          if (!cameraRef.current) {
+            return;
+          }
 
-      if (!axiosErr.response) {
-        setIsOffline(true);
-        setScreenState('preview');
-        return;
-      }
+          const photo = await cameraRef.current.takePhoto({ flash: 'off' });
+          if (!operation.isCurrent()) {
+            return;
+          }
+          const uri = photo.path.startsWith('file://')
+            ? photo.path
+            : `file://${photo.path}`;
 
-      if (axiosErr.response.status === 422) {
-        setErrorMessage(
-          'Could not extract the required fields. Please retake the document in better lighting.',
-        );
-      } else if (axiosErr.response.status && axiosErr.response.status >= 500) {
-        setManualEntryError(null);
-        setErrorMessage(
-          'Automatic document reading is temporarily unavailable on TerraTrust servers. Enter the land record details manually to continue.',
-        );
-        setScreenState('manual_entry');
-        return;
-      } else {
-        setErrorMessage(
-          axiosErr.response.data?.error ??
-            'Something went wrong. Please try again.',
-        );
-      }
-      setScreenState('error');
-    }
-  }, [dispatch, imageMime, imageUri]);
+          try {
+            const response = await fetch(uri);
+            if (!operation.isCurrent()) {
+              return;
+            }
+            const blob = await response.blob();
+            if (!operation.isCurrent()) {
+              return;
+            }
+            if (blob.size > MAX_FILE_SIZE) {
+              setErrorMessage(
+                'Image is too large. Please take a clearer, smaller photo.',
+              );
+              setScreenState('error');
+              return;
+            }
+          } catch {
+            if (!operation.isCurrent()) {
+              return;
+            }
+            // Continue even if blob size cannot be checked.
+          }
 
-  const onContinue = useCallback(async () => {
-    if (!ocrResult || ownerNameMismatch) {
-      return;
-    }
+          setImageUri(uri);
+          setImageMime('image/jpeg');
+          setManualEntryError(null);
+          setErrorMessage(null);
+          setScreenState('preview');
+        },
+        () => {
+          setErrorMessage('Could not finish this step. Please try again.');
+          setScreenState('error');
+        },
+      ),
+    [run],
+  );
 
-    const netInfo = await NetInfo.fetch();
-    if (!netInfo.isConnected) {
-      setIsOffline(true);
-      return;
-    }
+  const pickFromGallery = useCallback(
+    () =>
+      run(
+        async operation => {
+          try {
+            const [result] = await pick({ type: [types.images] });
+            if (!operation.isCurrent()) {
+              return;
+            }
 
-    dispatch(setCurrentDraft({ fetchStatus: 'fetching' }));
-    setLoadingMessage('Fetching your official land boundary...');
-    setScreenState('loading');
+            if (result.size && result.size > MAX_FILE_SIZE) {
+              setErrorMessage(
+                'Image is too large. Please choose a clearer, smaller photo.',
+              );
+              setScreenState('error');
+              return;
+            }
 
-    const gps = await getGPS();
+            setImageUri(result.uri);
+            setImageMime(result.nativeType ?? 'image/jpeg');
+            setManualEntryError(null);
+            setErrorMessage(null);
+            setScreenState('preview');
+          } catch (error: unknown) {
+            if (!operation.isCurrent()) {
+              return;
+            }
+            if (
+              isErrorWithCode(error) &&
+              error.code === errorCodes.OPERATION_CANCELED
+            ) {
+              return;
+            }
 
-    try {
-      const params: Record<string, string | number> = {
-        survey_number: ocrResult.survey_number,
-        district: ocrResult.district,
-        taluka: ocrResult.taluka,
-        village: ocrResult.village,
-        state: ocrResult.state,
-      };
+            setErrorMessage('Failed to pick image. Please try again.');
+            setScreenState('error');
+          }
+        },
+        () => {
+          setErrorMessage('Could not finish this step. Please try again.');
+          setScreenState('error');
+        },
+      ),
+    [run],
+  );
 
-      if (gps) {
-        params.user_lat = gps.lat;
-        params.user_lng = gps.lng;
-      }
+  const onConfirmAndProcess = useCallback(
+    () =>
+      run(
+        async operation => {
+          if (!imageUri) {
+            return;
+          }
 
-      const { data } = await api.get('/api/v1/land/fetch-boundary', { params });
+          const netInfo = await NetInfo.fetch();
+          if (!operation.isCurrent()) {
+            return;
+          }
+          if (
+            netInfo.isConnected === false ||
+            netInfo.isInternetReachable === false
+          ) {
+            setIsOffline(true);
+            return;
+          }
 
-      if ((data as { status: string }).status === 'success') {
-        const successData = data as {
-          status: 'success';
-          boundary_source: string;
-          geojson: { geometry: object; properties: object };
-          satellite_thumbnail_url: string;
-        };
+          setErrorMessage(null);
+          setLoadingMessage('Reading your document...');
+          setScreenState('loading');
+          setIsOffline(false);
 
-        dispatch(
-          setCurrentDraft({
-            boundary: successData.geojson
-              .geometry as import('../store/landSlice').GeoJSONPolygon,
-            boundarySource:
-              successData.boundary_source as import('../store/landSlice').BoundarySource,
-            satelliteThumbnailUrl: successData.satellite_thumbnail_url,
-            fetchStatus: 'success',
-          }),
-        );
-        navigation.navigate('BoundaryConfirmScreen');
-        return;
-      }
+          const formData = new FormData();
+          formData.append('image', {
+            uri: imageUri,
+            type: imageMime,
+            name: 'document.jpg',
+          } as unknown as Blob);
 
-      if ((data as { status: string }).status === 'manual_required') {
-        dispatch(setCurrentDraft({ fetchStatus: 'manual_required' }));
-        navigation.navigate('ManualUploadGuideScreen');
-      }
-    } catch (error: unknown) {
-      const axiosErr = error as { response?: unknown };
-      dispatch(setCurrentDraft({ fetchStatus: 'error' }));
-      if (!axiosErr.response) {
-        setIsOffline(true);
-      }
-      setScreenState('ocr_result');
-    }
-  }, [dispatch, navigation, ocrResult, ownerNameMismatch]);
+          try {
+            const { data } = await api.post(
+              '/api/v1/land/verify-document',
+              formData,
+              {
+                signal: operation.signal,
+                headers: { 'Content-Type': 'multipart/form-data' },
+                timeout: 60_000,
+              },
+            );
+            if (!operation.isCurrent()) {
+              return;
+            }
+
+            if (!isUsableLandRecord(data)) {
+              throw new Error('LAND_RECORD_INVALID');
+            }
+            const result = data;
+            setOcrResult(result);
+            dispatch(clearCurrentDraft());
+            dispatch(setCurrentDraft({ ocrResult: result }));
+            setScreenState('ocr_result');
+          } catch (error: unknown) {
+            if (!operation.isCurrent()) {
+              return;
+            }
+            const axiosErr = error as {
+              response?: { status?: number; data?: { error?: string } };
+            };
+
+            if ((error as Error).message === 'LAND_RECORD_INVALID') {
+              setErrorMessage(
+                'The document did not contain complete land details. Enter the record fields manually to continue.',
+              );
+              setScreenState('manual_entry');
+              return;
+            }
+            if (!axiosErr.response) {
+              setIsOffline(true);
+              setScreenState('preview');
+              return;
+            }
+
+            if (axiosErr.response.status === 422) {
+              setErrorMessage(
+                'Could not extract the required fields. Please retake the document in better lighting.',
+              );
+            } else if (
+              axiosErr.response.status &&
+              axiosErr.response.status >= 500
+            ) {
+              setManualEntryError(null);
+              setErrorMessage(
+                'Automatic document reading is temporarily unavailable on TerraTrust servers. Enter the land record details manually to continue.',
+              );
+              setScreenState('manual_entry');
+              return;
+            } else {
+              setErrorMessage(
+                axiosErr.response.data?.error ??
+                  'Something went wrong. Please try again.',
+              );
+            }
+            setScreenState('error');
+          }
+        },
+        () => {
+          setErrorMessage('Could not finish this step. Please try again.');
+          setScreenState('error');
+        },
+      ),
+    [dispatch, imageMime, imageUri, run],
+  );
+
+  const onContinue = useCallback(
+    () =>
+      run(
+        async operation => {
+          if (!ocrResult || ownerNameMismatch) {
+            return;
+          }
+
+          const netInfo = await NetInfo.fetch();
+          if (!operation.isCurrent()) {
+            return;
+          }
+          if (
+            netInfo.isConnected === false ||
+            netInfo.isInternetReachable === false
+          ) {
+            setIsOffline(true);
+            return;
+          }
+
+          setErrorMessage(null);
+          setIsOffline(false);
+          dispatch(setCurrentDraft({ fetchStatus: 'fetching' }));
+          setLoadingMessage('Fetching your official land boundary...');
+          setScreenState('loading');
+
+          const gps = await getGPS();
+          if (!operation.isCurrent()) {
+            return;
+          }
+
+          try {
+            const params: Record<string, string | number> = {
+              survey_number: ocrResult.survey_number,
+              district: ocrResult.district,
+              taluka: ocrResult.taluka,
+              village: ocrResult.village,
+              state: ocrResult.state,
+            };
+
+            if (gps) {
+              params.user_lat = gps.lat;
+              params.user_lng = gps.lng;
+            }
+
+            const { data } = await api.get('/api/v1/land/fetch-boundary', {
+              signal: operation.signal,
+              params,
+            });
+            if (!operation.isCurrent()) {
+              return;
+            }
+
+            if ((data as { status: string }).status === 'success') {
+              dispatch(setCurrentDraft(readBoundaryResponse(data)));
+              setScreenState('ocr_result');
+              navigation.navigate('BoundaryConfirmScreen');
+              return;
+            }
+
+            if ((data as { status: string }).status === 'manual_required') {
+              dispatch(setCurrentDraft({ fetchStatus: 'manual_required' }));
+              setScreenState('ocr_result');
+              navigation.navigate('ManualUploadGuideScreen');
+            } else {
+              throw new Error('BOUNDARY_RESPONSE_INVALID');
+            }
+          } catch (error: unknown) {
+            if (!operation.isCurrent()) {
+              return;
+            }
+            const axiosErr = error as {
+              response?: unknown;
+              isAxiosError?: boolean;
+            };
+            dispatch(setCurrentDraft({ fetchStatus: 'error' }));
+            if (axiosErr.isAxiosError && !axiosErr.response) {
+              setIsOffline(true);
+            }
+            setErrorMessage(
+              'Could not fetch a valid land boundary. Please retry or upload your map manually.',
+            );
+            setScreenState('ocr_result');
+          }
+        },
+        () => {
+          setErrorMessage('Could not finish this step. Please try again.');
+          setScreenState('error');
+        },
+      ),
+    [dispatch, navigation, ocrResult, ownerNameMismatch, run],
+  );
 
   const onTryAgain = useCallback(() => {
+    cancel();
     dispatch(clearCurrentDraft());
     setOcrResult(null);
     setImageUri(null);
@@ -431,15 +566,18 @@ const DocumentUploadScreen = () => {
     setManualRecord(createManualRecordDefaults(registeredOwnerName));
     setIsOffline(false);
     setScreenState('capture');
-  }, [dispatch, registeredOwnerName]);
+  }, [cancel, dispatch, registeredOwnerName]);
 
   const onRetake = useCallback(() => {
+    cancel();
+    dispatch(clearCurrentDraft());
+    setOcrResult(null);
     setImageUri(null);
     setErrorMessage(null);
     setManualEntryError(null);
     setManualRecord(createManualRecordDefaults(registeredOwnerName));
     setScreenState('capture');
-  }, [registeredOwnerName]);
+  }, [cancel, dispatch, registeredOwnerName]);
 
   const onUseManualRecord = useCallback(() => {
     const normalizedRecord: ManualRecordFields = {
@@ -468,6 +606,7 @@ const DocumentUploadScreen = () => {
     };
 
     setOcrResult(manualResult);
+    dispatch(clearCurrentDraft());
     dispatch(setCurrentDraft({ ocrResult: manualResult }));
     setErrorMessage(null);
     setManualEntryError(null);
@@ -532,19 +671,32 @@ const DocumentUploadScreen = () => {
 
   if (screenState === 'loading') {
     return (
-      <View
-        className="flex-1 items-center justify-center px-8"
-        style={{ backgroundColor: COLORS.HERO_BACKGROUND }}
-      >
-        <LottieView
-          source={require('../../../assets/lottie/spinning_leaf.json')}
-          autoPlay
-          loop
-          style={{ width: 120, height: 120 }}
+      <View style={{ flex: 1, backgroundColor: COLORS.OFF_WHITE }}>
+        <ScreenHeader
+          title="Land Registration"
+          onBack={closeRegistrationFlow}
+          backIcon="close"
         />
-        <Text className="mt-6 text-center text-lg font-medium text-white">
-          {loadingMessage}
-        </Text>
+        <View className="flex-1 items-center justify-center px-8">
+          <LottieView
+            source={require('../../../assets/lottie/spinning_leaf.json')}
+            autoPlay
+            loop
+            style={{ width: 120, height: 120 }}
+          />
+          <Text
+            style={{ color: COLORS.DARK_SLATE }}
+            className="mt-6 text-center text-lg font-medium"
+          >
+            {loadingMessage}
+          </Text>
+          <Button
+            label="Cancel"
+            variant="secondary"
+            style={{ marginTop: 24, width: '100%' }}
+            onPress={closeRegistrationFlow}
+          />
+        </View>
       </View>
     );
   }
@@ -558,6 +710,8 @@ const DocumentUploadScreen = () => {
         backIcon="close"
       />
       <ScrollView
+        showsVerticalScrollIndicator={false}
+        showsHorizontalScrollIndicator={false}
         className="flex-1"
         contentContainerStyle={{
           flexGrow: 1,
@@ -993,6 +1147,31 @@ const DocumentUploadScreen = () => {
                     the land document where you are listed as the owner before
                     continuing.
                   </Text>
+                </Card>
+              ) : null}
+
+              {errorMessage && !ownerNameMismatch ? (
+                <Card
+                  className="mt-4 px-5 py-4"
+                  style={{ backgroundColor: COLORS.ERROR_SURFACE }}
+                >
+                  <Text
+                    accessibilityRole="alert"
+                    style={{ color: COLORS.ERROR_RED }}
+                  >
+                    {errorMessage}
+                  </Text>
+                  <Button
+                    label="Upload map manually"
+                    variant="secondary"
+                    onPress={() => {
+                      cancel();
+                      dispatch(
+                        setCurrentDraft({ fetchStatus: 'manual_required' }),
+                      );
+                      navigation.navigate('ManualUploadGuideScreen');
+                    }}
+                  />
                 </Card>
               ) : null}
 

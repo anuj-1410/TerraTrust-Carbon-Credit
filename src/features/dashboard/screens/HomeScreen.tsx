@@ -208,6 +208,8 @@ const HomeScreen = () => {
         }
       />
       <ScrollView
+        showsVerticalScrollIndicator={false}
+        showsHorizontalScrollIndicator={false}
         className="flex-1"
         contentContainerStyle={{
           width: '100%',

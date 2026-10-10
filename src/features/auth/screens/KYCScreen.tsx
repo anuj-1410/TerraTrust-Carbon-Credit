@@ -176,6 +176,8 @@ const KYCScreen = () => {
         eyebrow="One-Time Profile Setup"
       />
       <ScrollView
+        showsVerticalScrollIndicator={false}
+        showsHorizontalScrollIndicator={false}
         contentContainerStyle={{ flexGrow: 1 }}
         keyboardShouldPersistTaps="handled"
       >

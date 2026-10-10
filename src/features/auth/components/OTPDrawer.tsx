@@ -2,10 +2,7 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Keyboard,
-  KeyboardAvoidingView,
-  Modal,
   Platform,
-  Pressable,
   ScrollView,
   Text,
   TextInput,
@@ -16,6 +13,7 @@ import { MaterialDesignIcons as Icon } from '@react-native-vector-icons/material
 import { useTheme } from '../../../common/theme/theme';
 import { useResponsiveScreen } from '../../../common/hooks/useResponsiveScreen';
 import Button from '../../../common/components/Button';
+import SheetModal from '../../../common/components/SheetModal';
 import { bootstrapAuthenticatedProfile } from '../../../services/authBootstrap';
 import {
   confirmPhoneOtp,
@@ -29,6 +27,7 @@ interface Props {
   phone: string;
   verificationId: string | null;
   onClose: () => void;
+  onClosing?: () => void;
   onVerified: (profile: AuthBootstrapResponse) => void;
 }
 
@@ -41,6 +40,7 @@ export default function OTPDrawer({
   phone,
   verificationId,
   onClose,
+  onClosing,
   onVerified,
 }: Props) {
   const { colors, isDark } = useTheme();
@@ -52,7 +52,10 @@ export default function OTPDrawer({
   const [error, setError] = useState<string | null>(null);
   const [countdown, setCountdown] = useState(RESEND_SECONDS);
   const [resending, setResending] = useState(false);
+  const [closing, setClosing] = useState(false);
+  const completedProfile = useRef<AuthBootstrapResponse | null>(null);
   const input = useRef<TextInput>(null);
+  const focusFrame = useRef<number | null>(null);
   const active = useRef(true);
   const operation = useRef(false);
   const completed = useRef(false);
@@ -61,6 +64,17 @@ export default function OTPDrawer({
   const resendAt = useRef(Date.now() + RESEND_SECONDS * 1000);
   const onVerifiedRef = useRef(onVerified);
   onVerifiedRef.current = onVerified;
+  const refocusInput = useCallback(() => {
+    if (focusFrame.current !== null) {
+      cancelAnimationFrame(focusFrame.current);
+    }
+    focusFrame.current = requestAnimationFrame(() => {
+      if (active.current && !completed.current && !acceptedUid.current) {
+        input.current?.focus();
+      }
+      focusFrame.current = null;
+    });
+  }, []);
 
   const verify = useCallback(
     async (value = '', automatic = false) => {
@@ -103,7 +117,8 @@ export default function OTPDrawer({
         }
         completed.current = true;
         Keyboard.dismiss();
-        onVerifiedRef.current(profile);
+        completedProfile.current = profile;
+        setClosing(true);
       } catch (caught) {
         if (!active.current) {
           return;
@@ -144,10 +159,11 @@ export default function OTPDrawer({
         operation.current = false;
         if (active.current) {
           setBusy(false);
+          refocusInput();
         }
       }
     },
-    [phone],
+    [phone, refocusInput],
   );
 
   useEffect(() => {
@@ -170,6 +186,9 @@ export default function OTPDrawer({
       active.current = false;
       unsubscribe();
       clearInterval(timer);
+      if (focusFrame.current !== null) {
+        cancelAnimationFrame(focusFrame.current);
+      }
     };
   }, [phone, verify]);
 
@@ -209,313 +228,322 @@ export default function OTPDrawer({
       if (active.current) {
         setBusy(false);
         setResending(false);
+        refocusInput();
         void verify('', true);
       }
     }
   };
 
   const close = () => {
-    if (!completed.current) {
+    if (!completed.current && active.current) {
       active.current = false;
       Keyboard.dismiss();
-      onClose();
+      onClosing?.();
+      setClosing(true);
     }
   };
   const available = Math.min(width - 48, contentMaxWidth - 48);
   const gap = width < 360 ? 6 : 8;
   const cellWidth = Math.floor((available - gap * 5) / 6);
   return (
-    <Modal
-      transparent
-      visible
-      animationType="slide"
-      statusBarTranslucent
+    <SheetModal
+      visible={!closing}
       onRequestClose={close}
-      onShow={() => input.current?.focus()}
+      onOpened={() => {
+        if (active.current && !completed.current) {
+          input.current?.focus();
+        }
+      }}
+      onDismissed={() => {
+        const profile = completedProfile.current;
+        if (profile && getCurrentFirebaseUser()?.uid === profile.firebase_uid) {
+          onVerifiedRef.current(profile);
+        } else {
+          onClose();
+        }
+      }}
     >
-      <KeyboardAvoidingView
-        style={{ flex: 1, justifyContent: 'flex-end' }}
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+      <View
+        testID="otp-drawer"
+        accessibilityViewIsModal
+        style={{
+          width: '100%',
+          maxWidth: contentMaxWidth,
+          alignSelf: 'center',
+          maxHeight: height - topInset - 24,
+          flexShrink: 1,
+          backgroundColor: colors.CARD_WHITE,
+          borderTopLeftRadius: 30,
+          borderTopRightRadius: 30,
+          borderColor: colors.BORDER,
+          borderWidth: 1,
+          overflow: 'hidden',
+        }}
       >
-        <Pressable
-          testID="otp-backdrop"
-          accessibilityLabel="Close verification"
-          onPress={close}
+        <View
           style={{
-            position: 'absolute',
-            top: 0,
-            left: 0,
-            right: 0,
-            bottom: 0,
-            backgroundColor: 'rgba(0,0,0,0.55)',
+            height: 5,
+            width: 40,
+            borderRadius: 3,
+            backgroundColor: colors.BORDER,
+            alignSelf: 'center',
+            marginTop: 12,
           }}
         />
         <View
-          testID="otp-drawer"
-          accessibilityViewIsModal
           style={{
-            width: '100%',
-            maxWidth: contentMaxWidth,
-            alignSelf: 'center',
-            maxHeight: height - topInset - 24,
-            flexShrink: 1,
-            backgroundColor: colors.CARD_WHITE,
-            borderTopLeftRadius: 30,
-            borderTopRightRadius: 30,
-            borderColor: colors.BORDER,
-            borderWidth: 1,
-            overflow: 'hidden',
+            flexDirection: 'row',
+            alignItems: 'center',
+            paddingLeft: 24,
+            paddingRight: 12,
+            paddingTop: 8,
           }}
         >
-          <View
+          <Text
+            accessibilityRole="header"
             style={{
-              height: 5,
-              width: 40,
-              borderRadius: 3,
-              backgroundColor: colors.BORDER,
+              flex: 1,
+              color: colors.DARK_SLATE,
+              fontSize: 23,
+              fontWeight: '700',
+            }}
+          >
+            Verify your number
+          </Text>
+          <TouchableOpacity
+            accessibilityRole="button"
+            accessibilityLabel="Close verification drawer"
+            onPress={close}
+            style={{
+              width: 48,
+              height: 48,
+              alignItems: 'center',
+              justifyContent: 'center',
+            }}
+          >
+            <Icon name="close" size={24} color={colors.DISABLED_GREY} />
+          </TouchableOpacity>
+        </View>
+        <ScrollView
+          showsVerticalScrollIndicator={false}
+          showsHorizontalScrollIndicator={false}
+          keyboardShouldPersistTaps="handled"
+          style={{ flexShrink: 1 }}
+          contentContainerStyle={{
+            paddingHorizontal: 24,
+            paddingTop: 8,
+            paddingBottom: Math.max(bottomInset + 20, 28),
+          }}
+        >
+          <Text
+            style={{
+              color: colors.DISABLED_GREY,
+              fontSize: 15,
+              lineHeight: 23,
+            }}
+          >
+            Enter the 6-digit code sent to{' '}
+            {phone.replace(/(\+91)(\d{6})(\d{4})/, '$1 •••••• $3')}.
+          </Text>
+          <View
+            accessible
+            accessibilityRole="button"
+            accessibilityLabel="Enter verification code"
+            accessibilityValue={{ text: `${code.length} of 6 digits entered` }}
+            accessibilityActions={[
+              { name: 'activate', label: 'Enter verification code' },
+            ]}
+            onAccessibilityAction={event => {
+              if (event.nativeEvent.actionName === 'activate') {
+                refocusInput();
+              }
+            }}
+            onAccessibilityTap={refocusInput}
+            style={{
+              marginTop: 24,
               alignSelf: 'center',
-              marginTop: 12,
+              width: cellWidth * 6 + gap * 5,
+              height: 58,
+            }}
+          >
+            <View
+              pointerEvents="none"
+              importantForAccessibility="no-hide-descendants"
+              style={{ flexDirection: 'row' }}
+            >
+              {Array.from({ length: 6 }, (_, index) => (
+                <View
+                  key={index}
+                  style={{
+                    width: cellWidth,
+                    height: 58,
+                    marginRight: index === 5 ? 0 : gap,
+                    borderRadius: 14,
+                    borderWidth:
+                      index === Math.min(code.length, 5) && !verified ? 2 : 1,
+                    borderColor:
+                      error && !verified
+                        ? colors.ERROR_RED
+                        : index === Math.min(code.length, 5)
+                        ? colors.FOREST_GREEN
+                        : colors.BORDER,
+                    backgroundColor: colors.INPUT_BACKGROUND,
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                  }}
+                >
+                  <Text
+                    style={{
+                      color: colors.DARK_SLATE,
+                      fontSize: 24,
+                      fontWeight: '700',
+                    }}
+                  >
+                    {code[index] ?? ''}
+                  </Text>
+                </View>
+              ))}
+            </View>
+            <TextInput
+              ref={input}
+              accessibilityLabel="Verification code"
+              value={code}
+              keyboardType="number-pad"
+              keyboardAppearance={isDark ? 'dark' : 'light'}
+              textContentType="oneTimeCode"
+              autoComplete={
+                Platform.OS === 'android' ? 'sms-otp' : 'one-time-code'
+              }
+              importantForAutofill="yes"
+              maxLength={6}
+              caretHidden
+              editable={!busy && !verified}
+              style={{
+                position: 'absolute',
+                top: 0,
+                bottom: 0,
+                left: 0,
+                right: 0,
+                color: 'transparent',
+                // IME composing spans can override text color on Android.
+                // Hide the entire native glyph layer, retaining input bounds/focus for autofill.
+                opacity: 0,
+                fontSize: 24,
+              }}
+              onChangeText={value => {
+                const next = value.replace(/\D/g, '').slice(0, 6);
+                setCode(next);
+                setError(null);
+                if (next.length === 6) {
+                  void verify(next);
+                }
+              }}
+            />
+          </View>
+          <Text
+            style={{
+              color: colors.DISABLED_GREY,
+              fontSize: 13,
+              marginTop: 14,
+            }}
+          >
+            The code is checked automatically when all six digits are entered.
+          </Text>
+          {error ? (
+            <Text
+              accessibilityRole="alert"
+              style={{
+                color: verified ? colors.DISABLED_GREY : colors.ERROR_RED,
+                marginTop: 16,
+                lineHeight: 22,
+              }}
+            >
+              {error}
+            </Text>
+          ) : null}
+          <Button
+            style={{ marginTop: 24 }}
+            label={
+              resending
+                ? 'Resending...'
+                : busy
+                ? verified
+                  ? 'Continuing...'
+                  : 'Verifying...'
+                : verified
+                ? 'Continue'
+                : 'Verify OTP'
+            }
+            disabled={busy || (!verified && code.length !== 6)}
+            onPress={() => {
+              void verify(code);
             }}
           />
           <View
             style={{
-              flexDirection: 'row',
+              marginTop: 18,
+              minHeight: 48,
               alignItems: 'center',
-              paddingLeft: 24,
-              paddingRight: 12,
-              paddingTop: 8,
+              justifyContent: 'center',
             }}
           >
-            <Text
-              accessibilityRole="header"
+            {verified ? (
+              <Text style={{ color: colors.FOREST_GREEN }}>
+                Phone number verified
+              </Text>
+            ) : countdown > 0 ? (
+              <Text style={{ color: colors.DISABLED_GREY }}>
+                Resend in {countdown}s
+              </Text>
+            ) : (
+              <TouchableOpacity
+                accessibilityRole="button"
+                disabled={busy}
+                onPress={() => {
+                  void resend();
+                }}
+                style={{
+                  minHeight: 48,
+                  paddingHorizontal: 16,
+                  justifyContent: 'center',
+                }}
+              >
+                <Text style={{ color: colors.FOREST_GREEN, fontWeight: '600' }}>
+                  Resend code
+                </Text>
+              </TouchableOpacity>
+            )}
+          </View>
+          {busy ? (
+            <View
               style={{
-                flex: 1,
-                color: colors.DARK_SLATE,
-                fontSize: 23,
-                fontWeight: '700',
+                flexDirection: 'row',
+                justifyContent: 'center',
+                alignItems: 'center',
               }}
             >
-              Verify your number
-            </Text>
+              <ActivityIndicator size="small" color={colors.FOREST_GREEN} />
+              <Text style={{ marginLeft: 8, color: colors.DISABLED_GREY }}>
+                Finishing verification securely
+              </Text>
+            </View>
+          ) : (
             <TouchableOpacity
               accessibilityRole="button"
-              accessibilityLabel="Close verification drawer"
               onPress={close}
               style={{
-                width: 48,
-                height: 48,
-                alignItems: 'center',
-                justifyContent: 'center',
-              }}
-            >
-              <Icon name="close" size={24} color={colors.DISABLED_GREY} />
-            </TouchableOpacity>
-          </View>
-          <ScrollView
-            keyboardShouldPersistTaps="handled"
-            style={{ flexShrink: 1 }}
-            contentContainerStyle={{
-              paddingHorizontal: 24,
-              paddingTop: 8,
-              paddingBottom: Math.max(bottomInset + 20, 28),
-            }}
-          >
-            <Text
-              style={{
-                color: colors.DISABLED_GREY,
-                fontSize: 15,
-                lineHeight: 23,
-              }}
-            >
-              Enter the 6-digit code sent to{' '}
-              {phone.replace(/(\+91)(\d{6})(\d{4})/, '$1 •••••• $3')}.
-            </Text>
-            <View
-              style={{
-                marginTop: 24,
-                alignSelf: 'center',
-                width: cellWidth * 6 + gap * 5,
-                height: 58,
-              }}
-            >
-              <View
-                pointerEvents="none"
-                importantForAccessibility="no-hide-descendants"
-                style={{ flexDirection: 'row' }}
-              >
-                {Array.from({ length: 6 }, (_, index) => (
-                  <View
-                    key={index}
-                    style={{
-                      width: cellWidth,
-                      height: 58,
-                      marginRight: index === 5 ? 0 : gap,
-                      borderRadius: 14,
-                      borderWidth:
-                        index === Math.min(code.length, 5) && !verified ? 2 : 1,
-                      borderColor:
-                        error && !verified
-                          ? colors.ERROR_RED
-                          : index === Math.min(code.length, 5)
-                          ? colors.FOREST_GREEN
-                          : colors.BORDER,
-                      backgroundColor: colors.INPUT_BACKGROUND,
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                    }}
-                  >
-                    <Text
-                      style={{
-                        color: colors.DARK_SLATE,
-                        fontSize: 24,
-                        fontWeight: '700',
-                      }}
-                    >
-                      {code[index] ?? ''}
-                    </Text>
-                  </View>
-                ))}
-              </View>
-              <TextInput
-                ref={input}
-                accessibilityLabel="Verification code"
-                value={code}
-                keyboardType="number-pad"
-                keyboardAppearance={isDark ? 'dark' : 'light'}
-                textContentType="oneTimeCode"
-                autoComplete={
-                  Platform.OS === 'android' ? 'sms-otp' : 'one-time-code'
-                }
-                importantForAutofill="yes"
-                maxLength={6}
-                caretHidden
-                editable={!busy && !verified}
-                style={{
-                  position: 'absolute',
-                  top: 0,
-                  bottom: 0,
-                  left: 0,
-                  right: 0,
-                  color: 'transparent',
-                  fontSize: 24,
-                }}
-                onChangeText={value => {
-                  const next = value.replace(/\D/g, '').slice(0, 6);
-                  setCode(next);
-                  setError(null);
-                  if (next.length === 6) {
-                    void verify(next);
-                  }
-                }}
-              />
-            </View>
-            <Text
-              style={{
-                color: colors.DISABLED_GREY,
-                fontSize: 13,
-                marginTop: 14,
-              }}
-            >
-              The code is checked automatically when all six digits are entered.
-            </Text>
-            {error ? (
-              <Text
-                accessibilityRole="alert"
-                style={{
-                  color: verified ? colors.DISABLED_GREY : colors.ERROR_RED,
-                  marginTop: 16,
-                  lineHeight: 22,
-                }}
-              >
-                {error}
-              </Text>
-            ) : null}
-            <Button
-              style={{ marginTop: 24 }}
-              label={
-                resending
-                  ? 'Resending...'
-                  : busy
-                  ? verified
-                    ? 'Continuing...'
-                    : 'Verifying...'
-                  : verified
-                  ? 'Continue'
-                  : 'Verify OTP'
-              }
-              disabled={busy || (!verified && code.length !== 6)}
-              onPress={() => {
-                void verify(code);
-              }}
-            />
-            <View
-              style={{
-                marginTop: 18,
                 minHeight: 48,
                 alignItems: 'center',
                 justifyContent: 'center',
               }}
             >
-              {verified ? (
-                <Text style={{ color: colors.FOREST_GREEN }}>
-                  Phone number verified
-                </Text>
-              ) : countdown > 0 ? (
-                <Text style={{ color: colors.DISABLED_GREY }}>
-                  Resend in {countdown}s
-                </Text>
-              ) : (
-                <TouchableOpacity
-                  accessibilityRole="button"
-                  disabled={busy}
-                  onPress={() => {
-                    void resend();
-                  }}
-                  style={{
-                    minHeight: 48,
-                    paddingHorizontal: 16,
-                    justifyContent: 'center',
-                  }}
-                >
-                  <Text
-                    style={{ color: colors.FOREST_GREEN, fontWeight: '600' }}
-                  >
-                    Resend code
-                  </Text>
-                </TouchableOpacity>
-              )}
-            </View>
-            {busy ? (
-              <View
-                style={{
-                  flexDirection: 'row',
-                  justifyContent: 'center',
-                  alignItems: 'center',
-                }}
-              >
-                <ActivityIndicator size="small" color={colors.FOREST_GREEN} />
-                <Text style={{ marginLeft: 8, color: colors.DISABLED_GREY }}>
-                  Finishing verification securely
-                </Text>
-              </View>
-            ) : (
-              <TouchableOpacity
-                accessibilityRole="button"
-                onPress={close}
-                style={{
-                  minHeight: 48,
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                }}
-              >
-                <Text style={{ color: colors.DISABLED_GREY }}>
-                  Change phone number
-                </Text>
-              </TouchableOpacity>
-            )}
-          </ScrollView>
-        </View>
-      </KeyboardAvoidingView>
-    </Modal>
+              <Text style={{ color: colors.DISABLED_GREY }}>
+                Change phone number
+              </Text>
+            </TouchableOpacity>
+          )}
+        </ScrollView>
+      </View>
+    </SheetModal>
   );
 }

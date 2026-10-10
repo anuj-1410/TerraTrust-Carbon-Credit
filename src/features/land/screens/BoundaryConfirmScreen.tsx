@@ -1,15 +1,11 @@
+import { isUsableLandRecord } from '../utils/landRecord';
+import { readBoundaryResponse } from '../utils/boundaryResponse';
+import { useLandOperation } from '../hooks/useLandOperation';
 import ScreenHeader from '../../../common/components/ScreenHeader';
 import { useTheme } from '../../../common/theme/theme';
 import React, { useCallback, useMemo, useState } from 'react';
-import {
-  Image,
-  ScrollView,
-  Platform,
-  StyleSheet,
-  Text,
-  View,
-} from 'react-native';
-import { useNavigation } from '@react-navigation/native';
+import { ScrollView, Text, View } from 'react-native';
+import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import MapView, { Polygon } from 'react-native-maps';
 import NetInfo from '@react-native-community/netinfo';
@@ -20,7 +16,10 @@ import Button from '../../../common/components/Button';
 import BottomSheet from '../../../common/components/BottomSheet';
 import Card from '../../../common/components/Card';
 import { useResponsiveScreen } from '../../../common/hooks/useResponsiveScreen';
-import { calculateAreaHectares } from '../../../common/utils/geoJson';
+import {
+  calculateAreaHectares,
+  isUsableBoundary,
+} from '../../../common/utils/geoJson';
 import { hectaresToAcres } from '../../../common/utils/units';
 import api from '../../../services/api';
 import { useAppDispatch, useAppSelector } from '../../../store/hooks';
@@ -51,16 +50,13 @@ const BoundaryConfirmScreen = () => {
   const { colors: COLORS } = useTheme();
   const navigation = useNavigation<Nav>();
   const dispatch = useAppDispatch();
+  const { run, cancel } = useLandOperation();
   const currentDraft = useAppSelector(state => state.land.currentDraft);
-  const {
-    horizontalPadding,
-    topInset,
-    bottomSpacing,
-    contentMaxWidth,
-    height,
-  } = useResponsiveScreen();
+  const { bottomSpacing, contentMaxWidth, height } = useResponsiveScreen();
 
-  const boundary = currentDraft.boundary;
+  const boundary = isUsableBoundary(currentDraft.boundary)
+    ? currentDraft.boundary
+    : null;
   const ocrResult = currentDraft.ocrResult;
   const defaultFarmName = ocrResult?.survey_number?.trim() || 'My Land';
   const areaAcres = boundary
@@ -72,9 +68,13 @@ const BoundaryConfirmScreen = () => {
       : 'Official Government Record';
 
   const [isLoading, setIsLoading] = useState(false);
+  useFocusEffect(
+    useCallback(() => {
+      setIsLoading(false);
+    }, []),
+  );
   const [registerError, setRegisterError] = useState<string | null>(null);
   const [isOffline, setIsOffline] = useState(false);
-  const [imageLoadFailed, setImageLoadFailed] = useState(false);
   const [showRetryOptions, setShowRetryOptions] = useState(false);
   const [loadingText, setLoadingText] = useState('Registering your land...');
 
@@ -114,206 +114,261 @@ const BoundaryConfirmScreen = () => {
     };
   }, [boundary]);
 
-  const onConfirm = useCallback(async () => {
-    if (!ocrResult || !boundary) {
-      return;
-    }
+  const onConfirm = useCallback(
+    () =>
+      run(
+        async operation => {
+          if (
+            !isUsableLandRecord(ocrResult) ||
+            !boundary ||
+            !currentDraft.boundarySource ||
+            calculateAreaHectares(boundary) <= 0
+          ) {
+            setRegisterError(
+              'A valid boundary and land record are required. Retake the document to continue.',
+            );
+            return;
+          }
 
-    const netInfo = await NetInfo.fetch();
-    if (!netInfo.isConnected) {
-      setIsOffline(true);
-      return;
-    }
+          const netInfo = await NetInfo.fetch();
+          if (!operation.isCurrent()) {
+            return;
+          }
+          if (netInfo.isConnected === false || netInfo.isInternetReachable === false) {
+            setIsOffline(true);
+            return;
+          }
 
-    setIsLoading(true);
-    setRegisterError(null);
-    setIsOffline(false);
+          setIsLoading(true);
+          setRegisterError(null);
+          setIsOffline(false);
 
-    try {
-      const payload = {
-        farm_name: defaultFarmName,
-        survey_number: ocrResult.survey_number,
-        district: ocrResult.district,
-        taluka: ocrResult.taluka,
-        village: ocrResult.village,
-        state: ocrResult.state,
-        boundary_source: currentDraft.boundarySource,
-        geojson: {
-          type: 'Feature',
-          geometry: boundary,
-          properties: {
-            survey_number: ocrResult.survey_number,
-            owner_name: ocrResult.owner_name,
-          },
+          try {
+            const payload = {
+              farm_name: defaultFarmName,
+              survey_number: ocrResult.survey_number,
+              district: ocrResult.district,
+              taluka: ocrResult.taluka,
+              village: ocrResult.village,
+              state: ocrResult.state,
+              boundary_source: currentDraft.boundarySource,
+              geojson: {
+                type: 'Feature',
+                geometry: boundary,
+                properties: {
+                  survey_number: ocrResult.survey_number,
+                  owner_name: ocrResult.owner_name,
+                },
+              },
+              ocr_owner_name: ocrResult.owner_name,
+            };
+
+            const { data } = await api.post('/api/v1/land/register', payload, {
+              signal: operation.signal,
+            });
+            if (!operation.isCurrent()) {
+              return;
+            }
+            const registerData = data as {
+              land_id: string;
+              area_hectares: number;
+              status: 'verified';
+            };
+
+            if (
+              !registerData.land_id ||
+              registerData.status !== 'verified' ||
+              !Number.isFinite(registerData.area_hectares) ||
+              registerData.area_hectares <= 0
+            ) {
+              throw new Error('LAND_REGISTRATION_RESPONSE_INVALID');
+            }
+            const newParcel: LandParcel = {
+              id: registerData.land_id,
+              farm_name: defaultFarmName,
+              survey_number: ocrResult.survey_number,
+              district: ocrResult.district,
+              taluka: ocrResult.taluka,
+              village: ocrResult.village,
+              state: ocrResult.state,
+              area_hectares: registerData.area_hectares,
+              boundary_geojson: boundary,
+              boundary_source: currentDraft.boundarySource!,
+              is_verified: true,
+              status: 'verified',
+              last_audit_year: null,
+              thumbnail_url: currentDraft.satelliteThumbnailUrl,
+              created_at: new Date().toISOString(),
+            };
+
+            dispatch(addParcel(newParcel));
+            dispatch(clearCurrentDraft());
+            navigation.replace('LandRegistrationSuccessScreen', {
+              landId: newParcel.id,
+            });
+          } catch (error: unknown) {
+            if (!operation.isCurrent()) {
+              return;
+            }
+            const axiosErr = error as {
+              response?: { status?: number; data?: { error?: string } };
+            };
+
+            if (
+              (error as Error).message === 'LAND_REGISTRATION_RESPONSE_INVALID'
+            ) {
+              setRegisterError(
+                'The server did not confirm a valid registration. Refresh My Lands before retrying.',
+              );
+            } else if (
+              (error as Error).message === 'BOUNDARY_RESPONSE_INVALID'
+            ) {
+              setRegisterError(
+                'The server returned an invalid boundary. Retake the document or upload a map.',
+              );
+            } else if (!axiosErr.response) {
+              setIsOffline(true);
+            } else if (axiosErr.response.status === 400) {
+              setRegisterError(
+                'The name on this document does not match your registered name. Please use the land document where you are listed as the owner.',
+              );
+            } else if (axiosErr.response.status === 409) {
+              setRegisterError(
+                'This land parcel is already registered in your account.',
+              );
+            } else {
+              setRegisterError(
+                axiosErr.response.data?.error ??
+                  'Registration failed. Please try again.',
+              );
+            }
+          } finally {
+            if (operation.isCurrent()) {
+              setIsLoading(false);
+            }
+          }
         },
-        ocr_owner_name: ocrResult.owner_name,
-      };
+        () => {
+          setRegisterError('Could not finish this step. Please try again.');
+          setIsLoading(false);
+        },
+      ),
+    [
+      boundary,
+      currentDraft.boundarySource,
+      currentDraft.satelliteThumbnailUrl,
+      defaultFarmName,
+      dispatch,
+      navigation,
+      ocrResult,
+      run,
+    ],
+  );
 
-      const { data } = await api.post('/api/v1/land/register', payload);
-      const registerData = data as {
-        land_id: string;
-        area_hectares: number;
-        status: 'verified';
-      };
+  const onRetryAutomaticFetch = useCallback(
+    () =>
+      run(
+        async operation => {
+          if (!ocrResult) {
+            return;
+          }
 
-      const newParcel: LandParcel = {
-        id: registerData.land_id,
-        farm_name: defaultFarmName,
-        survey_number: ocrResult.survey_number,
-        district: ocrResult.district,
-        taluka: ocrResult.taluka,
-        village: ocrResult.village,
-        state: ocrResult.state,
-        area_hectares: registerData.area_hectares,
-        boundary_geojson: boundary,
-        boundary_source: currentDraft.boundarySource!,
-        is_verified: true,
-        status: 'verified',
-        last_audit_year: null,
-        thumbnail_url: currentDraft.satelliteThumbnailUrl,
-        created_at: new Date().toISOString(),
-      };
+          const netInfo = await NetInfo.fetch();
+          if (!operation.isCurrent()) {
+            return;
+          }
+          if (netInfo.isConnected === false || netInfo.isInternetReachable === false) {
+            setIsOffline(true);
+            setShowRetryOptions(false);
+            return;
+          }
 
-      dispatch(addParcel(newParcel));
-      dispatch(clearCurrentDraft());
-      navigation.replace('LandRegistrationSuccessScreen', {
-        landId: newParcel.id,
-      });
-    } catch (error: unknown) {
-      const axiosErr = error as {
-        response?: { status?: number; data?: { error?: string } };
-      };
+          setShowRetryOptions(false);
+          setIsLoading(true);
+          setLoadingText('Trying to find your land boundary again...');
+          setRegisterError(null);
 
-      if (!axiosErr.response) {
-        setIsOffline(true);
-      } else if (axiosErr.response.status === 400) {
-        setRegisterError(
-          'The name on this document does not match your registered name. Please use the land document where you are listed as the owner.',
-        );
-      } else if (axiosErr.response.status === 409) {
-        setRegisterError(
-          'This land parcel is already registered in your account.',
-        );
-      } else {
-        setRegisterError(
-          axiosErr.response.data?.error ??
-            'Registration failed. Please try again.',
-        );
-      }
-    } finally {
-      setIsLoading(false);
-    }
-  }, [
-    boundary,
-    currentDraft.boundarySource,
-    currentDraft.satelliteThumbnailUrl,
-    defaultFarmName,
-    dispatch,
-    navigation,
-    ocrResult,
-  ]);
+          const gps = await getGPS();
+          if (!operation.isCurrent()) {
+            return;
+          }
 
-  const onRetryAutomaticFetch = useCallback(async () => {
-    if (!ocrResult) {
-      return;
-    }
+          try {
+            dispatch(setCurrentDraft({ fetchStatus: 'fetching' }));
 
-    const netInfo = await NetInfo.fetch();
-    if (!netInfo.isConnected) {
-      setIsOffline(true);
-      setShowRetryOptions(false);
-      return;
-    }
+            const params: Record<string, string | number> = {
+              survey_number: ocrResult.survey_number,
+              district: ocrResult.district,
+              taluka: ocrResult.taluka,
+              village: ocrResult.village,
+              state: ocrResult.state,
+            };
 
-    setShowRetryOptions(false);
-    setIsLoading(true);
-    setLoadingText('Trying to find your land boundary again...');
-    setRegisterError(null);
+            if (gps) {
+              params.user_lat = gps.lat;
+              params.user_lng = gps.lng;
+            }
 
-    const gps = await getGPS();
+            const { data } = await api.get('/api/v1/land/fetch-boundary', {
+              signal: operation.signal,
+              params,
+            });
+            if (!operation.isCurrent()) {
+              return;
+            }
 
-    try {
-      dispatch(setCurrentDraft({ fetchStatus: 'fetching' }));
+            if ((data as { status: string }).status === 'success') {
+              dispatch(setCurrentDraft(readBoundaryResponse(data)));
+              return;
+            }
 
-      const params: Record<string, string | number> = {
-        survey_number: ocrResult.survey_number,
-        district: ocrResult.district,
-        taluka: ocrResult.taluka,
-        village: ocrResult.village,
-        state: ocrResult.state,
-      };
+            dispatch(setCurrentDraft({ fetchStatus: 'manual_required' }));
+            navigation.navigate('ManualUploadGuideScreen');
+          } catch (error: unknown) {
+            if (!operation.isCurrent()) {
+              return;
+            }
+            const axiosErr = error as { response?: unknown };
+            dispatch(setCurrentDraft({ fetchStatus: 'error' }));
 
-      if (gps) {
-        params.user_lat = gps.lat;
-        params.user_lng = gps.lng;
-      }
+            if (!axiosErr.response) {
+              setIsOffline(true);
+            }
 
-      const { data } = await api.get('/api/v1/land/fetch-boundary', { params });
-
-      if ((data as { status: string }).status === 'success') {
-        const successData = data as {
-          status: 'success';
-          boundary_source: string;
-          geojson: { geometry: object };
-          satellite_thumbnail_url: string;
-        };
-
-        dispatch(
-          setCurrentDraft({
-            boundary: successData.geojson
-              .geometry as import('../store/landSlice').GeoJSONPolygon,
-            boundarySource:
-              successData.boundary_source as import('../store/landSlice').BoundarySource,
-            satelliteThumbnailUrl: successData.satellite_thumbnail_url,
-            fetchStatus: 'success',
-          }),
-        );
-        return;
-      }
-
-      dispatch(setCurrentDraft({ fetchStatus: 'manual_required' }));
-      navigation.navigate('ManualUploadGuideScreen');
-    } catch (error: unknown) {
-      const axiosErr = error as { response?: unknown };
-      dispatch(setCurrentDraft({ fetchStatus: 'error' }));
-
-      if (!axiosErr.response) {
-        setIsOffline(true);
-      }
-
-      setRegisterError(
-        'We still could not verify this boundary automatically. Upload the boundary map manually or retake the document.',
-      );
-    } finally {
-      setLoadingText('Registering your land...');
-      setIsLoading(false);
-    }
-  }, [dispatch, navigation, ocrResult]);
+            setRegisterError(
+              'We still could not verify this boundary automatically. Upload the boundary map manually or retake the document.',
+            );
+          } finally {
+            if (operation.isCurrent()) {
+              setLoadingText('Registering your land...');
+              setIsLoading(false);
+            }
+          }
+        },
+        () => {
+          setRegisterError('Could not finish this step. Please try again.');
+          setIsLoading(false);
+        },
+      ),
+    [dispatch, navigation, ocrResult, run],
+  );
 
   const onRetakeDocument = useCallback(() => {
+    cancel();
     dispatch(clearCurrentDraft());
     navigation.replace('DocumentUploadScreen');
-  }, [dispatch, navigation]);
+  }, [cancel, dispatch, navigation]);
 
   return (
     <View style={{ flex: 1, backgroundColor: COLORS.HERO_BACKGROUND }}>
-      {!imageLoadFailed && currentDraft.satelliteThumbnailUrl ? (
-        <Image
-          source={{ uri: currentDraft.satelliteThumbnailUrl }}
-          style={StyleSheet.absoluteFill}
-          resizeMode="cover"
-          onError={() => setImageLoadFailed(true)}
-        />
-      ) : (
-        <View
-          className="absolute inset-0"
-          style={{ backgroundColor: COLORS.SUCCESS_SURFACE }}
-        />
-      )}
-
+      <ScreenHeader
+        title="Confirm your boundary"
+        eyebrow="Land Registration"
+        onBack={() => navigation.goBack()}
+      />
       <MapView
-        style={StyleSheet.absoluteFill}
-        mapType={Platform.OS === 'android' ? 'none' : 'standard'}
+        style={{ flex: 1 }}
+        mapType="satellite"
         region={region}
         scrollEnabled={false}
         zoomEnabled={false}
@@ -322,6 +377,11 @@ const BoundaryConfirmScreen = () => {
         {polygonCoords.length > 0 ? (
           <Polygon
             coordinates={polygonCoords}
+            holes={boundary?.coordinates
+              .slice(1)
+              .map(ring =>
+                ring.map(([longitude, latitude]) => ({ longitude, latitude })),
+              )}
             fillColor="rgba(47,133,90,0.24)"
             strokeColor="rgba(47,133,90,0.95)"
             strokeWidth={2}
@@ -329,18 +389,10 @@ const BoundaryConfirmScreen = () => {
         ) : null}
       </MapView>
 
-      <ScreenHeader
-        title="Confirm your boundary"
-        eyebrow="Land Registration"
-        onBack={() => navigation.goBack()}
-      />
-
       {isOffline ? (
         <View
-          className="absolute left-0 right-0 rounded-2xl px-4 py-3"
+          className="rounded-2xl px-4 py-3"
           style={{
-            top: topInset + 90,
-            marginHorizontal: horizontalPadding,
             backgroundColor: COLORS.BANNER_WARNING,
           }}
         >
@@ -351,15 +403,19 @@ const BoundaryConfirmScreen = () => {
       ) : null}
 
       <View
-        className="absolute bottom-0 left-0 right-0 self-center rounded-t-[30px] px-6 pt-5"
+        className="self-center w-full rounded-t-[30px] px-6 pt-5"
         style={{
           backgroundColor: COLORS.CARD_WHITE,
-          maxHeight: height * 0.6,
+          maxHeight: height * 0.55,
           overflow: 'hidden',
           maxWidth: contentMaxWidth,
         }}
       >
-        <ScrollView contentContainerStyle={{ paddingBottom: bottomSpacing }}>
+        <ScrollView
+          showsVerticalScrollIndicator={false}
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={{ paddingBottom: bottomSpacing }}
+        >
           <View
             className="mb-4 self-center h-1.5 w-12 rounded-full"
             style={{ backgroundColor: COLORS.DISABLED_BACKGROUND }}
@@ -374,8 +430,8 @@ const BoundaryConfirmScreen = () => {
             className="mt-2 text-sm leading-6"
             style={{ color: COLORS.DISABLED_GREY }}
           >
-            Review the official parcel shape and confirm the extracted record
-            before TerraTrust registers it to your account.
+            Review the parcel shape and confirm the extracted record before
+            TerraTrust registers it to your account.
           </Text>
 
           <View className="mt-5 gap-3">
@@ -387,7 +443,9 @@ const BoundaryConfirmScreen = () => {
               { label: 'Owner', value: ocrResult?.owner_name ?? '—' },
               {
                 label: 'Area',
-                value: areaAcres ? `${areaAcres} acres` : 'Calculating...',
+                value: areaAcres
+                  ? `Approx. ${areaAcres} acres`
+                  : 'Boundary unavailable',
               },
               { label: 'Source', value: sourceLabel },
             ].map(item => (
@@ -430,7 +488,7 @@ const BoundaryConfirmScreen = () => {
               onPress={() => {
                 void onConfirm();
               }}
-              disabled={isLoading}
+              disabled={isLoading || !boundary || !isUsableLandRecord(ocrResult)}
             />
             <Button
               label="This boundary looks wrong"

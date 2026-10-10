@@ -1,7 +1,11 @@
 import { useTheme } from '../../../common/theme/theme';
-import React, { useEffect } from 'react';
+import React, { useCallback, useRef } from 'react';
 import { BackHandler, View, Text } from 'react-native';
-import { useNavigation, useRoute } from '@react-navigation/native';
+import {
+  useNavigation,
+  useRoute,
+  useFocusEffect,
+} from '@react-navigation/native';
 import type { RouteProp } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import LottieView from 'lottie-react-native';
@@ -25,25 +29,30 @@ const LandRegistrationSuccessScreen = () => {
     state.land.parcels.find(item => item.id === route.params.landId),
   );
 
-  useEffect(() => {
-    const timer = setTimeout(() => {
-      navigation.reset({
-        index: 0,
-        routes: [{ name: 'HomeScreen', params: { screen: 'LandTab' } }],
-      });
-    }, 5000);
-
-    return () => clearTimeout(timer);
+  const left = useRef(false);
+  const goToLands = useCallback(() => {
+    if (left.current) {
+      return;
+    }
+    left.current = true;
+    navigation.reset({
+      index: 0,
+      routes: [{ name: 'HomeScreen', params: { screen: 'LandTab' } }],
+    });
   }, [navigation]);
-
-  useEffect(() => {
-    const subscription = BackHandler.addEventListener(
-      'hardwareBackPress',
-      () => true,
-    );
-
-    return () => subscription.remove();
-  }, []);
+  useFocusEffect(
+    useCallback(() => {
+      const timer = setTimeout(goToLands, 5000);
+      const back = BackHandler.addEventListener(
+        'hardwareBackPress',
+        () => true,
+      );
+      return () => {
+        clearTimeout(timer);
+        back.remove();
+      };
+    }, [goToLands]),
+  );
 
   return (
     <View
@@ -66,8 +75,10 @@ const LandRegistrationSuccessScreen = () => {
         className="mt-4 text-center text-base leading-7"
         style={{ color: COLORS.DARK_SLATE }}
       >
-        {parcel?.farm_name ?? 'Your land'} has been verified using official
-        government records.
+        {parcel?.farm_name ?? 'Your land'} has been registered
+        {parcel?.boundary_source === 'MANUAL'
+          ? ' using your uploaded boundary map.'
+          : ' using official government records.'}
       </Text>
       {parcel ? (
         <Text
@@ -84,15 +95,7 @@ const LandRegistrationSuccessScreen = () => {
         You can now start your annual audit for this land.
       </Text>
       <View className="mt-8 w-full">
-        <Button
-          label="Go to My Lands"
-          onPress={() =>
-            navigation.reset({
-              index: 0,
-              routes: [{ name: 'HomeScreen', params: { screen: 'LandTab' } }],
-            })
-          }
-        />
+        <Button label="Go to My Lands" onPress={goToLands} />
       </View>
     </View>
   );

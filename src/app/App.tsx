@@ -1,3 +1,4 @@
+import { useReducedMotion } from '../common/hooks/useReducedMotion';
 import ThemeProvider from '../common/theme/ThemeProvider';
 import {useTheme} from '../common/theme/theme';
 import React, { useCallback, useEffect, useRef } from 'react';
@@ -13,7 +14,11 @@ import {
 } from 'react-native';
 import { Provider } from 'react-redux';
 import { PersistGate } from 'redux-persist/integration/react';
-import { DarkTheme, DefaultTheme, NavigationContainer } from '@react-navigation/native';
+import {
+  DarkTheme,
+  DefaultTheme,
+  NavigationContainer,
+} from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import BackgroundFetch from 'react-native-background-fetch';
@@ -55,8 +60,14 @@ import {
   setWalletSetup,
   retryWalletSetup,
 } from '../features/auth/store/authSlice';
-import {bootstrapAuthenticatedProfile, completeAuthenticatedWallet} from '../services/authBootstrap';
-import {getCurrentFirebaseUser, type AuthBootstrapResponse} from '../services/firebase';
+import {
+  bootstrapAuthenticatedProfile,
+  completeAuthenticatedWallet,
+} from '../services/authBootstrap';
+import {
+  getCurrentFirebaseUser,
+  type AuthBootstrapResponse,
+} from '../services/firebase';
 
 // Auth screens
 import SplashScreen from '../features/auth/screens/SplashScreen';
@@ -177,8 +188,16 @@ function primeAuditProcessingState(dispatch: typeof store.dispatch) {
 }
 
 function HomeStackNavigator() {
+  const { colors } = useTheme();
+  const reducedMotion = useReducedMotion();
   return (
-    <HomeStack.Navigator screenOptions={{ headerShown: false }}>
+    <HomeStack.Navigator
+      screenOptions={{
+        headerShown: false,
+        animation: reducedMotion ? 'none' : 'slide_from_right',
+        contentStyle: { backgroundColor: colors.OFF_WHITE },
+      }}
+    >
       <HomeStack.Screen name="DashboardHomeScreen" component={HomeScreen} />
       <HomeStack.Screen
         name="CreditHistoryScreen"
@@ -194,8 +213,16 @@ function HomeStackNavigator() {
 }
 
 function LandStackNavigator() {
+  const { colors } = useTheme();
+  const reducedMotion = useReducedMotion();
   return (
-    <LandStack.Navigator screenOptions={{ headerShown: false }}>
+    <LandStack.Navigator
+      screenOptions={{
+        headerShown: false,
+        animation: reducedMotion ? 'none' : 'slide_from_right',
+        contentStyle: { backgroundColor: colors.OFF_WHITE },
+      }}
+    >
       <LandStack.Screen name="LandListScreen" component={LandListScreen} />
       <LandStack.Screen name="LandDetailScreen" component={LandDetailScreen} />
       <LandStack.Screen
@@ -207,8 +234,16 @@ function LandStackNavigator() {
 }
 
 function HistoryStackNavigator() {
+  const { colors } = useTheme();
+  const reducedMotion = useReducedMotion();
   return (
-    <HistoryStack.Navigator screenOptions={{ headerShown: false }}>
+    <HistoryStack.Navigator
+      screenOptions={{
+        headerShown: false,
+        animation: reducedMotion ? 'none' : 'slide_from_right',
+        contentStyle: { backgroundColor: colors.OFF_WHITE },
+      }}
+    >
       <HistoryStack.Screen
         name="CreditHistoryScreen"
         component={CreditHistoryScreen}
@@ -219,8 +254,16 @@ function HistoryStackNavigator() {
 }
 
 function ProfileStackNavigator() {
+  const { colors } = useTheme();
+  const reducedMotion = useReducedMotion();
   return (
-    <ProfileStack.Navigator screenOptions={{ headerShown: false }}>
+    <ProfileStack.Navigator
+      screenOptions={{
+        headerShown: false,
+        animation: reducedMotion ? 'none' : 'slide_from_right',
+        contentStyle: { backgroundColor: colors.OFF_WHITE },
+      }}
+    >
       <ProfileStack.Screen name="ProfileScreen" component={ProfileScreen} />
       <ProfileStack.Screen name="SettingsScreen" component={SettingsScreen} />
       <ProfileStack.Screen
@@ -330,12 +373,18 @@ function AppLifecycleEffects() {
   const auditResultStatus = useAppSelector(
     state => state.audit.auditResult?.status ?? null,
   );
-  const isAuthenticated = useAppSelector(state => state.auth.isAuthenticated && state.auth.sessionReady);
-  const sessionUid = useAppSelector(state => state.auth.sessionReady ? state.auth.user?.firebaseUid : null);
+  const isAuthenticated = useAppSelector(
+    state => state.auth.isAuthenticated && state.auth.sessionReady,
+  );
+  const sessionUid = useAppSelector(state =>
+    state.auth.sessionReady ? state.auth.user?.firebaseUid : null,
+  );
   const onboardingComplete = useAppSelector(
     state => state.profile.onboardingComplete,
   );
-  const walletSetupAttempt = useAppSelector(state => state.auth.walletSetupAttempt);
+  const walletSetupAttempt = useAppSelector(
+    state => state.auth.walletSetupAttempt,
+  );
   const wasOfflineRef = useRef(false);
   const lastBackPressRef = useRef(0);
   const backgroundFetchConfiguredRef = useRef(false);
@@ -522,7 +571,6 @@ function AppLifecycleEffects() {
               getState: store.getState,
             });
           }
-
         }
       } catch {
         // Ignore bootstrap retry failures.
@@ -595,7 +643,6 @@ function AppLifecycleEffects() {
           })().catch(() => undefined);
         }
       }
-
     });
 
     return unsubscribe;
@@ -729,6 +776,7 @@ function GlobalBanner() {
 }
 
 const AppContent = () => {
+  const reducedMotion = useReducedMotion();
   const { colors: COLORS, isDark } = useTheme();
   const baseTheme = isDark ? DarkTheme : DefaultTheme;
   const navigationTheme = {
@@ -768,6 +816,7 @@ const AppContent = () => {
               initialRouteName="SplashScreen"
               screenOptions={{
                 headerShown: false,
+                animation: reducedMotion ? 'none' : 'slide_from_right',
                 contentStyle: { backgroundColor: COLORS.OFF_WHITE },
               }}
             >
@@ -777,7 +826,10 @@ const AppContent = () => {
               <RootStack.Screen
                 name="KYCScreen"
                 component={KYCScreen}
-                options={{ gestureEnabled: false, animation: 'fade' }}
+                options={{
+                  gestureEnabled: false,
+                  animation: reducedMotion ? 'none' : 'fade',
+                }}
               />
               <RootStack.Screen
                 name="OnboardingScreen"
@@ -796,17 +848,26 @@ const AppContent = () => {
               <RootStack.Screen
                 name="DocumentUploadScreen"
                 component={DocumentUploadScreen}
-                options={{ presentation: 'fullScreenModal' }}
+                options={{
+                  presentation: 'fullScreenModal',
+                  animation: reducedMotion ? 'none' : 'slide_from_bottom',
+                }}
               />
               <RootStack.Screen
                 name="BoundaryConfirmScreen"
                 component={BoundaryConfirmScreen}
-                options={{ presentation: 'fullScreenModal' }}
+                options={{
+                  presentation: 'fullScreenModal',
+                  animation: reducedMotion ? 'none' : 'slide_from_bottom',
+                }}
               />
               <RootStack.Screen
                 name="ManualUploadGuideScreen"
                 component={ManualUploadGuideScreen}
-                options={{ presentation: 'fullScreenModal' }}
+                options={{
+                  presentation: 'fullScreenModal',
+                  animation: reducedMotion ? 'none' : 'slide_from_bottom',
+                }}
               />
               <RootStack.Screen
                 name="LandRegistrationSuccessScreen"
@@ -814,6 +875,7 @@ const AppContent = () => {
                 options={{
                   gestureEnabled: false,
                   presentation: 'fullScreenModal',
+                  animation: reducedMotion ? 'none' : 'slide_from_bottom',
                 }}
               />
 
@@ -821,27 +883,42 @@ const AppContent = () => {
               <RootStack.Screen
                 name="AuditStartScreen"
                 component={AuditStartScreen}
-                options={{ presentation: 'fullScreenModal' }}
+                options={{
+                  presentation: 'fullScreenModal',
+                  animation: reducedMotion ? 'none' : 'slide_from_bottom',
+                }}
               />
               <RootStack.Screen
                 name="ZoneNavigationScreen"
                 component={ZoneNavigationScreen}
-                options={{ presentation: 'fullScreenModal' }}
+                options={{
+                  presentation: 'fullScreenModal',
+                  animation: reducedMotion ? 'none' : 'slide_from_bottom',
+                }}
               />
               <RootStack.Screen
                 name="ARCameraScreen"
                 component={ARCameraScreen}
-                options={{ presentation: 'fullScreenModal' }}
+                options={{
+                  presentation: 'fullScreenModal',
+                  animation: reducedMotion ? 'none' : 'slide_from_bottom',
+                }}
               />
               <RootStack.Screen
                 name="ManualMeasureScreen"
                 component={ManualMeasureScreen}
-                options={{ presentation: 'fullScreenModal' }}
+                options={{
+                  presentation: 'fullScreenModal',
+                  animation: reducedMotion ? 'none' : 'slide_from_bottom',
+                }}
               />
               <RootStack.Screen
                 name="TreeResultScreen"
                 component={TreeResultScreen}
-                options={{ presentation: 'fullScreenModal' }}
+                options={{
+                  presentation: 'fullScreenModal',
+                  animation: reducedMotion ? 'none' : 'slide_from_bottom',
+                }}
               />
               <RootStack.Screen
                 name="AuditCompleteScreen"
@@ -849,6 +926,7 @@ const AppContent = () => {
                 options={{
                   gestureEnabled: false,
                   presentation: 'fullScreenModal',
+                  animation: reducedMotion ? 'none' : 'slide_from_bottom',
                 }}
               />
               <RootStack.Screen
@@ -857,6 +935,7 @@ const AppContent = () => {
                 options={{
                   gestureEnabled: false,
                   presentation: 'fullScreenModal',
+                  animation: reducedMotion ? 'none' : 'slide_from_bottom',
                 }}
               />
 
@@ -864,7 +943,10 @@ const AppContent = () => {
               <RootStack.Screen
                 name="NotificationsScreen"
                 component={NotificationsScreen}
-                options={{ presentation: 'fullScreenModal' }}
+                options={{
+                  presentation: 'fullScreenModal',
+                  animation: reducedMotion ? 'none' : 'slide_from_bottom',
+                }}
               />
               <RootStack.Screen
                 name="MaintenanceScreen"
@@ -872,6 +954,7 @@ const AppContent = () => {
                 options={{
                   gestureEnabled: false,
                   presentation: 'fullScreenModal',
+                  animation: reducedMotion ? 'none' : 'slide_from_bottom',
                 }}
               />
             </RootStack.Navigator>

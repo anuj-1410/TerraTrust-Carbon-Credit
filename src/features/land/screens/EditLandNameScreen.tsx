@@ -8,8 +8,10 @@ import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 
 import Button from '../../../common/components/Button';
 import Card from '../../../common/components/Card';
+import { useLandOperation } from '../hooks/useLandOperation';
+import { useLandParcel } from '../hooks/useLandParcel';
 import { useResponsiveScreen } from '../../../common/hooks/useResponsiveScreen';
-import { useAppDispatch, useAppSelector } from '../../../store/hooks';
+import { useAppDispatch } from '../../../store/hooks';
 import { updateParcel } from '../store/landSlice';
 import api from '../../../services/api';
 import type { RootStackParamList } from '../../../types/navigation';
@@ -22,9 +24,8 @@ const EditLandNameScreen = () => {
   const navigation = useNavigation<Nav>();
   const route = useRoute<RouteType>();
   const dispatch = useAppDispatch();
-  const parcel = useAppSelector(state =>
-    state.land.parcels.find(item => item.id === route.params.landId),
-  );
+  const parcel = useLandParcel(route.params.landId);
+  const { run } = useLandOperation();
   const { horizontalPadding, bottomSpacing, contentMaxWidth } =
     useResponsiveScreen();
   const [farmName, setFarmName] = useState(parcel?.farm_name ?? '');
@@ -35,45 +36,75 @@ const EditLandNameScreen = () => {
 
   if (!parcel) {
     return (
-      <View
-        className="flex-1 items-center justify-center"
-        style={{ backgroundColor: COLORS.OFF_WHITE }}
-      >
-        <Text style={{ color: COLORS.DARK_SLATE }}>Land parcel not found.</Text>
+      <View className="flex-1" style={{ backgroundColor: COLORS.OFF_WHITE }}>
+        <ScreenHeader
+          title="Edit Farm Name"
+          onBack={() => navigation.goBack()}
+        />
+        <View className="flex-1 items-center justify-center">
+          <Text style={{ color: COLORS.DARK_SLATE }}>
+            Land parcel not found.
+          </Text>
+        </View>
       </View>
     );
   }
 
-  const handleSave = async () => {
-    if (!trimmedFarmName) {
-      setErrorMessage('Please enter a farm name.');
-      return;
-    }
+  const handleSave = () =>
+    run(
+      async operation => {
+        if (!trimmedFarmName) {
+          setErrorMessage('Please enter a farm name.');
+          return;
+        }
 
-    try {
-      setIsSaving(true);
-      setErrorMessage(null);
+        try {
+          setIsSaving(true);
+          setErrorMessage(null);
 
-      await api.patch(`/api/v1/land/${parcel.id}`, {
-        farm_name: trimmedFarmName,
-      });
+          const { data } = await api.patch(
+            `/api/v1/land/${parcel.id}`,
+            {
+              farm_name: trimmedFarmName,
+            },
+            { signal: operation.signal },
+          );
+          if (!operation.isCurrent()) {
+            return;
+          }
 
-      dispatch(
-        updateParcel({
-          id: parcel.id,
-          changes: { farm_name: trimmedFarmName },
-        }),
-      );
-      navigation.goBack();
-    } catch (error: any) {
-      setErrorMessage(
-        error?.response?.data?.error ??
-          'Unable to save this farm name. Please try again.',
-      );
-    } finally {
-      setIsSaving(false);
-    }
-  };
+          dispatch(
+            updateParcel({
+              id: parcel.id,
+              changes: {
+                farm_name:
+                  typeof data?.farm_name === 'string'
+                    ? data.farm_name
+                    : trimmedFarmName,
+              },
+              fallback: parcel,
+            }),
+          );
+          navigation.goBack();
+        } catch (error: any) {
+          if (!operation.isCurrent()) {
+            return;
+          }
+          setErrorMessage(
+            error?.response?.data?.error ??
+              'Unable to save this farm name. Please try again.',
+          );
+        } finally {
+          if (operation.isCurrent()) {
+            setIsSaving(false);
+          }
+        }
+      },
+      () => {
+        setIsSaving(false);
+        setErrorMessage('Unable to save this farm name. Please try again.');
+      },
+    );
 
   return (
     <View className="flex-1" style={{ backgroundColor: COLORS.OFF_WHITE }}>
@@ -83,6 +114,9 @@ const EditLandNameScreen = () => {
         onBack={() => navigation.goBack()}
       />
       <ScrollView
+        showsVerticalScrollIndicator={false}
+        showsHorizontalScrollIndicator={false}
+        keyboardShouldPersistTaps="handled"
         contentContainerStyle={{
           alignSelf: 'center',
           width: '100%',
@@ -131,6 +165,7 @@ const EditLandNameScreen = () => {
             placeholder="Enter farm name"
             placeholderTextColor={COLORS.DISABLED_GREY}
             maxLength={100}
+            editable={!isSaving}
           />
 
           {errorMessage ? (
@@ -144,7 +179,11 @@ const EditLandNameScreen = () => {
           <Button
             label={isSaving ? 'Saving...' : 'Save'}
             onPress={handleSave}
-            disabled={isSaving}
+            disabled={
+              isSaving ||
+              !trimmedFarmName ||
+              trimmedFarmName === parcel.farm_name
+            }
           />
         </View>
       </ScrollView>

@@ -71,6 +71,8 @@ const SettingsScreen = () => {
         onBack={() => navigation.goBack()}
       />
       <ScrollView
+        showsVerticalScrollIndicator={false}
+        showsHorizontalScrollIndicator={false}
         contentContainerStyle={{
           alignSelf: 'center',
           width: '100%',

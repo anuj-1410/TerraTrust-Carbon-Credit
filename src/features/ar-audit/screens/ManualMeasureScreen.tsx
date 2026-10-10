@@ -124,6 +124,8 @@ const ManualMeasureScreen = () => {
         onBack={() => navigation.goBack()}
       />
       <ScrollView
+        showsVerticalScrollIndicator={false}
+        showsHorizontalScrollIndicator={false}
         className="flex-1"
         contentContainerStyle={{
           alignSelf: 'center',

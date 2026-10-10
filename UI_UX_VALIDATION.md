@@ -1,4 +1,45 @@
-# UI and appearance changes — updated 9 October 2026
+# UI and appearance changes — updated 10 October 2026
+
+## 10 October: OTP rendering, motion, history, and land review
+
+| Finding | Correction |
+| --- | --- |
+| The autofill-compatible OTP TextInput and six custom cells both occupied the row. Transparent text alone allowed the native input's entire code to appear over the cells on the reported phone. | Hide the native input's rendering with opacity zero, retain its input/autofill behavior, and display digits only in the custom cells. The visible row exposes an accessibility action to focus code entry. Refocus after verification/resend failures waits until the input is editable again. |
+| Modal slide animation moved the backdrop with the sheet, producing a late tint. Authentication could also navigate while the drawer was still exiting. | Use SheetModal with native Modal animation disabled. One native-driven Animated.Value fades a stationary backdrop and translates the sheet together. Open in 280ms, close in 200ms, focus after opening, and commit login after closing. Dismissal invalidates the phone intent immediately. Honor the device's reduced-motion setting. Shared sheets use the same transition and bounded, scrollable content. |
+| The history chart called yearly issuance “growth”, used hard-to-read axes, and calculated totals from only the fetched page. | Use exact year/CTT labels and horizontal comparison bars. Filters: All years, 1, 3, 5, 10 calendar years ending in the current year, or a validated custom inclusive year range. Chart shows up to five years per page with Older/Newer controls; the audit list follows the same filter. |
+| History could silently stop at the first API page or accept stale refresh results. | Fetch all history sequentially in batches of 20 from the existing page/limit API. Deduplicate overlaps, stop non-advancing pagination, reject superseded/account-changed responses, and label loading/failed totals as incomplete. Keep cached data and offer retry. The list is virtualized; no artificial overall year or record cap is imposed, but loading remains subject to device memory, network, and backend limits. |
+| Land pagination lived separately from the shared parcel snapshot; background refresh could leave the list using old page metadata. Null audit fields retained old values, and registered_at was not displayed. | Keep page/hasMore with the shared snapshot. Isolate later-page requests by snapshot ID, reject skipped/stale pages, preserve selected detail/rename data across page-one refresh, clear explicit null fields, and map registered_at. Show loading and retry states. |
+| Camera/picker/OCR/boundary/rename/register results could finish after navigation or logout, and repeated taps could submit twice. | Own each operation by focused screen, Firebase UID, generation, and a synchronous lock; abort HTTP requests and discard obsolete results. Validate required OCR fields and registration responses. Scope document back handlers to focus, provide loading cancellation, and surface unexpected boundary errors with retry/manual-map actions. |
+| Boundary preview could send malformed coordinates to the map, ignored holes, and estimated area with a fixed latitude. The confirmation panel obscured part of the map. | Check ring closure, coordinate bounds, and distinct vertices; render/subtract holes, exclude them from geofencing, and use the parcel's latitude for the local approximate area. Keep server/PostGIS area authoritative. Place the map above a bounded bottom panel. Structural checks do not replace backend topology/ownership validation. |
+| Visible scroll indicators appeared across screens; transition behavior and backgrounds varied. | Hide both scroll indicators on every app ScrollView/FlatList while retaining scrolling. Use themed native stack transitions, avoid interaction-blocking tab springs, and honor reduced motion in stacks, tabs, and sheets. Prevent duplicate success-screen navigation from its timer and button. |
+
+### Verification completed on 10 October
+
+- TypeScript: `npx tsc --noEmit` passed.
+- ESLint: `npx eslint src --ext .ts,.tsx --quiet` passed, with no errors.
+- Jest: `npx jest --runInBand --testTimeout=15000` — **201 tests across 45 suites passed**. New coverage includes OTP input rendering/autofill props, deferred drawer dismissal, reduced motion, annual totals/ranges/chart paging, complete/repeating/stale history pagination, land snapshot metadata/null/date mapping, geometry holes/latitude, duplicate submissions, refresh during rename, late registration after logout, cancellation during OCR, malformed OCR, and unexpected boundary responses.
+- Android production Metro bundle and 20 assets generated successfully. The sandbox blocked Metro worker spawning (EPERM); the approved run outside the sandbox completed. The existing @noble/hashes/crypto.js package-exports advisory remains, with Metro's successful file fallback. Native debug compilation in the historical section below was performed on 9 October; these changes introduce no native dependency.
+
+### Demo data rules
+
+The intended checkpoints in TerraTrust_DemoAccounts_Specification.txt are:
+
+| Phone | Intended next-login behavior |
+| --- | --- |
+| +91 9000000001 | Reset to fresh: no KYC, wallet registration, or land. |
+| +91 9000000002 | Restore KYC/wallet checkpoint; remove added lands/audits. |
+| +91 9000000003 | Restore KYC/wallet and the seeded parcel; remove audits/scans. |
+| +91 9000000004 | Keep server-side data; new lands, audits, and credits accumulate. |
+
+The supplied backend middleware example uses a UID set for the entire server process. That permits only one reset per UID per process until explicitly invalidated; it does not detect every new login. No deployed backend implementation is present in this frontend workspace, so actual reset frequency is unverified. The frontend does not simulate destructive server resets. Logout clears local account caches for every account, while appearance preference remains saved.
+
+### Device and integration checks
+
+On Realme 6 Pro, verify typed/pasted/SMS-autofilled six-digit codes render once, errors restore typing, and keyboard/drawer/backdrop enter and exit together. Check close during verification and reduced motion. Exercise light/dark mode, large text, short screens, map visibility, document capture/manual upload, register/rename, pull refresh after loading several land pages, and offline retry. Use more than 20 history records spanning more than five years to verify totals and all filters against server data. Verify demo resets in the deployed backend independently.
+
+No physical-phone frame profiling, signed APK, live registration transaction, or deployed demo-reset check was performed here. Automated tests and bundling establish code correctness for the covered cases; they do not establish device animation performance or live-service behavior.
+
+References: [React Native animations](https://reactnative.dev/docs/animations), [TextInput autofill](https://reactnative.dev/docs/textinput), [reduced motion](https://reactnative.dev/docs/accessibilityinfo), and [GeoJSON polygon structure](https://datatracker.ietf.org/doc/html/rfc7946).
 
 ## Findings and fixes
 
@@ -13,7 +54,7 @@
 
 Light mode uses restrained forest accents and bright surfaces. Dark mode uses a black (#000000) main background, neutral charcoal cards/inputs, neutral grey borders, and readable status colors. Green is used for primary actions, icons, selections, and success indicators. Light mode uses neutral off-white surfaces and dark neutral text. Primary button backgrounds stay dark green in both modes so white labels retain contrast.
 
-## Completed verification
+## Historical verification — 9 October
 
 - TypeScript: `npx tsc --noEmit` passed.
 - ESLint: `npx eslint src --ext .ts,.tsx --quiet` passed with no errors. Existing advisory style warnings are excluded by `--quiet`.

@@ -342,6 +342,8 @@ const ZoneNavigationScreen = () => {
         </MapView>
       </View>
       <ScrollView
+        showsVerticalScrollIndicator={false}
+        showsHorizontalScrollIndicator={false}
         testID="zone-controls"
         style={{ flexGrow: 0, maxHeight: height * 0.5 }}
         contentContainerStyle={{ paddingTop: 4 }}

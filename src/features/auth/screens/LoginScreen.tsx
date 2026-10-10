@@ -96,8 +96,10 @@ const LoginScreen = () => {
   );
 
   const closeDrawer = () => {
-    const phone = otpSession?.phone;
     setOtpSession(null);
+  };
+  const cancelDrawer = () => {
+    const phone = otpSession?.phone;
     if (phone) {
       void cancelPendingPhoneOtp(phone).catch(() =>
         setApiError('Could not change the number. Please retry sign-in.'),
@@ -175,6 +177,8 @@ const LoginScreen = () => {
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
     >
       <ScrollView
+        showsVerticalScrollIndicator={false}
+        showsHorizontalScrollIndicator={false}
         contentContainerStyle={{ flexGrow: 1 }}
         keyboardShouldPersistTaps="handled"
       >
@@ -279,6 +283,7 @@ const LoginScreen = () => {
           phone={otpSession.phone}
           verificationId={otpSession.verificationId}
           onClose={closeDrawer}
+          onClosing={cancelDrawer}
           onVerified={onVerified}
         />
       ) : null}

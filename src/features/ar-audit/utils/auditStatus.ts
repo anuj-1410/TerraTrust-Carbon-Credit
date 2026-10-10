@@ -1,8 +1,8 @@
-import type {AppDispatch, RootState} from '../../../store';
+import type { AppDispatch, RootState } from '../../../store';
 import api from '../../../services/api';
-import {setPendingMint} from '../../dashboard/store/creditsSlice';
-import {fetchCreditsThunk} from '../../dashboard/store/creditsSlice';
-import {addNotification} from '../../notifications/store/notificationsSlice';
+import { setPendingMint } from '../../dashboard/store/creditsSlice';
+import { fetchCreditsThunk } from '../../dashboard/store/creditsSlice';
+import { addNotification } from '../../notifications/store/notificationsSlice';
 import {
   setAuditResult,
   setLastPolledAt,
@@ -31,9 +31,21 @@ export async function syncAuditStatus({
   dispatch,
   getState,
 }: SyncAuditStatusArgs): Promise<AuditResultResponse> {
+  const owner = getState().auth.user?.firebaseUid;
+  const assertCurrentSession = () => {
+    if (
+      !owner ||
+      !getState().auth.sessionReady ||
+      getState().auth.user?.firebaseUid !== owner
+    ) {
+      throw new Error('AUDIT_SESSION_CHANGED');
+    }
+  };
+  assertCurrentSession();
   const response = await api.get<AuditResultResponse>(
     `/api/v1/audit/result/${auditId}`,
   );
+  assertCurrentSession();
   const result = response.data;
 
   dispatch(setAuditResult(result));
@@ -50,7 +62,8 @@ export async function syncAuditStatus({
 
   if (result.status === 'MINTED') {
     dispatch(setUploadStatus('success'));
-    await dispatch(fetchCreditsThunk());
+    await dispatch(fetchCreditsThunk({ allHistory: true }));
+    assertCurrentSession();
 
     if (notificationsEnabled) {
       dispatch(

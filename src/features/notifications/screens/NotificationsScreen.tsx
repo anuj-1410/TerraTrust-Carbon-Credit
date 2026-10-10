@@ -127,6 +127,8 @@ const NotificationsScreen = () => {
         backIcon="close"
       />
       <ScrollView
+        showsVerticalScrollIndicator={false}
+        showsHorizontalScrollIndicator={false}
         contentContainerStyle={{
           alignSelf: 'center',
           width: '100%',

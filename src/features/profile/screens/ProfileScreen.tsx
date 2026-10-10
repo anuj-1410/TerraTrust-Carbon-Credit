@@ -167,6 +167,8 @@ const ProfileScreen = () => {
     <View className="flex-1" style={{ backgroundColor: COLORS.OFF_WHITE }}>
       <ScreenHeader title="My Profile" />
       <ScrollView
+        showsVerticalScrollIndicator={false}
+        showsHorizontalScrollIndicator={false}
         contentContainerStyle={{
           width: '100%',
           alignSelf: 'center',

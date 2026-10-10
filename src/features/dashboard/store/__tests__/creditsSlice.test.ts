@@ -34,7 +34,7 @@ function createTestStore(overrides: Partial<CreditsState> = {}) {
   const store = configureStore({
     reducer: {
       credits: creditsReducer,
-      auth: () => ({walletAddress: '0xWALLET', isAuthenticated: true}),
+      auth: () => ({walletAddress: '0xWALLET', isAuthenticated: true, sessionReady: true, user: {firebaseUid: 'farmer-1'}}),
       land: () => ({parcels: []}),
       audit: () => ({}),
     },

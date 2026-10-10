@@ -194,6 +194,8 @@ const TreeResultScreen = () => {
         onBack={handleRescan}
       />
       <ScrollView
+        showsVerticalScrollIndicator={false}
+        showsHorizontalScrollIndicator={false}
         className="flex-1"
         contentContainerStyle={{
           alignSelf: 'center',

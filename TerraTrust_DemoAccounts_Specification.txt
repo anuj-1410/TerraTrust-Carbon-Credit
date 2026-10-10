@@ -33,9 +33,17 @@ Reset flow (accounts 1, 2, 3):
   5. The normal /auth/me route handler then runs and reads the clean
      checkpoint state. The app receives the clean state as the response.
 
-Important: The reset runs ONCE per login session. DemoResetMiddleware tracks
-which UIDs have been reset in the current server process. Subsequent /auth/me
-calls (e.g. from background token refresh) do not re-trigger the reset.
+Intended rule: reset ONCE per new login session, without resetting on repeated
+/auth/me calls during that same login.
+
+IMPLEMENTATION REVIEW — 10 OCTOBER 2026:
+The middleware example below tracks UIDs in _reset_done_this_session for the
+entire server PROCESS. As written, a second login with the same UID does not
+reset until server restart or invalidate_demo_session is called. This differs
+from the next-login rule in the account table. The deployed backend must be
+checked and must distinguish new authenticated sessions to enforce that rule.
+This frontend repository does not contain the deployed middleware and does
+not perform destructive database resets locally.
 
 Account 4 (persistent): The middleware checks the UID and does nothing for it.
 

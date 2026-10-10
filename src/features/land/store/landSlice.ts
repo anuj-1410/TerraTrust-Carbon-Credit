@@ -78,6 +78,8 @@ export interface LandState {
   lastSyncedAt: string | null;
   snapshotRequestId: string | null;
   localRevision: number;
+  currentPage: number;
+  hasMore: boolean;
 }
 
 export const landInitialState: LandState = {
@@ -92,6 +94,8 @@ export const landInitialState: LandState = {
   lastSyncedAt: null,
   snapshotRequestId: null,
   localRevision: 0,
+  currentPage: 1,
+  hasMore: false,
 };
 
 function isCurrentAuditStatus(value: unknown): value is CurrentAuditStatus {
@@ -108,6 +112,16 @@ function toNullableString(value: unknown): string | null {
   }
 
   return value == null ? null : String(value);
+}
+
+function nullableField(
+  item: Record<string, unknown>,
+  key: string,
+  fallback?: string | null,
+): string | null {
+  return item[key] === null
+    ? null
+    : toNullableString(item[key]) ?? fallback ?? null;
 }
 
 export function normalizeLandParcelRecord(
@@ -128,7 +142,11 @@ export function normalizeLandParcelRecord(
     taluka: String(item.taluka ?? existing?.taluka ?? ''),
     village: String(item.village ?? existing?.village ?? ''),
     state: String(item.state ?? existing?.state ?? ''),
-    area_hectares: Number(item.area_hectares ?? existing?.area_hectares ?? 0),
+    area_hectares: Number.isFinite(
+      Number(item.area_hectares ?? existing?.area_hectares),
+    )
+      ? Math.max(0, Number(item.area_hectares ?? existing?.area_hectares))
+      : 0,
     boundary_geojson:
       (item.boundary_geojson as GeoJSONPolygon | null | undefined) ??
       existing?.boundary_geojson ??
@@ -140,35 +158,57 @@ export function normalizeLandParcelRecord(
     is_verified: isVerified,
     status: isLandStatus(item.status)
       ? item.status
+      : typeof item.is_verified === 'boolean'
+      ? isVerified
+        ? 'verified'
+        : 'pending'
       : existing?.status ?? (isVerified ? 'verified' : 'pending'),
     last_audit_year:
-      typeof item.last_audit_year === 'number'
-        ? item.last_audit_year
+      item.last_audit_year === null
+        ? null
+        : Number.isInteger(Number(item.last_audit_year)) &&
+          item.last_audit_year !== undefined
+        ? Number(item.last_audit_year)
         : existing?.last_audit_year ?? null,
     last_audit_date:
       typeof item.last_audit_date === 'string' || item.last_audit_date === null
         ? (item.last_audit_date as string | null)
         : existing?.last_audit_date ?? null,
-    current_audit_id:
-      toNullableString(item.current_audit_id) ??
-      existing?.current_audit_id ??
-      null,
-    current_audit_status: isCurrentAuditStatus(item.current_audit_status)
-      ? item.current_audit_status
-      : existing?.current_audit_status ?? null,
-    latest_certificate_url:
-      toNullableString(item.latest_certificate_url) ??
-      existing?.latest_certificate_url ??
-      null,
-    latest_tx_hash:
-      toNullableString(item.latest_tx_hash) ?? existing?.latest_tx_hash ?? null,
+    current_audit_id: nullableField(
+      item,
+      'current_audit_id',
+      existing?.current_audit_id,
+    ),
+    current_audit_status:
+      item.current_audit_status === null
+        ? null
+        : isCurrentAuditStatus(item.current_audit_status)
+        ? item.current_audit_status
+        : existing?.current_audit_status ?? null,
+    latest_certificate_url: nullableField(
+      item,
+      'latest_certificate_url',
+      existing?.latest_certificate_url,
+    ),
+    latest_tx_hash: nullableField(
+      item,
+      'latest_tx_hash',
+      existing?.latest_tx_hash,
+    ),
     latest_credits_issued:
-      typeof item.latest_credits_issued === 'number'
+      item.latest_credits_issued === null
+        ? null
+        : typeof item.latest_credits_issued === 'number'
         ? item.latest_credits_issued
         : existing?.latest_credits_issued ?? null,
-    thumbnail_url:
-      toNullableString(item.thumbnail_url) ?? existing?.thumbnail_url ?? null,
-    created_at: String(item.created_at ?? existing?.created_at ?? ''),
+    thumbnail_url: nullableField(
+      item,
+      'thumbnail_url',
+      existing?.thumbnail_url,
+    ),
+    created_at: String(
+      item.created_at ?? item.registered_at ?? existing?.created_at ?? '',
+    ),
   };
 }
 
@@ -250,7 +290,7 @@ export const fetchLandPage = createAsyncThunk<
     const owner = getState().auth.user;
     const snapshotRequestId = getState().land.snapshotRequestId;
     const localRevision = getState().land.localRevision;
-    const key = `${owner?.firebaseUid}:${page}:${localRevision}`;
+    const key = `${owner?.firebaseUid}:${page}:${localRevision}:${page === 1 ? 'first' : snapshotRequestId}`;
     let pending = pendingPages.get(key);
     if (!pending) {
       const api = require('../../../services/api')
@@ -294,8 +334,13 @@ export const fetchLandPage = createAsyncThunk<
     };
   },
   {
-    condition: (_, { getState }) =>
-      Boolean(getState().auth.sessionReady && getState().auth.user),
+    condition: (page, { getState }) =>
+      Boolean(
+        getState().auth.sessionReady &&
+          getState().auth.user &&
+          ((page ?? 1) === 1 ||
+            (page ?? 1) === (getState().land.currentPage ?? 1) + 1),
+      ),
   },
 );
 
@@ -316,11 +361,26 @@ const landSlice = createSlice({
     },
     updateParcel(
       state,
-      action: PayloadAction<{ id: string; changes: Partial<LandParcel> }>,
+      action: PayloadAction<{
+        id: string;
+        changes: Partial<LandParcel>;
+        fallback?: LandParcel;
+      }>,
     ) {
       state.localRevision++;
+      if (
+        !state.parcels.some(
+          parcel => parcel.id === canonicalLandId(action.payload.id),
+        ) &&
+        action.payload.fallback
+      ) {
+        state.parcels.push({
+          ...action.payload.fallback,
+          id: canonicalLandId(action.payload.id),
+        });
+      }
       state.parcels = state.parcels.map(parcel =>
-        parcel.id === action.payload.id
+        parcel.id === canonicalLandId(action.payload.id)
           ? { ...parcel, ...action.payload.changes }
           : parcel,
       );
@@ -345,6 +405,7 @@ const landSlice = createSlice({
     builder.addCase(fetchLandPage.pending, (state, action) => {
       if ((action.meta.arg ?? 1) === 1) {
         state.snapshotRequestId = action.meta.requestId;
+        state.hasMore = false;
       }
     });
     builder.addCase(fetchLandPage.fulfilled, (state, action) => {
@@ -360,6 +421,8 @@ const landSlice = createSlice({
         ? action.payload.parcels
         : mergeLandParcels(state.parcels, action.payload.parcels);
       state.lastSyncedAt = new Date().toISOString();
+      state.currentPage = action.meta.arg ?? 1;
+      state.hasMore = action.payload.hasMore;
     });
   },
 });

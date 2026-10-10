@@ -29,14 +29,18 @@ const LandListScreen = () => {
   const dispatch = useAppDispatch();
   const { horizontalPadding, bottomSpacing, contentMaxWidth } =
     useResponsiveScreen();
-  const parcels = useAppSelector(s => s.land.parcels);
+  const {
+    parcels,
+    currentPage = 1,
+    hasMore = false,
+  } = useAppSelector(s => s.land);
   const inFlightPagesRef = useRef<Set<number>>(new Set());
 
   const [isOffline, setIsOffline] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
-  const [currentPage, setCurrentPage] = useState(1);
-  const [hasMore, setHasMore] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
+  const [initialLoading, setInitialLoading] = useState(true);
 
   const fetchParcels = useCallback(
     async (pageToLoad = 1) => {
@@ -52,16 +56,27 @@ const LandListScreen = () => {
       }
 
       try {
-        const result = await dispatch(fetchLandPage(pageToLoad)).unwrap();
-        setCurrentPage(pageToLoad);
-        setHasMore(result.hasMore);
+        await dispatch(fetchLandPage(pageToLoad)).unwrap();
+        setLoadError(null);
         setIsOffline(false);
       } catch (err: unknown) {
-        const axiosErr = err as { response?: unknown };
+        const axiosErr = err as {
+          response?: unknown;
+          name?: string;
+          message?: string;
+        };
+        if (
+          axiosErr.name === 'ConditionError' ||
+          axiosErr.message?.startsWith('LAND_')
+        ) {
+          return;
+        }
         if (!axiosErr.response) {
           setIsOffline(true);
         }
+        setLoadError('Unable to refresh your lands. Please try again.');
       } finally {
+        setInitialLoading(false);
         inFlightPagesRef.current.delete(pageToLoad);
         if (isLoadMore) {
           setIsLoadingMore(false);
@@ -82,7 +97,12 @@ const LandListScreen = () => {
   }, [fetchParcels]);
 
   const onLoadMore = useCallback(() => {
-    if (refreshing || isLoadingMore || !hasMore) {
+    if (
+      refreshing ||
+      isLoadingMore ||
+      inFlightPagesRef.current.has(1) ||
+      !hasMore
+    ) {
       return;
     }
 
@@ -116,7 +136,11 @@ const LandListScreen = () => {
     return (
       <TouchableOpacity
         className="mb-3 rounded-xl bg-surface p-4 flex-row self-center w-full"
-        style={{ elevation: 2, maxWidth: contentMaxWidth }}
+        style={{
+          borderWidth: 1,
+          borderColor: COLORS.BORDER,
+          maxWidth: contentMaxWidth,
+        }}
         activeOpacity={0.82}
         onPress={() =>
           navigation.navigate('LandDetailScreen', {
@@ -265,6 +289,8 @@ const LandListScreen = () => {
 
       {/* Parcel list */}
       <FlatList
+        showsVerticalScrollIndicator={false}
+        showsHorizontalScrollIndicator={false}
         data={parcels}
         keyExtractor={item => item.id}
         renderItem={renderParcelCard}
@@ -277,11 +303,23 @@ const LandListScreen = () => {
                 paddingBottom: bottomSpacing,
               }
         }
-        ListEmptyComponent={parcels.length === 0 ? renderEmptyState() : null}
+        ListEmptyComponent={parcels.length === 0 ? initialLoading ? (
+          <View className="flex-1 items-center justify-center"><ActivityIndicator color={COLORS.FOREST_GREEN} /><Text className="mt-3" style={{ color: COLORS.DISABLED_GREY }}>Loading your lands...</Text></View>
+        ) : renderEmptyState() : null}
         onEndReached={onLoadMore}
         onEndReachedThreshold={0.35}
         ListFooterComponent={
-          isLoadingMore ? (
+          loadError ? (
+            <TouchableOpacity
+              accessibilityRole="button"
+              onPress={() => void fetchParcels(1)}
+              style={{ minHeight: 48, paddingVertical: 16 }}
+            >
+              <Text style={{ color: COLORS.ERROR_RED }}>
+                {loadError} Tap to retry.
+              </Text>
+            </TouchableOpacity>
+          ) : isLoadingMore ? (
             <View className="py-4">
               <ActivityIndicator color={COLORS.FOREST_GREEN} />
             </View>

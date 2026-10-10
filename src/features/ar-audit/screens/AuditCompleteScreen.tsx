@@ -171,6 +171,8 @@ const AuditCompleteScreen = () => {
       />
 
       <ScrollView
+        showsVerticalScrollIndicator={false}
+        showsHorizontalScrollIndicator={false}
         className="flex-1 px-5"
         contentContainerStyle={{ paddingBottom: 32 }}
       >

@@ -112,6 +112,8 @@ async function migrateLandState(state: any): Promise<any> {
     parcels,
     snapshotRequestId: null,
     localRevision: 0,
+    currentPage: 1,
+    hasMore: false,
   };
 }
 
@@ -205,6 +207,7 @@ const creditsPersistConfig: PersistConfig<CreditsState> = {
   storage: mmkvStorage,
   migrate: createMigrate(migrations, {debug: false}),
   stateReconciler: autoMergeLevel2,
+  blacklist: ['historyRequestId', 'previewRequestId', 'balanceRequestId'],
 };
 
 const notificationsPersistConfig: PersistConfig<NotificationsState> = {

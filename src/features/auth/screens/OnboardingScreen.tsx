@@ -97,6 +97,7 @@ const OnboardingScreen = () => {
 
       <View className="flex-1 justify-center">
         <ScrollView
+          showsVerticalScrollIndicator={false}
           ref={scrollRef}
           horizontal
           pagingEnabled

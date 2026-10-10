@@ -1530,7 +1530,12 @@ const ARCameraScreen = () => {
           Choose the approved species that best matches this tree when the model
           is uncertain.
         </Text>
-        <ScrollView className="mt-4" style={{ maxHeight: 280 }}>
+        <ScrollView
+          showsVerticalScrollIndicator={false}
+          showsHorizontalScrollIndicator={false}
+          className="mt-4"
+          style={{ maxHeight: 280 }}
+        >
           {APPROVED_SPECIES.map(species => (
             <TouchableOpacity
               key={species.name}

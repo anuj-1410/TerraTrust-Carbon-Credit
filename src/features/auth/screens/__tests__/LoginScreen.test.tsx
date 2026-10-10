@@ -86,7 +86,7 @@ it('dismisses the drawer to change the phone and creates a fresh verification at
   await act(async () => fireEvent.press(screen.getByText('Send OTP')));
   fireEvent.changeText(screen.getByLabelText('Verification code'), '123');
   fireEvent.press(screen.getByLabelText('Close verification drawer'));
-  expect(screen.queryByTestId('otp-drawer')).toBeNull();
+  await waitFor(() => expect(screen.queryByTestId('otp-drawer')).toBeNull());
   expect(mockCancel).toHaveBeenCalledWith('+919999999999');
   fireEvent.changeText(
     screen.getByPlaceholderText('Enter 10-digit number'),
@@ -121,7 +121,7 @@ it('handles Firebase instant verification without navigating to another OTP or s
   });
   const { screen } = setup();
   await act(async () => fireEvent.press(screen.getByText('Send OTP')));
-  expect(mockReset).toHaveBeenCalledTimes(1);
+  await waitFor(() => expect(mockReset).toHaveBeenCalledTimes(1));
   expect(mockConfirm).not.toHaveBeenCalled();
 });
 
@@ -134,8 +134,8 @@ it('routes the fresh demo checkpoint to KYC after verification without requiring
   await act(async () =>
     fireEvent.changeText(screen.getByLabelText('Verification code'), '111111'),
   );
-  expect(mockReset).toHaveBeenCalledWith({
+  await waitFor(() => expect(mockReset).toHaveBeenCalledWith({
     index: 0,
     routes: [{ name: 'KYCScreen' }],
-  });
+  }));
 });

@@ -1,348 +1,256 @@
-import ScreenHeader from '../../../common/components/ScreenHeader';
-import { useTheme } from '../../../common/theme/theme';
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { openExternalLink } from '../../../common/utils/openExternalLink';
+import React, {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 import {
-  View,
-  Text,
-  FlatList,
   ActivityIndicator,
+  FlatList,
+  RefreshControl,
+  Text,
+  TextInput,
   TouchableOpacity,
-  Linking,
+  View,
 } from 'react-native';
-import { BarChart } from 'react-native-chart-kit';
-import LottieView from 'lottie-react-native';
-import { useNavigation, useRoute } from '@react-navigation/native';
-import type { RouteProp } from '@react-navigation/native';
-
-import { useAppSelector, useAppDispatch } from '../../../store/hooks';
-import { fetchCreditsThunk } from '../store/creditsSlice';
-import type { AuditRecord } from '../store/creditsSlice';
-import type { RootStackParamList } from '../../../types/navigation';
+import {
+  useNavigation,
+  useRoute,
+  type RouteProp,
+} from '@react-navigation/native';
+import ScreenHeader from '../../../common/components/ScreenHeader';
+import BottomSheet from '../../../common/components/BottomSheet';
+import Button from '../../../common/components/Button';
+import { useTheme } from '../../../common/theme/theme';
 import { useResponsiveScreen } from '../../../common/hooks/useResponsiveScreen';
+import { useAppDispatch, useAppSelector } from '../../../store/hooks';
+import {
+  fetchCreditsThunk,
+  getAuditRecordKey,
+  type AuditRecord,
+} from '../store/creditsSlice';
+import CreditYearChart from '../components/CreditYearChart';
+import {
+  annualCredits,
+  filterCreditHistory,
+  formatCTT,
+  parseYearRange,
+  type YearRange,
+} from '../utils/creditHistory';
+import type { RootStackParamList } from '../../../types/navigation';
 
-const truncateHash = (hash: string) => `${hash.slice(0, 8)}…${hash.slice(-4)}`;
-
-function isOfflineError(error: unknown): boolean {
-  return Boolean(error && typeof error === 'object' && !('response' in error));
-}
-
-const CreditHistoryScreen = () => {
-  const { colors: COLORS } = useTheme();
-  const chartConfig = {
-    backgroundColor: COLORS.CARD_WHITE,
-    backgroundGradientFrom: COLORS.CARD_WHITE,
-    backgroundGradientTo: COLORS.CARD_WHITE,
-    decimalPlaces: 1,
-    color: () => COLORS.FOREST_GREEN,
-    labelColor: () => COLORS.DARK_SLATE,
-    style: { borderRadius: 12 },
-    barPercentage: 0.6,
-    propsForLabels: { fontFamily: 'RobotoMono-Regular' },
-  };
-
+const PRESETS = [
+  { label: 'All years', years: 0 },
+  { label: '1 year', years: 1 },
+  { label: '3 years', years: 3 },
+  { label: '5 years', years: 5 },
+  { label: '10 years', years: 10 },
+];
+export default function CreditHistoryScreen() {
+  const { colors, isDark } = useTheme();
   const navigation = useNavigation();
   const route =
     useRoute<RouteProp<RootStackParamList, 'CreditHistoryScreen'>>();
   const dispatch = useAppDispatch();
-  const { width, horizontalPadding, bottomSpacing, contentMaxWidth } =
+  const { horizontalPadding, bottomSpacing, contentMaxWidth } =
     useResponsiveScreen();
+  const owner = useAppSelector(state => state.auth.user?.firebaseUid);
+  const { history, historyHasMore, historyPage, lastFetchedAt } =
+    useAppSelector(state => state.credits);
+  const [loading, setLoading] = useState(false);
+  const [failure, setFailure] = useState<string | null>(null);
+  const [range, setRange] = useState<YearRange | null>(null);
+  const [preset, setPreset] = useState(0);
+  const [showYears, setShowYears] = useState(false);
+  const [fromYear, setFromYear] = useState('');
+  const [toYear, setToYear] = useState('');
+  const [yearError, setYearError] = useState<string | null>(null);
+  const currentYear = new Date().getFullYear();
+  const mounted = useRef(true);
+  const pending = useRef<{ abort: () => void } | null>(null);
   const canGoBack =
     navigation.canGoBack() && (route.params?.source ?? 'history') !== 'history';
-  const chartWidth = Math.max(
-    220,
-    Math.min(width, contentMaxWidth) - horizontalPadding * 2 - 32,
+
+  const load = useCallback(
+    async (resumePage = 1) => {
+      pending.current?.abort?.();
+      setLoading(true);
+      setFailure(null);
+      const request = dispatch(
+        fetchCreditsThunk({
+          allHistory: true,
+          page: resumePage,
+          append: resumePage > 1,
+        }),
+      );
+      pending.current = request;
+      try {
+        await request.unwrap();
+      } catch (error) {
+        if (
+          mounted.current &&
+          pending.current === request &&
+          (error as { name?: string }).name !== 'AbortError' &&
+          (error as { message?: string }).message !==
+            'CREDITS_REQUEST_SUPERSEDED'
+        ) {
+          setFailure(
+            'Could not load all credit history. Check your connection and retry. Displayed totals may be incomplete.',
+          );
+        }
+      } finally {
+        if (mounted.current && pending.current === request) {
+          setLoading(false);
+          pending.current = null;
+        }
+      }
+    },
+    [dispatch],
   );
 
-  const isAuthenticated = useAppSelector(s => s.auth.isAuthenticated);
-  const { history, historyHasMore, historyPage, lastFetchedAt } =
-    useAppSelector(s => s.credits);
-  const historyLengthRef = useRef(history.length);
-  const [isLoading, setIsLoading] = useState(false);
-  const [isLoadingMore, setIsLoadingMore] = useState(false);
-  const [isOffline, setIsOffline] = useState(false);
-
   useEffect(() => {
-    historyLengthRef.current = history.length;
-  }, [history.length]);
-
-  useEffect(() => {
-    if (isAuthenticated) {
-      setIsLoading(true);
-      dispatch(fetchCreditsThunk({ page: 1, limit: 20 }))
-        .unwrap()
-        .then(() => setIsOffline(false))
-        .catch(error => {
-          if (isOfflineError(error) && historyLengthRef.current > 0) {
-            setIsOffline(true);
-          }
-        })
-        .finally(() => setIsLoading(false));
+    mounted.current = true;
+    if (owner) {
+      void load();
     }
-  }, [dispatch, isAuthenticated]);
-
-  const loadMoreHistory = () => {
-    if (!isAuthenticated || isLoading || isLoadingMore || !historyHasMore) {
+    return () => {
+      mounted.current = false;
+      pending.current?.abort?.();
+    };
+  }, [load, owner]);
+  const filtered = useMemo(
+    () => filterCreditHistory(history, range),
+    [history, range],
+  );
+  const sorted = useMemo(
+    () =>
+      [...filtered].sort(
+        (a, b) => Date.parse(b.minted_at) - Date.parse(a.minted_at),
+      ),
+    [filtered],
+  );
+  const years = useMemo(() => annualCredits(history, range), [history, range]);
+  const incomplete = loading || historyHasMore || Boolean(failure);
+  const openYears = () => {
+    const oldest = history.length
+      ? Math.min(...history.map(record => record.audit_year))
+      : currentYear;
+    setFromYear(String(range?.from ?? oldest));
+    setToYear(String(range?.to ?? currentYear));
+    setYearError(null);
+    setShowYears(true);
+  };
+  const applyYears = () => {
+    const selected = parseYearRange(fromYear, toYear, currentYear);
+    if (!selected) {
+      setYearError(
+        `Enter a valid year range between 1900 and ${currentYear}. The start must not follow the end.`,
+      );
       return;
     }
-
-    setIsLoadingMore(true);
-    dispatch(
-      fetchCreditsThunk({
-        page: historyPage + 1,
-        limit: 20,
-        append: true,
-      }),
-    )
-      .unwrap()
-      .then(() => setIsOffline(false))
-      .catch(error => {
-        if (isOfflineError(error) && historyLengthRef.current > 0) {
-          setIsOffline(true);
-        }
-      })
-      .finally(() => setIsLoadingMore(false));
+    setRange(selected);
+    setPreset(-1);
+    setShowYears(false);
   };
-
-  // Bar chart data
-  const chartData = useMemo(() => {
-    const byYear = history.reduce<Record<number, number>>((acc, r) => {
-      acc[r.audit_year] = (acc[r.audit_year] ?? 0) + r.credits_issued;
-      return acc;
-    }, {});
-    const years = Object.keys(byYear)
-      .map(Number)
-      .sort((a, b) => a - b);
-    if (years.length === 0) {
-      return null;
-    }
-    return {
-      labels: years.map(String),
-      datasets: [{ data: years.map(y => byYear[y]) }],
-    };
-  }, [history]);
-
-  // Sorted history desc
-  const sortedHistory = useMemo(
-    () =>
-      [...history].sort(
-        (a, b) =>
-          new Date(b.minted_at).getTime() - new Date(a.minted_at).getTime(),
-      ),
-    [history],
-  );
-
-  // Loading state
-  if (isLoading && history.length === 0) {
-    return (
-      <View className="flex-1" style={{ backgroundColor: COLORS.OFF_WHITE }}>
-        <ScreenHeader
-          title="Credit History"
-          onBack={canGoBack ? () => navigation.goBack() : undefined}
-        />
-        <View className="flex-1 items-center justify-center">
-          <LottieView
-            source={require('../../../assets/lottie/spinning_leaf.json')}
-            autoPlay
-            loop
-            style={{ width: 120, height: 120 }}
-          />
-        </View>
-      </View>
-    );
-  }
-
-  // Empty state
-  if (!isLoading && history.length === 0) {
-    return (
-      <View className="flex-1" style={{ backgroundColor: COLORS.OFF_WHITE }}>
-        <ScreenHeader
-          title="Credit History"
-          onBack={canGoBack ? () => navigation.goBack() : undefined}
-        />
-        <View className="flex-1 items-center justify-center px-8">
-          <Text
-            className="text-center text-base font-[Roboto]"
-            style={{ color: COLORS.DISABLED_GREY }}
-          >
-            No credit history yet. Complete your first audit to earn credits.
-          </Text>
-        </View>
-      </View>
-    );
-  }
-
-  const renderHistoryItem = ({
-    item,
-    index,
-  }: {
-    item: AuditRecord;
-    index: number;
-  }) => (
+  const renderItem = ({ item }: { item: AuditRecord }) => (
     <View
-      key={`${item.audit_year}-${item.minted_at ?? index}`}
-      className="mb-3 rounded-xl p-4 "
-      style={{ backgroundColor: COLORS.CARD_WHITE }}
+      style={{
+        backgroundColor: colors.CARD_WHITE,
+        borderRadius: 20,
+        padding: 18,
+        marginBottom: 12,
+      }}
     >
-      <View className="flex-row items-center justify-between mb-2">
+      <View
+        style={{
+          flexDirection: 'row',
+          justifyContent: 'space-between',
+          gap: 12,
+        }}
+      >
         <Text
-          className="text-base font-bold font-[Roboto]"
-          style={{ color: COLORS.DARK_SLATE }}
+          style={{
+            color: colors.DARK_SLATE,
+            fontWeight: '700',
+            fontSize: 17,
+            flex: 1,
+          }}
         >
           {item.land_name}
         </Text>
-        <View
-          className="rounded-full px-3 py-1"
-          style={{ backgroundColor: COLORS.OFF_WHITE }}
-        >
-          <Text
-            className="text-xs font-[RobotoMono-Regular]"
-            style={{ color: COLORS.DISABLED_GREY }}
-          >
-            {item.audit_year}
-          </Text>
-        </View>
+        <Text style={{ color: colors.DISABLED_GREY }}>{item.audit_year}</Text>
       </View>
-
       <Text
-        className="mb-3 text-xl font-bold font-[RobotoMono-Bold]"
-        style={{ color: COLORS.FOREST_GREEN }}
+        style={{
+          color: colors.FOREST_GREEN,
+          fontWeight: '700',
+          fontSize: 22,
+          marginTop: 10,
+        }}
       >
-        +{item.credits_issued} CTT
+        +{formatCTT(Number(item.credits_issued))} CTT
       </Text>
-
-      <View className="flex-row items-center">
+      <View
+        style={{
+          flexDirection: 'row',
+          flexWrap: 'wrap',
+          marginTop: 12,
+          gap: 16,
+        }}
+      >
         {item.ipfs_certificate_url ? (
           <TouchableOpacity
-            className="min-h-[48px] min-w-[48px] items-center justify-center mr-4"
-            onPress={() => void Linking.openURL(item.ipfs_certificate_url)}
+            accessibilityRole="link"
+            style={{ minHeight: 48, justifyContent: 'center' }}
+            onPress={() => void openExternalLink(item.ipfs_certificate_url)}
           >
-            <Text
-              className="text-sm font-[Roboto]"
-              style={{ color: COLORS.TEAL }}
-            >
-              View Certificate
-            </Text>
+            <Text style={{ color: colors.TEAL }}>View Certificate</Text>
           </TouchableOpacity>
         ) : null}
         {item.tx_hash ? (
           <TouchableOpacity
-            className="min-h-[48px] min-w-[48px] items-center justify-center"
+            accessibilityRole="link"
+            accessibilityLabel="View blockchain transaction"
+            style={{ minHeight: 48, justifyContent: 'center' }}
             onPress={() =>
-              void Linking.openURL(
+              void openExternalLink(
                 `https://amoy.polygonscan.com/tx/${item.tx_hash}`,
               )
             }
           >
-            <Text
-              className="text-xs font-[RobotoMono-Regular]"
-              style={{ color: COLORS.DISABLED_GREY }}
-            >
-              {truncateHash(item.tx_hash)}
+            <Text style={{ color: colors.DISABLED_GREY }}>
+              {item.tx_hash.slice(0, 8)}…{item.tx_hash.slice(-4)}
             </Text>
           </TouchableOpacity>
         ) : null}
       </View>
     </View>
   );
-
-  const renderListHeader = () => (
-    <View>
-      {isOffline && history.length > 0 ? (
-        <View
-          className="mb-4 rounded-xl px-4 py-3"
-          style={{ backgroundColor: COLORS.WARNING_SURFACE }}
-        >
-          <Text style={{ color: COLORS.WARNING_ORANGE }}>
-            Offline mode. Showing cached history
-            {lastFetchedAt
-              ? ` from ${new Date(lastFetchedAt).toLocaleDateString('en-GB', {
-                  day: 'numeric',
-                  month: 'short',
-                  year: 'numeric',
-                })} ${new Date(lastFetchedAt).toLocaleTimeString('en-GB', {
-                  hour: '2-digit',
-                  minute: '2-digit',
-                })}`
-              : '.'}
-          </Text>
-        </View>
-      ) : null}
-
-      {lastFetchedAt && !isLoading && (
-        <Text
-          className="mb-4 text-xs font-[Roboto]"
-          style={{ color: COLORS.DISABLED_GREY }}
-        >
-          Last updated{' '}
-          {new Date(lastFetchedAt).toLocaleDateString('en-GB', {
-            day: 'numeric',
-            month: 'short',
-            year: 'numeric',
-          })}{' '}
-          {new Date(lastFetchedAt).toLocaleTimeString('en-GB', {
-            hour: '2-digit',
-            minute: '2-digit',
-          })}
-        </Text>
-      )}
-
-      {chartData && (
-        <View
-          className="mb-6 rounded-xl p-4 "
-          style={{ backgroundColor: COLORS.CARD_WHITE }}
-        >
-          <Text
-            className="mb-3 text-sm font-[Roboto]"
-            style={{ color: COLORS.DISABLED_GREY }}
-          >
-            Year-over-Year Growth
-          </Text>
-          <BarChart
-            data={chartData}
-            width={chartWidth}
-            height={200}
-            chartConfig={chartConfig}
-            fromZero
-            showBarTops
-            yAxisLabel=""
-            yAxisSuffix=""
-            style={{ borderRadius: 12 }}
-          />
-        </View>
-      )}
-
-      <Text
-        className="mb-3 text-lg font-bold font-[Roboto]"
-        style={{ color: COLORS.DARK_SLATE }}
-      >
-        Audit History
-      </Text>
-    </View>
-  );
-
   return (
-    <View className="flex-1" style={{ backgroundColor: COLORS.OFF_WHITE }}>
+    <View style={{ flex: 1, backgroundColor: colors.OFF_WHITE }}>
       <ScreenHeader
         title="Credit History"
         onBack={canGoBack ? () => navigation.goBack() : undefined}
       />
       <FlatList
-        data={sortedHistory}
-        keyExtractor={(item, index) =>
-          `${item.audit_year}-${item.minted_at ?? index}`
-        }
-        renderItem={renderHistoryItem}
-        ListHeaderComponent={renderListHeader}
-        ListFooterComponent={
-          isLoadingMore ? (
-            <View className="pb-8 pt-2">
-              <ActivityIndicator color={COLORS.FOREST_GREEN} />
-            </View>
-          ) : null
-        }
-        onEndReached={loadMoreHistory}
-        onEndReachedThreshold={0.3}
+        data={sorted}
+        keyExtractor={getAuditRecordKey}
+        renderItem={renderItem}
+        initialNumToRender={10}
+        maxToRenderPerBatch={10}
+        windowSize={7}
         showsVerticalScrollIndicator={false}
+        showsHorizontalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl
+            refreshing={loading}
+            onRefresh={() => void load()}
+            tintColor={colors.FOREST_GREEN}
+            colors={[colors.FOREST_GREEN]}
+          />
+        }
         contentContainerStyle={{
           width: '100%',
           alignSelf: 'center',
@@ -351,9 +259,217 @@ const CreditHistoryScreen = () => {
           paddingTop: 16,
           paddingBottom: bottomSpacing,
         }}
+        ListHeaderComponent={
+          <View>
+            {lastFetchedAt ? (
+              <Text
+                style={{
+                  color: colors.DISABLED_GREY,
+                  fontSize: 12,
+                  marginBottom: 16,
+                }}
+              >
+                Last updated{' '}
+                {new Date(lastFetchedAt).toLocaleString('en-GB', {
+                  day: 'numeric',
+                  month: 'short',
+                  year: 'numeric',
+                  hour: '2-digit',
+                  minute: '2-digit',
+                })}
+              </Text>
+            ) : null}
+            <View
+              style={{
+                flexDirection: 'row',
+                flexWrap: 'wrap',
+                gap: 8,
+                marginBottom: 12,
+              }}
+            >
+              {PRESETS.map(option => (
+                <TouchableOpacity
+                  key={option.years}
+                  accessibilityRole="button"
+                  accessibilityState={{ selected: preset === option.years }}
+                  onPress={() => {
+                    setPreset(option.years);
+                    setRange(
+                      option.years
+                        ? {
+                            from: currentYear - option.years + 1,
+                            to: currentYear,
+                          }
+                        : null,
+                    );
+                  }}
+                  style={{
+                    minHeight: 44,
+                    paddingHorizontal: 14,
+                    justifyContent: 'center',
+                    borderRadius: 22,
+                    borderWidth: 1,
+                    borderColor:
+                      preset === option.years
+                        ? colors.FOREST_GREEN
+                        : colors.BORDER,
+                    backgroundColor:
+                      preset === option.years
+                        ? colors.SUCCESS_SURFACE
+                        : colors.CARD_WHITE,
+                  }}
+                >
+                  <Text
+                    style={{
+                      color:
+                        preset === option.years
+                          ? colors.FOREST_GREEN
+                          : colors.DISABLED_GREY,
+                      fontWeight: '600',
+                    }}
+                  >
+                    {option.label}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+              <TouchableOpacity
+                accessibilityRole="button"
+                onPress={openYears}
+                style={{
+                  minHeight: 44,
+                  paddingHorizontal: 14,
+                  justifyContent: 'center',
+                  borderRadius: 22,
+                  borderWidth: 1,
+                  borderColor: colors.BORDER,
+                }}
+              >
+                <Text style={{ color: colors.FOREST_GREEN }}>Choose years</Text>
+              </TouchableOpacity>
+            </View>
+            <Text style={{ color: colors.DISABLED_GREY, marginBottom: 18 }}>
+              {' '}
+              {range
+                ? `${range.from}–${range.to} · calendar years`
+                : 'All recorded audit years'}
+            </Text>
+            {loading ? (
+              <View
+                style={{
+                  flexDirection: 'row',
+                  gap: 10,
+                  alignItems: 'center',
+                  marginBottom: 16,
+                }}
+              >
+                <ActivityIndicator color={colors.FOREST_GREEN} />
+                <Text style={{ color: colors.DISABLED_GREY }}>
+                  Loading complete history…
+                </Text>
+              </View>
+            ) : null}
+            {failure ? (
+              <View style={{ marginBottom: 16 }}>
+                <Text
+                  accessibilityRole="alert"
+                  style={{ color: colors.WARNING_ORANGE, lineHeight: 22 }}
+                >
+                  {failure}
+                </Text>
+                <Button
+                  label="Retry history"
+                  variant="secondary"
+                  style={{ marginTop: 12 }}
+                  onPress={() =>
+                    void load(historyHasMore ? historyPage + 1 : 1)
+                  }
+                />
+              </View>
+            ) : null}
+            <CreditYearChart
+              data={years}
+              auditCount={filtered.length}
+              incomplete={incomplete}
+            />
+            <Text
+              accessibilityRole="header"
+              style={{
+                color: colors.DARK_SLATE,
+                fontSize: 20,
+                fontWeight: '700',
+                marginBottom: 14,
+              }}
+            >
+              Audit History
+            </Text>
+          </View>
+        }
+        ListEmptyComponent={
+          !loading ? (
+            <Text style={{ color: colors.DISABLED_GREY, lineHeight: 24 }}>
+              {history.length
+                ? 'No audits in the selected years. Choose a wider range.'
+                : failure
+                ? 'Your history is unavailable. Use Retry history above.'
+                : 'No credit history yet. Complete your first audit to earn credits.'}
+            </Text>
+          ) : null
+        }
       />
+      <BottomSheet visible={showYears} onClose={() => setShowYears(false)}>
+        <Text
+          style={{ color: colors.DARK_SLATE, fontSize: 22, fontWeight: '700' }}
+        >
+          Choose audit years
+        </Text>
+        <Text
+          style={{ color: colors.DISABLED_GREY, marginTop: 8, lineHeight: 22 }}
+        >
+          The chart and audit list use the same inclusive year range.
+        </Text>
+        <View style={{ flexDirection: 'row', gap: 16, marginTop: 20 }}>
+          {[
+            { label: 'From year', value: fromYear, set: setFromYear },
+            { label: 'To year', value: toYear, set: setToYear },
+          ].map(field => (
+            <View key={field.label} style={{ flex: 1 }}>
+              <Text style={{ color: colors.DARK_SLATE, marginBottom: 8 }}>
+                {field.label}
+              </Text>
+              <TextInput
+                accessibilityLabel={field.label}
+                value={field.value}
+                onChangeText={value => {
+                  field.set(value.replace(/\D/g, ''));
+                  setYearError(null);
+                }}
+                keyboardType="number-pad"
+                keyboardAppearance={isDark ? 'dark' : 'light'}
+                maxLength={4}
+                style={{
+                  backgroundColor: colors.INPUT_BACKGROUND,
+                  color: colors.DARK_SLATE,
+                  borderRadius: 14,
+                  padding: 16,
+                }}
+              />
+            </View>
+          ))}
+        </View>
+        {yearError ? (
+          <Text
+            accessibilityRole="alert"
+            style={{ color: colors.ERROR_RED, marginTop: 12 }}
+          >
+            {yearError}
+          </Text>
+        ) : null}
+        <Button
+          label="Apply years"
+          style={{ marginTop: 24 }}
+          onPress={applyYears}
+        />
+      </BottomSheet>
     </View>
   );
-};
-
-export default CreditHistoryScreen;
+}
