@@ -1,6 +1,12 @@
-import ScreenHeader from '../../../common/components/ScreenHeader';
+import OTPDrawer from '../components/OTPDrawer';
 import { useTheme } from '../../../common/theme/theme';
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 import {
   View,
   Keyboard,
@@ -15,12 +21,20 @@ import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { MaterialDesignIcons as MaterialCommunityIcons } from '@react-native-vector-icons/material-design-icons';
 import type { RootStackParamList } from '../../../types/navigation';
 import {
-  getCurrentFirebaseUser,
+  cancelPendingPhoneOtp,
+  type AuthBootstrapResponse,
   sendPhoneOtp,
 } from '../../../services/firebase';
 import { useResponsiveScreen } from '../../../common/hooks/useResponsiveScreen';
 import Button from '../../../common/components/Button';
 import Card from '../../../common/components/Card';
+import { useAppDispatch } from '../../../store/hooks';
+import { setAuthenticatedProfile } from '../store/authSlice';
+import { setOnboardingComplete } from '../../profile/store/profileSlice';
+import {
+  getAuthenticatedEntryRoute,
+  markOnboardingComplete,
+} from '../../../common/utils/onboarding';
 
 type Nav = NativeStackNavigationProp<RootStackParamList, 'LoginScreen'>;
 
@@ -39,6 +53,11 @@ function getPhoneValidationError(phoneNumber: string): string | null {
 const LoginScreen = () => {
   const { colors: COLORS } = useTheme();
   const navigation = useNavigation<Nav>();
+  const dispatch = useAppDispatch();
+  const [otpSession, setOtpSession] = useState<{
+    phone: string;
+    verificationId: string | null;
+  } | null>(null);
   const operationRef = useRef(false);
   const mountedRef = useRef(true);
   useEffect(() => {
@@ -51,7 +70,7 @@ const LoginScreen = () => {
   const [apiError, setApiError] = useState<string | null>(null);
   const [phoneNumber, setPhoneNumber] = useState('');
   const [showPhoneError, setShowPhoneError] = useState(false);
-  const { horizontalPadding, bottomSpacing, contentMaxWidth } =
+  const { horizontalPadding, topSpacing, bottomSpacing, contentMaxWidth } =
     useResponsiveScreen();
 
   const phoneError = useMemo(
@@ -59,6 +78,32 @@ const LoginScreen = () => {
     [phoneNumber, showPhoneError],
   );
   const isPhoneValid = getPhoneValidationError(phoneNumber) === null;
+
+  const onVerified = useCallback(
+    (profile: AuthBootstrapResponse) => {
+      setOtpSession(null);
+      dispatch(setAuthenticatedProfile(profile));
+      if (profile.kyc_completed) {
+        markOnboardingComplete();
+        dispatch(setOnboardingComplete(true));
+      }
+      navigation.reset({
+        index: 0,
+        routes: [{ name: getAuthenticatedEntryRoute(profile.kyc_completed) }],
+      });
+    },
+    [dispatch, navigation],
+  );
+
+  const closeDrawer = () => {
+    const phone = otpSession?.phone;
+    setOtpSession(null);
+    if (phone) {
+      void cancelPendingPhoneOtp(phone).catch(() =>
+        setApiError('Could not change the number. Please retry sign-in.'),
+      );
+    }
+  };
 
   const onSubmit = async () => {
     if (!isPhoneValid || operationRef.current) {
@@ -77,17 +122,7 @@ const LoginScreen = () => {
       if (!mountedRef.current) {
         return;
       }
-      if (
-        !otpSession.verificationId &&
-        getCurrentFirebaseUser()?.phoneNumber === phone
-      ) {
-        navigation.replace('SplashScreen');
-        return;
-      }
-      navigation.navigate('OTPScreen', {
-        phone,
-        verificationId: otpSession.verificationId,
-      });
+      setOtpSession({ phone, verificationId: otpSession.verificationId });
     } catch (error) {
       const firebaseErr = error as { code?: string };
       if (firebaseErr.code === 'auth/too-many-requests') {
@@ -139,7 +174,6 @@ const LoginScreen = () => {
       style={{ backgroundColor: COLORS.OFF_WHITE }}
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
     >
-      <ScreenHeader title="Welcome to TerraTrust" eyebrow="Farmer Sign In" />
       <ScrollView
         contentContainerStyle={{ flexGrow: 1 }}
         keyboardShouldPersistTaps="handled"
@@ -149,7 +183,7 @@ const LoginScreen = () => {
           style={{
             maxWidth: contentMaxWidth,
             paddingHorizontal: horizontalPadding,
-            paddingTop: 16,
+            paddingTop: topSpacing,
             paddingBottom: bottomSpacing,
           }}
         >
@@ -164,6 +198,26 @@ const LoginScreen = () => {
             />
           </View>
 
+          <Text
+            style={{
+              color: COLORS.FOREST_GREEN,
+              fontSize: 12,
+              letterSpacing: 1.2,
+              fontWeight: '600',
+            }}
+          >
+            FARMER SIGN IN
+          </Text>
+          <Text
+            style={{
+              color: COLORS.DARK_SLATE,
+              fontSize: 30,
+              fontWeight: '700',
+              marginTop: 10,
+            }}
+          >
+            Welcome to TerraTrust
+          </Text>
           <Text className="mt-3 text-base leading-6 text-muted">
             Enter your mobile number to receive a one-time password and
             continue.
@@ -220,6 +274,14 @@ const LoginScreen = () => {
           />
         </View>
       </ScrollView>
+      {otpSession ? (
+        <OTPDrawer
+          phone={otpSession.phone}
+          verificationId={otpSession.verificationId}
+          onClose={closeDrawer}
+          onVerified={onVerified}
+        />
+      ) : null}
     </KeyboardAvoidingView>
   );
 };

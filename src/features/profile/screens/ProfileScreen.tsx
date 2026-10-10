@@ -1,3 +1,5 @@
+import { retryWalletSetup } from '../../auth/store/authSlice';
+import Button from '../../../common/components/Button';
 import ScreenHeader from '../../../common/components/ScreenHeader';
 import { useTheme } from '../../../common/theme/theme';
 import React, { useMemo, useState } from 'react';
@@ -100,6 +102,12 @@ const ProfileScreen = () => {
     useResponsiveScreen();
   const user = useAppSelector(state => state.auth.user);
   const walletAddress = useAppSelector(state => state.auth.walletAddress);
+  const walletSetupStatus = useAppSelector(
+    state => state.auth.walletSetupStatus,
+  );
+  const walletSetupMessage = useAppSelector(
+    state => state.auth.walletSetupMessage,
+  );
   const kycCompleted = useAppSelector(state => state.auth.kycCompleted);
   const balance = useAppSelector(state => state.credits.balance);
   const unreadCount = useAppSelector(state => state.notifications.unreadCount);
@@ -217,11 +225,26 @@ const ProfileScreen = () => {
           >
             {walletAddress
               ? `${walletAddress.slice(0, 8)}...${walletAddress.slice(-4)}`
-              : 'Not available'}
+              : walletSetupStatus === 'pending'
+              ? 'Preparing your wallet...'
+              : 'Wallet setup pending'}
           </Text>
           <Text className="mt-1" style={{ color: COLORS.FOREST_GREEN }}>
             {balance.toFixed(1)} CTT
           </Text>
+          {!walletAddress && walletSetupStatus === 'error' ? (
+            <View style={{ marginTop: 12 }}>
+              <Text style={{ color: COLORS.DISABLED_GREY, lineHeight: 22 }}>
+                {walletSetupMessage ?? 'Wallet setup needs another attempt.'}
+              </Text>
+              <Button
+                label="Retry wallet setup"
+                variant="secondary"
+                style={{ marginTop: 12 }}
+                onPress={() => dispatch(retryWalletSetup())}
+              />
+            </View>
+          ) : null}
           {walletAddress ? (
             <TouchableOpacity
               className="mt-4 min-h-[48px] flex-row items-center self-start"

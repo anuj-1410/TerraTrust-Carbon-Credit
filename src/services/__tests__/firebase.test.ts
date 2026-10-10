@@ -16,6 +16,7 @@ const mockAuthInstance = {
   signInWithCredential: mockSignInWithCredential,
   signOut: mockSignOut,
   onAuthStateChanged: mockAuthStateChanged,
+  currentUser: null as { uid: string; phoneNumber: string } | null,
   settings: {
     forceRecaptchaFlowForTesting: false,
     appVerificationDisabledForTesting: false,
@@ -25,7 +26,7 @@ const mockAuthInstance = {
 };
 
 jest.mock('react-native', () => ({
-  Platform: {OS: 'android'},
+  Platform: { OS: 'android' },
 }));
 
 jest.mock('react-native-config', () => ({
@@ -37,9 +38,12 @@ jest.mock('@react-native-firebase/auth', () => {
   const phoneAuthProvider = {
     credential: (...args: [string, string]) => mockPhoneAuthCredential(...args),
   };
-  const authModule = Object.assign(jest.fn(() => mockAuthInstance), {
-    PhoneAuthProvider: phoneAuthProvider,
-  });
+  const authModule = Object.assign(
+    jest.fn(() => mockAuthInstance),
+    {
+      PhoneAuthProvider: phoneAuthProvider,
+    },
+  );
 
   return {
     __esModule: true,
@@ -50,6 +54,7 @@ jest.mock('@react-native-firebase/auth', () => {
 
 import Config from 'react-native-config';
 import {
+  cancelPendingPhoneOtp,
   confirmPhoneOtp,
   sendPhoneOtp,
   signOutFirebase,
@@ -59,6 +64,7 @@ import {
 describe('firebase phone auth helpers', () => {
   beforeEach(async () => {
     jest.clearAllMocks();
+    mockAuthInstance.currentUser = null;
     mockAuthInstance.settings.forceRecaptchaFlowForTesting = false;
     mockAuthInstance.settings.appVerificationDisabledForTesting = false;
     mockSignOut.mockResolvedValue(undefined);
@@ -75,7 +81,7 @@ describe('firebase phone auth helpers', () => {
     };
 
     mockSignInWithPhoneNumber
-      .mockRejectedValueOnce({code: 'auth/invalid-app-credential'})
+      .mockRejectedValueOnce({ code: 'auth/invalid-app-credential' })
       .mockResolvedValueOnce(confirmation);
 
     const result = await sendPhoneOtp('+919999999999');
@@ -90,7 +96,7 @@ describe('firebase phone auth helpers', () => {
   });
 
   it('uses a verificationId fallback when the confirmation object is unavailable', async () => {
-    const signInResult = {user: {uid: 'firebase-user-1'}};
+    const signInResult = { user: { uid: 'firebase-user-1' } };
     mockSignInWithCredential.mockResolvedValue(signInResult);
 
     const result = await confirmPhoneOtp('123456', 'verify-456');
@@ -118,9 +124,9 @@ describe('firebase phone auth helpers', () => {
 
     await sendPhoneOtp('+91 99999 99999');
 
-    expect(
-      mockAuthInstance.settings.appVerificationDisabledForTesting,
-    ).toBe(true);
+    expect(mockAuthInstance.settings.appVerificationDisabledForTesting).toBe(
+      true,
+    );
     expect(mockSetAutoRetrievedSmsCodeForPhoneNumber).toHaveBeenCalledWith(
       '+91 99999 99999',
       '123456',
@@ -138,7 +144,9 @@ describe('firebase phone auth helpers', () => {
     await sendPhoneOtp('+919000000001');
     await sendPhoneOtp('+919876543210');
 
-    expect(mockAuthInstance.settings.appVerificationDisabledForTesting).toBe(false);
+    expect(mockAuthInstance.settings.appVerificationDisabledForTesting).toBe(
+      false,
+    );
     expect(mockAuthInstance.settings.forceRecaptchaFlowForTesting).toBe(false);
     expect(mockSetAutoRetrievedSmsCodeForPhoneNumber).toHaveBeenCalledTimes(1);
   });
@@ -149,9 +157,12 @@ describe('Firebase session restoration', () => {
   it('waits for the first native auth event and unsubscribes afterward', async () => {
     const unsubscribe = jest.fn();
     let listener!: (user: unknown) => void;
-    mockAuthStateChanged.mockImplementation(callback => { listener = callback; return unsubscribe; });
+    mockAuthStateChanged.mockImplementation(callback => {
+      listener = callback;
+      return unsubscribe;
+    });
     const restored = waitForFirebaseAuthState();
-    const user = {uid: 'restored-farmer'};
+    const user = { uid: 'restored-farmer' };
     listener(user);
     await expect(restored).resolves.toBe(user);
     expect(unsubscribe).toHaveBeenCalledTimes(1);
@@ -167,5 +178,62 @@ describe('Firebase session restoration', () => {
     await assertion;
     expect(unsubscribe).toHaveBeenCalledTimes(1);
     expect(mockSignOut).not.toHaveBeenCalled();
+  });
+});
+
+it('rejects late auto-verification for a dismissed drawer and keeps a new attempt usable', async () => {
+  jest.useFakeTimers();
+  const unsub = jest.fn();
+  let observer!: (user: { uid: string; phoneNumber: string } | null) => void;
+  mockAuthStateChanged.mockImplementation((callback: typeof observer) => {
+    observer = callback;
+    return unsub;
+  });
+  mockAuthInstance.currentUser = null;
+  mockSignInWithPhoneNumber.mockResolvedValue({
+    verificationId: 'first',
+    confirm: jest.fn(),
+  });
+  try {
+    await sendPhoneOtp('+919999999999');
+    const calls = mockSignOut.mock.calls.length;
+    await cancelPendingPhoneOtp('+919999999999');
+    mockAuthInstance.currentUser = {
+      uid: 'cancelled',
+      phoneNumber: '+919999999999',
+    };
+    observer(mockAuthInstance.currentUser);
+    expect(mockSignOut).toHaveBeenCalledTimes(calls + 1);
+    await sendPhoneOtp('+919999999999');
+    expect(unsub).toHaveBeenCalled();
+    mockAuthInstance.currentUser = null;
+  } finally {
+    jest.runOnlyPendingTimers();
+    jest.useRealTimers();
+  }
+});
+
+it('does not let an abandoned confirmation clear the newer phone verification session', async () => {
+  let finish!: (value: unknown) => void;
+  mockAuthInstance.currentUser = null;
+  mockAuthStateChanged.mockReturnValue(jest.fn());
+  mockSignInWithPhoneNumber.mockResolvedValueOnce({
+    verificationId: 'old',
+    confirm: () =>
+      new Promise(resolve => {
+        finish = resolve;
+      }),
+  });
+  await sendPhoneOtp('+919999999999');
+  const oldConfirm = confirmPhoneOtp('111111', 'old');
+  mockSignInWithPhoneNumber.mockResolvedValueOnce({
+    verificationId: 'new',
+    confirm: jest.fn().mockResolvedValue({ user: { uid: 'new-user' } }),
+  });
+  await sendPhoneOtp('+918888888888');
+  finish({ user: { uid: 'old-user' } });
+  await expect(oldConfirm).rejects.toThrow('OTP_SESSION_CANCELLED');
+  await expect(confirmPhoneOtp('222222', 'new')).resolves.toMatchObject({
+    user: { uid: 'new-user' },
   });
 });

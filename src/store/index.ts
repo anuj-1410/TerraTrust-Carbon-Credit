@@ -162,9 +162,15 @@ const authPersistConfig: PersistConfig<AuthState> = {
   key: 'auth',
   version: 1,
   storage: mmkvStorage,
-  migrate: async state => state ? {...state, sessionReady: false, profileFresh: false} : state,
+  migrate: async state => state ? {
+    ...state, sessionReady: false, profileFresh: false,
+    walletSetupStatus: 'idle', walletSetupMessage: null, walletSetupAttempt: 0,
+  } : state,
   stateReconciler: autoMergeLevel2,
-  blacklist: ['sessionReady', 'profileFresh'],
+  blacklist: [
+    'sessionReady', 'profileFresh', 'walletSetupStatus',
+    'walletSetupMessage', 'walletSetupAttempt',
+  ],
 };
 
 const landPersistConfig: PersistConfig<LandState> = {

@@ -91,7 +91,7 @@ const SettingsScreen = () => {
         <Card className="mt-6 gap-6 px-5 py-5">
           <SettingsRow
             title="Dark Mode"
-            description="Use a deep forest palette with clear, comfortable contrast."
+            description="Use black backgrounds with clear, comfortable contrast."
             right={
               <Switch
                 accessibilityLabel="Dark mode"

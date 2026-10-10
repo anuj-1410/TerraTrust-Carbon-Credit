@@ -2,6 +2,7 @@
  * @format
  */
 
+import './src/common/utils/secureRandom';
 import './global.css';
 import { AppRegistry } from 'react-native';
 import BackgroundFetch from 'react-native-background-fetch';

@@ -49,14 +49,18 @@ import {
 import { syncAuditStatus } from '../features/ar-audit/utils/auditStatus';
 import { isOnboardingComplete } from '../common/utils/onboarding';
 import { setOnboardingComplete } from '../features/profile/store/profileSlice';
-import {setAuthenticatedProfile, setWalletAddress} from '../features/auth/store/authSlice';
+import {
+  setAuthenticatedProfile,
+  setWalletAddress,
+  setWalletSetup,
+  retryWalletSetup,
+} from '../features/auth/store/authSlice';
 import {bootstrapAuthenticatedProfile, completeAuthenticatedWallet} from '../services/authBootstrap';
 import {getCurrentFirebaseUser, type AuthBootstrapResponse} from '../services/firebase';
 
 // Auth screens
 import SplashScreen from '../features/auth/screens/SplashScreen';
 import LoginScreen from '../features/auth/screens/LoginScreen';
-import OTPScreen from '../features/auth/screens/OTPScreen';
 import KYCScreen from '../features/auth/screens/KYCScreen';
 import OnboardingScreen from '../features/auth/screens/OnboardingScreen';
 
@@ -331,6 +335,7 @@ function AppLifecycleEffects() {
   const onboardingComplete = useAppSelector(
     state => state.profile.onboardingComplete,
   );
+  const walletSetupAttempt = useAppSelector(state => state.auth.walletSetupAttempt);
   const wasOfflineRef = useRef(false);
   const lastBackPressRef = useRef(0);
   const backgroundFetchConfiguredRef = useRef(false);
@@ -378,39 +383,92 @@ function AppLifecycleEffects() {
   }, [isAuthenticated, refreshARTier]);
 
   useEffect(() => {
-    if (!sessionUid) { return; }
+    if (!sessionUid) {
+      return;
+    }
     let active = true;
+    let retryTimer: ReturnType<typeof setTimeout> | undefined;
+    let attempts = 0;
+    const ownsSession = () =>
+      active &&
+      getCurrentFirebaseUser()?.uid === sessionUid &&
+      store.getState().auth.user?.firebaseUid === sessionUid;
     const refreshProfile = async () => {
+      if (!ownsSession()) {
+        return;
+      }
+      attempts++;
+      dispatch(setWalletSetup({ status: 'pending' }));
       try {
-        const state = store.getState();
-        const cachedProfile: AuthBootstrapResponse = {
-          user_id: state.auth.user!.id,
-          firebase_uid: sessionUid,
-          phone_number: state.auth.user!.phone,
-          full_name: state.auth.user!.name,
-          kyc_completed: state.auth.kycCompleted,
-          wallet_address: state.auth.walletAddress,
-          wallet_recovery_status: state.profile.walletRecoveryStatus,
-          wallet_recovery_requested_at: state.profile.walletRecoveryRequestedAt,
-        };
-        const result = state.auth.profileFresh ? {profile: cachedProfile}
+        const snapshot = store.getState();
+        const fetched = snapshot.auth.profileFresh
+          ? null
           : await bootstrapAuthenticatedProfile();
-        if (!active || getCurrentFirebaseUser()?.uid !== sessionUid) { return; }
-        if (!state.auth.profileFresh && store.getState().auth.profileFresh) { return; }
-        dispatch(setAuthenticatedProfile(result.profile));
-        const completed = await completeAuthenticatedWallet(result.profile);
-        if (!active || getCurrentFirebaseUser()?.uid !== sessionUid) { return; }
-        dispatch(setWalletAddress(completed.profile.wallet_address));
+        if (!ownsSession()) {
+          return;
+        }
+        const current = store.getState();
+        const cachedProfile: AuthBootstrapResponse = {
+          user_id: current.auth.user!.id,
+          firebase_uid: sessionUid,
+          phone_number: current.auth.user!.phone,
+          full_name: current.auth.user!.name,
+          kyc_completed: current.auth.kycCompleted,
+          wallet_address: current.auth.walletAddress,
+          wallet_recovery_status: current.profile.walletRecoveryStatus,
+          wallet_recovery_requested_at: current.profile.walletRecoveryRequestedAt,
+        };
+        const profile =
+          fetched && !current.auth.profileFresh ? fetched.profile : cachedProfile;
+        if (fetched && !current.auth.profileFresh) {
+          dispatch(setAuthenticatedProfile(profile));
+        }
+        const completed = await completeAuthenticatedWallet(profile);
+        if (!ownsSession()) {
+          return;
+        }
         if (completed.warning) {
-          dispatch(showBanner({message: completed.warning.message, type: 'info'}));
+          dispatch(
+            setWalletSetup({
+              status: 'error',
+              message: completed.warning.message,
+            }),
+          );
+          if (attempts < 3) {
+            retryTimer = setTimeout(
+              () => {
+                void refreshProfile();
+              },
+              attempts === 1 ? 3000 : 10000,
+            );
+          }
+        } else {
+          dispatch(setWalletAddress(completed.profile.wallet_address));
+          dispatch(setWalletSetup({ status: 'ready' }));
         }
       } catch {
-        // Cached sessions survive temporary server and connectivity failures.
+        if (ownsSession()) {
+          dispatch(
+            setWalletSetup({
+              status: 'error',
+              message:
+                'Wallet setup could not finish. Check your connection and retry from Profile.',
+            }),
+          );
+        }
       }
     };
-    const cancel = afterFirstPaint(() => { void refreshProfile(); });
-    return () => { active = false; cancel(); };
-  }, [dispatch, sessionUid]);
+    const cancel = afterFirstPaint(() => {
+      void refreshProfile();
+    });
+    return () => {
+      active = false;
+      cancel();
+      if (retryTimer) {
+        clearTimeout(retryTimer);
+      }
+    };
+  }, [dispatch, sessionUid, walletSetupAttempt]);
 
   useEffect(() => {
     const subscription = AppState.addEventListener('change', nextState => {
@@ -418,13 +476,16 @@ function AppLifecycleEffects() {
       appStateRef.current = nextState;
 
       if (nextState === 'active' && wasInactive) {
+        if (store.getState().auth.walletSetupStatus === 'error') {
+          dispatch(retryWalletSetup());
+        }
         if (isAuthenticated) { void refreshARTier(); }
         void refreshLandState();
       }
     });
 
     return () => subscription.remove();
-  }, [isAuthenticated, refreshARTier, refreshLandState]);
+  }, [dispatch, isAuthenticated, refreshARTier, refreshLandState]);
 
   useEffect(() => {
     let isMounted = true;
@@ -510,6 +571,9 @@ function AppLifecycleEffects() {
 
       if (wasOfflineRef.current) {
         wasOfflineRef.current = false;
+        if (store.getState().auth.walletSetupStatus === 'error') {
+          dispatch(retryWalletSetup());
+        }
         if (store.getState().auth.sessionReady) {
           void refreshLandState();
           void api.get('/api/v1/status').catch(() => undefined);
@@ -710,7 +774,6 @@ const AppContent = () => {
               {/* Auth */}
               <RootStack.Screen name="SplashScreen" component={SplashScreen} />
               <RootStack.Screen name="LoginScreen" component={LoginScreen} />
-              <RootStack.Screen name="OTPScreen" component={OTPScreen} />
               <RootStack.Screen
                 name="KYCScreen"
                 component={KYCScreen}

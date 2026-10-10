@@ -185,162 +185,167 @@ const ZoneNavigationScreen = () => {
   })();
 
   return (
-    <View className="flex-1 bg-background">
+    <View
+      className="flex-1 bg-background"
+      style={{ backgroundColor: COLORS.OFF_WHITE }}
+    >
       <ScreenHeader
         title={`Zone ${currentZoneIndex + 1} of ${zones.length}`}
         onBack={handleExitAudit}
       />
-      <ScrollView className="flex-1" contentContainerStyle={{ flexGrow: 1 }}>
-        {/* Map — mapType="standard" ONLY, NEVER satellite */}
-        <View style={{ height: Math.max(240, height * 0.4) }}>
-          <MapView
-            userInterfaceStyle={isDark ? 'dark' : 'light'}
-            ref={mapRef}
-            provider={PROVIDER_GOOGLE}
-            mapType="standard"
-            style={{ flex: 1 }}
-            cacheEnabled
-            loadingEnabled
-            showsUserLocation={false}
-            initialRegion={
-              currentZone
-                ? {
-                    latitude: currentZone.centre_gps.lat,
-                    longitude: currentZone.centre_gps.lng,
-                    latitudeDelta: 0.003,
-                    longitudeDelta: 0.003,
-                  }
-                : undefined
-            }
-          >
-            {boundaryCoords.length > 0 && (
-              <Polygon
-                coordinates={boundaryCoords}
-                strokeColor={COLORS.FOREST_GREEN}
-                strokeWidth={2}
-                lineDashPattern={[10, 5]}
-                fillColor="rgba(47, 133, 90, 0.05)"
-              />
-            )}
+      <View testID="zone-map" style={{ flex: 1 }}>
+        <MapView
+          userInterfaceStyle={isDark ? 'dark' : 'light'}
+          ref={mapRef}
+          provider={PROVIDER_GOOGLE}
+          mapType="standard"
+          style={{ flex: 1 }}
+          cacheEnabled
+          loadingEnabled
+          showsUserLocation={false}
+          initialRegion={
+            currentZone
+              ? {
+                  latitude: currentZone.centre_gps.lat,
+                  longitude: currentZone.centre_gps.lng,
+                  latitudeDelta: 0.003,
+                  longitudeDelta: 0.003,
+                }
+              : undefined
+          }
+        >
+          {boundaryCoords.length > 0 && (
+            <Polygon
+              coordinates={boundaryCoords}
+              strokeColor={COLORS.FOREST_GREEN}
+              strokeWidth={2}
+              lineDashPattern={[10, 5]}
+              fillColor="rgba(47, 133, 90, 0.05)"
+            />
+          )}
 
-            {/* Farmer GPS blue dot */}
-            {currentPosition && (
+          {/* Farmer GPS blue dot */}
+          {currentPosition && (
+            <Marker
+              coordinate={{
+                latitude: currentPosition.lat,
+                longitude: currentPosition.lng,
+              }}
+              anchor={{ x: 0.5, y: 0.5 }}
+            >
+              <View className="w-4 h-4 bg-blue-500 rounded-full border-2 border-white shadow" />
+            </Marker>
+          )}
+
+          {scannedTrees.map(tree => (
+            <Marker
+              key={tree.tree_id}
+              coordinate={{
+                latitude: tree.gps_lat,
+                longitude: tree.gps_lng,
+              }}
+              anchor={{ x: 0.5, y: 0.5 }}
+            >
+              <View
+                className="h-3.5 w-3.5 rounded-full border border-white"
+                style={{
+                  backgroundColor:
+                    tree.zone_id === currentZone?.zone_id
+                      ? COLORS.FOREST_GREEN
+                      : COLORS.TEAL,
+                }}
+              />
+            </Marker>
+          ))}
+
+          {/* Zone circles */}
+          {zones.map((zone, idx) => {
+            const isComplete = zone.is_complete;
+            const isCurrent = idx === currentZoneIndex;
+            const fillColor = isComplete
+              ? 'rgba(160,174,192,0.25)'
+              : isCurrent
+              ? 'rgba(56,178,172,0.18)'
+              : 'rgba(200,200,200,0.12)';
+            const strokeColor = isComplete
+              ? COLORS.DISABLED_GREY
+              : isCurrent
+              ? COLORS.TEAL
+              : COLORS.BORDER;
+
+            return (
+              <Circle
+                key={zone.zone_id}
+                center={{
+                  latitude: zone.centre_gps.lat,
+                  longitude: zone.centre_gps.lng,
+                }}
+                radius={zone.radius_metres}
+                fillColor={fillColor}
+                strokeColor={strokeColor}
+                strokeWidth={2}
+              />
+            );
+          })}
+
+          {/* Zone label markers — current zone labeled, completed/upcoming unlabeled */}
+          {zones.map((zone, idx) => {
+            const isComplete = zone.is_complete;
+            const isCurrent = idx === currentZoneIndex;
+            const zoneLetter = ZONE_LETTERS[idx] ?? String(idx + 1);
+            return (
               <Marker
+                key={`label-${zone.zone_id}`}
                 coordinate={{
-                  latitude: currentPosition.lat,
-                  longitude: currentPosition.lng,
+                  latitude: zone.centre_gps.lat,
+                  longitude: zone.centre_gps.lng,
                 }}
                 anchor={{ x: 0.5, y: 0.5 }}
               >
-                <View className="w-4 h-4 bg-blue-500 rounded-full border-2 border-white shadow" />
+                {isCurrent ? (
+                  <View
+                    className="rounded-full px-3 py-2"
+                    style={{ backgroundColor: COLORS.BANNER_INFO }}
+                  >
+                    <Text className="text-xs font-bold text-white">
+                      Zone {zoneLetter}
+                    </Text>
+                  </View>
+                ) : (
+                  <View
+                    className="h-7 w-7 rounded-full"
+                    style={{
+                      backgroundColor: isComplete
+                        ? COLORS.DISABLED_GREY
+                        : COLORS.CARD_WHITE,
+                      borderWidth: isComplete ? 0 : 2,
+                      borderColor: COLORS.DISABLED_GREY,
+                    }}
+                  />
+                )}
               </Marker>
-            )}
+            );
+          })}
 
-            {scannedTrees.map(tree => (
-              <Marker
-                key={tree.tree_id}
-                coordinate={{
-                  latitude: tree.gps_lat,
-                  longitude: tree.gps_lng,
-                }}
-                anchor={{ x: 0.5, y: 0.5 }}
-              >
-                <View
-                  className="h-3.5 w-3.5 rounded-full border border-white"
-                  style={{
-                    backgroundColor:
-                      tree.zone_id === currentZone?.zone_id
-                        ? COLORS.FOREST_GREEN
-                        : COLORS.TEAL,
-                  }}
-                />
-              </Marker>
-            ))}
-
-            {/* Zone circles */}
-            {zones.map((zone, idx) => {
-              const isComplete = zone.is_complete;
-              const isCurrent = idx === currentZoneIndex;
-              const fillColor = isComplete
-                ? 'rgba(160,174,192,0.25)'
-                : isCurrent
-                ? 'rgba(56,178,172,0.18)'
-                : 'rgba(200,200,200,0.12)';
-              const strokeColor = isComplete
-                ? COLORS.DISABLED_GREY
-                : isCurrent
-                ? COLORS.TEAL
-                : COLORS.BORDER;
-
-              return (
-                <Circle
-                  key={zone.zone_id}
-                  center={{
-                    latitude: zone.centre_gps.lat,
-                    longitude: zone.centre_gps.lng,
-                  }}
-                  radius={zone.radius_metres}
-                  fillColor={fillColor}
-                  strokeColor={strokeColor}
-                  strokeWidth={2}
-                />
-              );
-            })}
-
-            {/* Zone label markers — current zone labeled, completed/upcoming unlabeled */}
-            {zones.map((zone, idx) => {
-              const isComplete = zone.is_complete;
-              const isCurrent = idx === currentZoneIndex;
-              const zoneLetter = ZONE_LETTERS[idx] ?? String(idx + 1);
-              return (
-                <Marker
-                  key={`label-${zone.zone_id}`}
-                  coordinate={{
-                    latitude: zone.centre_gps.lat,
-                    longitude: zone.centre_gps.lng,
-                  }}
-                  anchor={{ x: 0.5, y: 0.5 }}
-                >
-                  {isCurrent ? (
-                    <View
-                      className="rounded-full px-3 py-2"
-                      style={{ backgroundColor: COLORS.BANNER_INFO }}
-                    >
-                      <Text className="text-xs font-bold text-white">
-                        Zone {zoneLetter}
-                      </Text>
-                    </View>
-                  ) : (
-                    <View
-                      className="h-7 w-7 rounded-full"
-                      style={{
-                        backgroundColor: isComplete
-                          ? COLORS.DISABLED_GREY
-                          : COLORS.CARD_WHITE,
-                        borderWidth: isComplete ? 0 : 2,
-                        borderColor: COLORS.DISABLED_GREY,
-                      }}
-                    />
-                  )}
-                </Marker>
-              );
-            })}
-
-            {/* Walking path polyline */}
-            {zones.length > 1 && (
-              <Polyline
-                coordinates={zones.map(z => ({
-                  latitude: z.centre_gps.lat,
-                  longitude: z.centre_gps.lng,
-                }))}
-                strokeColor={COLORS.FOREST_GREEN}
-                strokeWidth={2}
-                lineDashPattern={[8, 6]}
-              />
-            )}
-          </MapView>
-        </View>
-
+          {/* Walking path polyline */}
+          {zones.length > 1 && (
+            <Polyline
+              coordinates={zones.map(z => ({
+                latitude: z.centre_gps.lat,
+                longitude: z.centre_gps.lng,
+              }))}
+              strokeColor={COLORS.FOREST_GREEN}
+              strokeWidth={2}
+              lineDashPattern={[8, 6]}
+            />
+          )}
+        </MapView>
+      </View>
+      <ScrollView
+        testID="zone-controls"
+        style={{ flexGrow: 0, maxHeight: height * 0.5 }}
+        contentContainerStyle={{ paddingTop: 4 }}
+      >
         {/* Geofence warning banner — FR-008 */}
         {currentPosition && !hasWeakSignal && !isInsideBoundary && (
           <View className="mx-4 mt-2 bg-warning-soft rounded-2xl px-4 py-3 flex-row items-center">

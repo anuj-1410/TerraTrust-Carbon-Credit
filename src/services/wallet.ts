@@ -1,17 +1,27 @@
-import {Platform} from 'react-native';
-import {ethers} from 'ethers';
+import { assertSecureRandomAvailable } from '../common/utils/secureRandom';
+import { Platform } from 'react-native';
+import { ethers } from 'ethers';
 import Keychain from 'react-native-keychain';
 
 const KEYCHAIN_SERVICE = 'terratrust_wallet';
 const KEYCHAIN_USERNAME = 'wallet_private_key';
 
+function walletService(ownerUid: string): string {
+  if (!ownerUid?.trim()) {
+    throw new Error('WALLET_OWNER_MISSING');
+  }
+  return `${KEYCHAIN_SERVICE}:${ownerUid}`;
+}
+
 type WalletKeychainOptions = NonNullable<
   Parameters<typeof Keychain.setGenericPassword>[2]
 >;
 
-async function getWalletKeychainOptions(): Promise<WalletKeychainOptions> {
+async function getWalletKeychainOptions(
+  ownerUid: string,
+): Promise<WalletKeychainOptions> {
   const options: WalletKeychainOptions = {
-    service: KEYCHAIN_SERVICE,
+    service: walletService(ownerUid),
     accessible: Keychain.ACCESSIBLE.WHEN_UNLOCKED_THIS_DEVICE_ONLY,
   };
 
@@ -25,8 +35,11 @@ async function getWalletKeychainOptions(): Promise<WalletKeychainOptions> {
   return options;
 }
 
-async function storeWalletPrivateKey(privateKey: string): Promise<void> {
-  const keychainOptions = await getWalletKeychainOptions();
+async function storeWalletPrivateKey(
+  privateKey: string,
+  ownerUid: string,
+): Promise<void> {
+  const keychainOptions = await getWalletKeychainOptions(ownerUid);
   const credentialsSaved = await Keychain.setGenericPassword(
     KEYCHAIN_USERNAME,
     privateKey,
@@ -38,17 +51,21 @@ async function storeWalletPrivateKey(privateKey: string): Promise<void> {
   }
 }
 
-export async function createFarmerWallet(): Promise<string> {
+export async function createFarmerWallet(ownerUid: string): Promise<string> {
+  walletService(ownerUid);
+  assertSecureRandomAvailable();
   const wallet = ethers.Wallet.createRandom();
 
-  await storeWalletPrivateKey(wallet.privateKey);
+  await storeWalletPrivateKey(wallet.privateKey, ownerUid);
 
   return wallet.address;
 }
 
-export async function getWalletAddress(): Promise<string | null> {
+export async function getWalletAddress(
+  ownerUid: string,
+): Promise<string | null> {
   const credentials = await Keychain.getGenericPassword({
-    service: KEYCHAIN_SERVICE,
+    service: walletService(ownerUid),
   });
 
   if (!credentials) {
@@ -59,12 +76,20 @@ export async function getWalletAddress(): Promise<string | null> {
   return wallet.address;
 }
 
-let pendingWalletSetup: Promise<string> | null = null;
+const pendingWalletSetup = new Map<string, Promise<string>>();
 
-export function ensureFarmerWallet(): Promise<string> {
-  if (pendingWalletSetup) { return pendingWalletSetup; }
-  const pending = (async () => (await getWalletAddress()) ?? createFarmerWallet())()
-    .finally(() => { if (pendingWalletSetup === pending) { pendingWalletSetup = null; } });
-  pendingWalletSetup = pending;
+export function ensureFarmerWallet(ownerUid: string): Promise<string> {
+  const current = pendingWalletSetup.get(ownerUid);
+  if (current) {
+    return current;
+  }
+  const pending = (async () =>
+    (await getWalletAddress(ownerUid)) ??
+    createFarmerWallet(ownerUid))().finally(() => {
+    if (pendingWalletSetup.get(ownerUid) === pending) {
+      pendingWalletSetup.delete(ownerUid);
+    }
+  });
+  pendingWalletSetup.set(ownerUid, pending);
   return pending;
 }

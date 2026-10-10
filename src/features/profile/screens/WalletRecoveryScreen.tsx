@@ -27,6 +27,7 @@ const WalletRecoveryScreen = () => {
   const { colors: COLORS } = useTheme();
   const navigation = useNavigation<Nav>();
   const dispatch = useAppDispatch();
+  const ownerUid = useAppSelector(state => state.auth.user?.firebaseUid);
   const phone = useAppSelector(state => state.auth.user?.phone ?? '');
   const notificationsEnabled = useAppSelector(
     state => state.profile.settingsNotificationsEnabled,
@@ -108,7 +109,10 @@ const WalletRecoveryScreen = () => {
       setErrorMessage(null);
 
       await confirmPhoneOtp(otpCode.trim(), activeVerificationId);
-      const newWalletAddress = await createFarmerWallet();
+      // Preserve the active key while recovery awaits administrator approval.
+      const newWalletAddress = await createFarmerWallet(
+        ownerUid ? `${ownerUid}:recovery` : '',
+      );
 
       await api.post('/api/v1/auth/recover-wallet', {
         new_wallet_address: newWalletAddress,

@@ -26,10 +26,10 @@ function getWalletRegistrationRetryMessage(error: unknown): string {
   }
 
   if (axiosErr.response.status && axiosErr.response.status >= 500) {
-    return 'Signed in, but the server could not finish wallet setup yet. Please reopen the app in a moment.';
+    return 'Signed in, but the server could not finish wallet setup yet. TerraTrust will retry automatically.';
   }
 
-  return 'Signed in, but wallet setup needs one more retry. Please reopen the app to finish it.';
+  return 'Signed in, but wallet setup needs one more retry. Retry wallet setup from your Profile.';
 }
 
 async function refreshProfileAfterWalletRegistration(
@@ -88,14 +88,14 @@ export async function completeAuthenticatedWallet(
   try {
     const { ensureFarmerWallet } =
       require('./wallet') as typeof import('./wallet');
-    walletAddress = await ensureFarmerWallet();
+    walletAddress = await ensureFarmerWallet(owner.uid);
   } catch {
     return {
       profile,
       warning: {
         code: 'wallet-storage-pending',
         message:
-          'Signed in, but secure wallet setup could not finish on this phone yet. Please reopen the app to retry.',
+          'Signed in, but secure wallet setup could not finish on this phone yet. Retry wallet setup from your Profile.',
       },
     };
   }

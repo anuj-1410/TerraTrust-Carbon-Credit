@@ -58,7 +58,8 @@ The app uses THREE navigator types from React Navigation v7:
 RootNavigator is a Native Stack Navigator. It contains:
 
   STACK A — AuthStack (shown to unauthenticated users)
-    Screens: SplashScreen, LoginScreen, OTPScreen, KYCScreen, OnboardingScreen
+    Screens: SplashScreen, LoginScreen, KYCScreen, OnboardingScreen
+    OTPDrawer is a component opened over LoginScreen, not a navigation route.
 
   STACK B — MainStack (shown to authenticated + KYC-complete users)
     Contains: MainTabNavigator as the root
@@ -151,7 +152,7 @@ DEFAULT HEADER (most screens):
 NO HEADER (full-screen screens):
   - SplashScreen: no header
   - LoginScreen: no header (logo shown in body)
-  - OTPScreen: custom back arrow in body, no system header
+  - OTPDrawer: bottom drawer with close/change-number actions, no navigation header
   - ARCameraScreen: no header (camera is full-screen)
   - ZoneNavigationScreen: no header (map is full-screen)
   - MaintenanceScreen: no header
@@ -242,32 +243,39 @@ Validation:
 On "Send OTP" tap:
   - Show inline loading spinner inside button, disable button.
   - Call Firebase auth().signInWithPhoneNumber('+91' + number).
-  - On success: navigate to OTPScreen, pass the confirmation object.
+  - On success: open OTPDrawer over LoginScreen with phone and verification ID.
+    No separate OTP route or launch-logo delay is used.
   - On failure: Show red error below input with the Firebase error message
     simplified to plain English. Re-enable button.
 
 --------------------------------------------------------------------------------
-SCREEN 3: OTPScreen
+SIGN-IN COMPONENT: OTPDrawer
 --------------------------------------------------------------------------------
-File:       src/features/auth/screens/OTPScreen.tsx
-Header:     Custom in-body back arrow (top left). Tapping returns to LoginScreen.
-Back:       Custom back, not system header.
+File:       src/features/auth/components/OTPDrawer.tsx
+Header:     "Verify your number" and close control inside a bottom drawer.
+Back:       Android back, backdrop, close, or Change phone number dismisses the
+            drawer and leaves the phone form editable. No OTP navigation route.
 
 What farmer sees:
   - "Enter the 6-digit code sent to +91XXXXXXXXXX"
     (last 4 digits of number shown, rest masked: +91 XXXXXX1234)
-  - 6 individual digit input boxes in a row
-  - "Resend in 28s" countdown timer
-  - After timer reaches 0: "Resend OTP" link replaces timer text
-  - "Verify" primary button (disabled until all 6 boxes filled)
+  - 6 visual digit cells backed by one accessible, autofill-compatible input
+  - 30-second resend countdown, followed by "Resend code"
+  - "Verify OTP" fallback button, or "Continue" after phone verification if
+    account loading needs a retry
 
 Behaviour:
-  - Each box accepts one digit. Auto-focuses next box.
-  - Backspace on an empty box focuses the previous box.
-  - Paste of 6 digits auto-fills all boxes.
-  - "Resend OTP" calls signInWithPhoneNumber again with same number.
+  - Typing, paste, and supported OS SMS autofill fill the six visual cells.
+    Completing six digits submits automatically, once per active operation.
+  - Firebase automatic verification is accepted without code entry, including
+    instant verification before the drawer mounts.
+  - Resend starts a fresh Firebase verification session for the same number.
+  - Closing invalidates the attempt. Late results cannot commit a profile, and
+    a short-lived guard signs out abandoned native automatic verification.
+  - Keyboard and safe-area spacing keep the drawer controls reachable; crowded
+    content scrolls within the bounded drawer.
 
-On "Verify" tap:
+On automatic verification or "Verify OTP" tap:
   - Disable button, show loading inside button.
   - Call confirmation.confirm(code) from Firebase.
   - On success:
@@ -279,7 +287,11 @@ On "Verify" tap:
       If kyc_completed is true:
         If onboarding_complete is false → navigate to OnboardingScreen.
         Else → navigate to HomeScreen (tab navigator, replace stack).
-  - On failure: Show error below boxes. Clear all 6 boxes. Re-focus box 1.
+  - Incorrect code: show error, clear the input, and allow retry.
+  - Account loading failure after accepted OTP: preserve verified phone state
+    and offer Continue, without confirming the OTP again.
+  - Wallet setup failures use automatic retries and a Profile retry action;
+    they do not create a persistent warning banner above KYC/Home.
 
 --------------------------------------------------------------------------------
 SCREEN 4: KYCScreen
@@ -1211,8 +1223,8 @@ SECTION 4: COMPLETE NAVIGATION FLOW DIAGRAMS
 App Launch
   └── SplashScreen
         └── [No Firebase session] → LoginScreen
-              └── [Phone entered] → OTPScreen
-                    └── [OTP verified] → [wallet created silently]
+              └── [Phone entered] → OTPDrawer
+                    └── [OTP verified + profile loaded; drawer closes]
                           └── [GET /auth/me: kyc=false] → KYCScreen
                                 └── [KYC submitted] → OnboardingScreen
                                       └── [Swipe through / Skip] → HomeScreen (Tab 1)
@@ -1225,6 +1237,9 @@ App Launch
                                                         └── [All API layers fail]
                                                               └── ManualUploadGuideScreen (modal)
                                                                     └── [Upload + process] → BoundaryConfirmScreen
+
+Wallet creation/registration runs after the authenticated destination paints.
+It does not delay the transition from the OTP drawer to KYC/Home.
 
 
 4.2 RETURNING USER (DAILY APP OPEN)
@@ -1520,3 +1535,18 @@ uses a crisp floating pill with transparent surroundings and no native blur
 or elevation; iOS confines optional blur to the clipped pill. Foreground tab
 icons and labels remain opaque. Theme tokens support persisted light/dark
 palettes. See UI_UX_VALIDATION.md for verification and device checks.
+
+
+UI/AUTH UPDATE — 9 OCTOBER 2026
+Dark mode uses black and neutral charcoal surfaces; light mode uses neutral
+off-white surfaces. Green accents are limited to actions, icons, selections,
+and status indicators. LoginScreen has a uniform background and integrated
+title. OTPDrawer is a dismissible bottom Modal over LoginScreen; six-digit
+autofill/input submits automatically, and Firebase automatic verification
+completes sign-in without code entry. Closing invalidates the phone intent
+and discards late callbacks/results. ZoneNavigationScreen expands its map
+above bottom-aligned controls; only that bottom panel scrolls when crowded.
+Wallet creation initializes native secure randomness before ethers loads.
+New keys/setup requests are scoped to Firebase UID; failures retry silently
+in the background and expose a Profile retry action instead of a global
+wallet banner. See UI_UX_VALIDATION.md for the current verification record.
